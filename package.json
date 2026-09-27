@@ -1,0 +1,33 @@
+{
+  "name": "leilighet-3d",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "3D-modell av leiligheten – WebXR (Quest 3) og laptop",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "validate": "tsx scripts/validate.ts public/apartment.json",
+    "test": "npm run test:unit && npm run test:e2e",
+    "test:unit": "vitest run",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "iwer": "2.5.0",
+    "three": "0.186.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "@types/node": "22.20.4",
+    "@types/three": "0.186.0",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vite": "8.3.1",
+    "vitest": "5.0.2"
+  },
+  "engines": {
+    "node": ">=22.12"
+  }
+}

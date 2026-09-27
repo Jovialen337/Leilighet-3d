@@ -1,0 +1,82 @@
+name: Bygg, test og publiser
+
+# Kjører på hver push (alle grener): validerer apartment.json, typesjekker,
+# bygger og tester. Push til main publiseres i tillegg til GitHub Pages.
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Bygg og test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # GitHub Pages serverer prosjektet under /<repo-navn>/.
+      VITE_BASE: /${{ github.event.repository.name }}/
+      CI: true
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Installer avhengigheter
+        run: npm ci
+
+      - name: Valider apartment.json
+        run: npm run validate
+
+      - name: Typesjekk og bygg
+        run: npm run build
+
+      - name: Enhetstester
+        run: npm run test:unit
+
+      - name: Installer Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Nettlesertester (laptop + emulert Quest 3)
+        run: npm run test:e2e
+
+      - name: Last opp testrapport ved feil
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report
+            test-results
+          retention-days: 7
+
+      - name: Last opp nettsiden til Pages
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist
+
+  deploy:
+    name: Publiser til GitHub Pages
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publiser
+        id: deployment
+        uses: actions/deploy-pages@v4
