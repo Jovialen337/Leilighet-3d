@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { collectErrors, colorDistance, pixelAt, screenOf, stats, waitForModel } from './helpers';
+import { collectErrors, colorDistance, pixelAt, renderedFrames, screenOf, stats, waitForModel } from './helpers';
 
 const apartment = (): any =>
   JSON.parse(readFileSync(fileURLToPath(new URL('../../public/apartment.json', import.meta.url)), 'utf8'));
@@ -26,7 +26,7 @@ test('laster fra Pages-stien uten feil, med norsk UI', async ({ page }) => {
 test('hele leiligheten tegnes med få tegnekall', async ({ page }) => {
   await page.goto('./');
   await waitForModel(page);
-  await page.waitForTimeout(300);
+  await renderedFrames(page);
   const s = await stats(page);
   expect(s.drawCalls).toBeGreaterThan(5);
   expect(s.drawCalls).toBeLessThanOrEqual(30);
@@ -36,22 +36,23 @@ test('hele leiligheten tegnes med få tegnekall', async ({ page }) => {
 test('lagbrytere skjuler og viser lag', async ({ page }) => {
   await page.goto('./');
   await waitForModel(page);
-  await page.waitForTimeout(200);
-  const before = await stats(page);
+  // Tallene gjelder siste tegnede ramme. På trege maskiner kan det ta litt før
+  // neste ramme er tegnet, så vi venter på resultatet i stedet for en fast tid.
+  const rendered = async (): Promise<number> => (await stats(page)).trianglesRendered!;
+  await expect.poll(rendered).toBeGreaterThan(0);
+  const before = await rendered();
   const box = page.getByTestId('layer-furniture');
   await box.uncheck();
-  await page.waitForTimeout(200);
   expect(await page.evaluate(() => (window as any).leilighet.apartment.isLayerVisible('furniture'))).toBe(false);
-  const after = await stats(page);
-  expect(after.trianglesRendered).toBeLessThan(before.trianglesRendered!);
+  await expect.poll(rendered).toBeLessThan(before);
   await box.check();
   expect(await page.evaluate(() => (window as any).leilighet.apartment.isLayerVisible('furniture'))).toBe(true);
+  await expect.poll(rendered).toBe(before);
 
-  // Alle lag av → nesten ingenting tegnes.
+  // Alle lag av → ingenting tegnes.
   const ids = await page.evaluate(() => (window as any).leilighet.view.layers.layers.map((l: any) => l.id));
   for (const id of ids) await page.getByTestId(`layer-${id}`).uncheck();
-  await page.waitForTimeout(200);
-  expect((await stats(page)).trianglesRendered).toBe(0);
+  await expect.poll(rendered).toBe(0);
   for (const id of ids) await page.getByTestId(`layer-${id}`).check();
 });
 
@@ -60,7 +61,7 @@ test('ovenfra-visningen er i riktig målestokk', async ({ page }) => {
   await waitForModel(page);
   await page.getByTestId('mode-top').click();
   await expect(page.getByTestId('scalebar')).toBeVisible();
-  await page.waitForTimeout(300);
+  await renderedFrames(page);
 
   // Avstand på skjermen mellom to kjente hjørner = lengde × piksler per meter.
   const pxPerM = Number(await page.getByTestId('scalebar').getAttribute('data-px-per-m'));
