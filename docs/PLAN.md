@@ -1,6 +1,6 @@
 # Leilighet 3D – project plan
 
-Status: **Phase 1 built** (awaiting a real-headset check on the Quest). This file is updated in every phase.
+Status: **Phase 1 live** at https://jovialen337.github.io/Leilighet-3d/ (awaiting a real-headset check). **Phase 2 (guided measuring) in progress.** This file is updated in every phase.
 
 ## Goal
 
@@ -15,10 +15,73 @@ All UI text is Norwegian (bokmål). All geometry comes from one data file, `publ
 
 | Phase | Content | Status |
 |---|---|---|
-| 1 | Data model + validation, rendering, VR walking (teleport, snap turn, room-scale), laptop orbit/top-down, layer toggles, FPS, GitHub Pages deploy | **built** – see [QA.md](QA.md) |
-| 2 | *(proposal)* Replace placeholders with real measurements: measuring checklist from `measured:false` values, control dimensions per room, scan reference import | – |
-| 3 | VR editing: wrist menu (layers, FPS, tools), select/move furniture and fixtures, save back to `apartment.json` | – |
+| 1 | Data model + validation, rendering, VR walking (teleport, snap turn, room-scale), laptop orbit/top-down, layer toggles, FPS, GitHub Pages deploy | **live** – see [QA.md](QA.md) |
+| 2 | **Guided measuring** in passthrough on the Quest: align the model to the real apartment, then touch or point at corners, floors, ceilings, openings and fixtures, step by step. The model updates as you go. | **in progress** |
+| 3 | **Editing** in VR: grab, move, turn, add and delete furniture and fixtures; edit walls, doors and windows with snapping and live dimensions; wrist menu; undo | planned |
 | 4+ | *(proposal)* Planning: electrical and wiring routes, ventilation, workshop zone, GLB furniture import, notes in VR | – |
+
+The order was chosen so the model becomes the real apartment first, and all later planning happens on real numbers.
+
+## Phase 2 – guided measuring (design)
+
+The user walks around the real apartment wearing the Quest 3 and sees it through the passthrough cameras. Outlines of the model are drawn on top. A panel on the left controller says, in Norwegian, exactly what to measure next. The spot to measure is highlighted in the model with a vertical beam.
+
+1. **Align once.** Hold the measuring tip down in the inside corner at the entrance door, against the floor, and pull the trigger. This point is the origin, and its height is the hallway floor. Then touch the entrance wall at least 1 m further toward the kitchen; that sets the direction of the x axis. After this, every touch is converted to model coordinates in mm.
+2. **Work through the to-do list** that the app builds from the model, room by room:
+   - **Floor:** one touch per room gives `floorLevel`, so the step height is measured.
+   - **Corners:** touch each corner of the floor polygon, at any height. Unmeasured corners in a room follow the measured ones (best-fit rotation and translation).
+   - **Ceiling:** three points per room, pointed at (hit-test against the Quest's room scan) or touched. A third point that is nearly in line with the first two is rejected, with an explanation.
+   - **Openings:** both jambs give `offset` and `width`; the top gives `height`; windows also get the sill (`sillHeight`).
+   - **Fixtures:** touch the centre of each outlet, switch, radiator and so on; that gives `along` and `height` on its wall.
+3. **Walls follow automatically.** Each wall is re-fitted through the measured corners on its faces. Openings and fixtures keep their place along the wall. When corners on both faces of a wall are measured, the wall thickness is measured too.
+4. **Furniture, notes, zones and wiring** move with the room they stand in.
+5. **Everything measured** gets `"measured": true`, so the placeholder highlight turns green as you go.
+
+**Controls (measuring mode):** a small sphere in front of the right controller is the *measuring tip*. When the ray hits a real surface (hit-test), a ring shows the point instead.
+
+| Button | Action |
+|---|---|
+| Right trigger | Measure |
+| B | Undo last measurement |
+| A | Skip this point |
+| Right thumbstick press | Switch between touching (tip) and pointing (ray) |
+
+Every capture gives a short vibration. Moving around is by walking only: teleport and snap turn are off, so the alignment stays exact.
+
+**Checks as you go:** the result is validated after every measurement. If a measurement gives an invalid model (for example, a room that crosses itself), the panel says so and suggests B (undo). Control dimensions such as the grow room's measured 3200 × 2300 mm are compared with the traced room and warned about.
+
+**Saving (option A, chosen first):**
+- Measurements are saved continuously on the Quest (browser storage) and can be resumed in a later session (re-align first).
+- The page shows a banner whenever unpublished measurements exist, with buttons:
+  - «Last ned apartment.json» (download)
+  - «Kopier»
+  - «Last opp til GitHub», which opens the repository's upload page in `public/`
+  - «Forkast»
+- Committing the file publishes it through the normal pipeline.
+- *Option B (later):* save straight to GitHub from the headset with a repository-scoped access key.
+
+**Accuracy:** controller tracking is roughly 0.5–1 cm. Dimensions that must be exact (for furniture that has to fit) can later be typed in from a laser or tape measure.
+
+## Phase 3 – editing in VR (design principles)
+
+Intuitive first:
+
+- **Works like hands:** squeeze grip to grab, let go to drop.
+- **Point and trigger** selects everything: menus, objects and walls.
+- **See the result before it happens:**
+  - Highlight on hover
+  - See-through preview of where something lands
+  - Live dimensions in mm
+  - Haptic tick when something snaps
+- **Contextual Norwegian button labels** on the controllers, which fade once learned.
+- **One undo button**, always available.
+- **Smart constraints:**
+  - Furniture stays on the floor and fixtures on walls.
+  - Openings slide along their wall.
+  - Snapping to straight lines and right angles.
+- **A three-step first-time guide:** grab, move, undo.
+
+Edits go through `ApartmentStore.update()`, so they are validated before they are applied.
 
 ## Stack
 
