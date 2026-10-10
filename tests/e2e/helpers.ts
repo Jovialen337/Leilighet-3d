@@ -16,6 +16,22 @@ export function collectErrors(page: Page): string[] {
   return errors;
 }
 
+/** Venter til nettleseren har tegnet `n` nye rammer (appens tegnesløyfe går på requestAnimationFrame). */
+export async function renderedFrames(page: Page, n = 3): Promise<void> {
+  await page.evaluate(
+    (count) =>
+      new Promise<void>((resolve) => {
+        let left = count;
+        const tick = (): void => {
+          if (--left <= 0) resolve();
+          else requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }),
+    n,
+  );
+}
+
 export const stats = (page: Page): Promise<Record<string, number>> =>
   page.evaluate(() => (window as any).leilighet.stats());
 
