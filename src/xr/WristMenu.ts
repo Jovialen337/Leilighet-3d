@@ -36,14 +36,14 @@ export class WristMenu {
     this.texture.anisotropy = 4;
     this.mesh = new THREE.Mesh(
       new THREE.PlaneGeometry(WIDTH_M, HEIGHT_M),
-      new THREE.MeshBasicMaterial({ map: this.texture, transparent: true, depthTest: false, depthWrite: false }),
+      new THREE.MeshBasicMaterial({ toneMapped: false, map: this.texture, transparent: true, depthTest: false, depthWrite: false }),
     );
     this.mesh.name = 'vr-meny';
     this.mesh.renderOrder = 50;
     this.mesh.visible = false;
     this.cursor = new THREE.Mesh(
       new THREE.SphereGeometry(0.004, 10, 8),
-      new THREE.MeshBasicMaterial({ color: '#18d4ff', depthTest: false }),
+      new THREE.MeshBasicMaterial({ toneMapped: false, color: '#18d4ff', depthTest: false }),
     );
     this.cursor.renderOrder = 51;
     this.cursor.visible = false;

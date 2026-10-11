@@ -12,6 +12,7 @@ import * as THREE from 'three';
 import type { ApartmentModel } from '../model/ApartmentModel';
 import type { MeasureState } from '../schema/types';
 import { buildParts, type Bucket, type Part, type PartKind, type PickRole } from './buildParts';
+import { buildContactShade, buildRoomShade } from './shade';
 import { Materials } from './materials';
 
 export interface ProxyData {
@@ -48,6 +49,10 @@ export class ApartmentScene {
   readonly merged: MergedMesh[] = [];
   readonly proxies: THREE.Mesh[] = [];
   readonly ranges = new Map<string, Range[]>();
+  /** Myke skygger (gulv/tak/hjørner og under møbler); av i «Rask». */
+  readonly shades: THREE.Mesh[] = [];
+  private shadeOn = true;
+  private ceilingsOn = true;
   private parts: Part[] = [];
   private measureOn = false;
   /** Treffflatene i synlige lag; bygges på nytt bare når lag/tak endres (ikke hver ramme). */
@@ -81,6 +86,20 @@ export class ApartmentScene {
     for (const [key, list] of buckets) {
       const [layer, bucket] = key.split('|') as [string, Bucket];
       this.mergeBucket(layer, bucket, list);
+    }
+
+    for (const [kind, geos] of [['vegg', buildRoomShade(model)], ['møbel', buildContactShade(model)]] as const) {
+      for (const [key, geo] of geos) {
+        const [layer = key, part] = key.split('|');
+        const mesh = new THREE.Mesh(geo, this.materials.shade);
+        mesh.name = `skygge:${kind}:${key}`;
+        mesh.userData.ceiling = part === 'tak';
+        mesh.matrixAutoUpdate = false;
+        mesh.renderOrder = 1;
+        mesh.visible = this.shadeOn && (!mesh.userData.ceiling || this.ceilingsOn);
+        this.shades.push(mesh);
+        this.layerGroups.get(layer)?.add(mesh);
+      }
     }
 
     for (const p of this.parts) {
@@ -159,8 +178,15 @@ export class ApartmentScene {
     return this.layerGroups.get(layer)?.visible ?? false;
   }
 
+  setShadesVisible(visible: boolean): void {
+    this.shadeOn = visible;
+    for (const m of this.shades) m.visible = visible && (!m.userData.ceiling || this.ceilingsOn);
+  }
+
   setCeilingsVisible(visible: boolean): void {
     for (const m of this.merged) if (m.bucket === 'ceiling') m.mesh.visible = visible;
+    this.ceilingsOn = visible;
+    for (const m of this.shades) if (m.userData.ceiling) m.visible = visible && this.shadeOn;
     this.visibleCache = null;
   }
 
@@ -189,11 +215,14 @@ export class ApartmentScene {
   stats(): { meshes: number; triangles: number; proxies: number } {
     let triangles = 0;
     for (const m of this.merged) triangles += m.mesh.geometry.getAttribute('position').count / 3;
-    return { meshes: this.merged.length, triangles, proxies: this.proxies.length };
+    for (const m of this.shades) triangles += m.geometry.getAttribute('position').count / 3;
+    return { meshes: this.merged.length + this.shades.length, triangles, proxies: this.proxies.length };
   }
 
   clear(): void {
     for (const m of this.merged) m.mesh.geometry.dispose();
+    for (const m of this.shades) m.geometry.dispose();
+    this.shades.length = 0;
     for (const p of this.parts) p.geometry.dispose();
     this.merged.length = 0;
     this.proxies.length = 0;

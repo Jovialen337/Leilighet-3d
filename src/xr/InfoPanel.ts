@@ -46,7 +46,7 @@ export class InfoPanel {
     this.texture = new THREE.CanvasTexture(this.canvas);
     this.texture.colorSpace = THREE.SRGBColorSpace;
     this.texture.anisotropy = 4;
-    const mat = new THREE.MeshBasicMaterial({ map: this.texture, transparent: true, depthWrite: false, depthTest: false });
+    const mat = new THREE.MeshBasicMaterial({ toneMapped: false, map: this.texture, transparent: true, depthWrite: false, depthTest: false });
     this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.24, 0.15), mat);
     this.mesh.name = 'måleinstruksjoner';
     this.mesh.renderOrder = 30;

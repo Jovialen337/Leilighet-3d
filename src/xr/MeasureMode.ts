@@ -91,22 +91,22 @@ export class MeasureMode {
     private readonly session: MeasureSession,
     private readonly slot: (hand: XRHandedness) => InputSlot | undefined,
   ) {
-    const tipMat = new THREE.MeshBasicMaterial({ color: '#ffe14d', depthTest: false });
+    const tipMat = new THREE.MeshBasicMaterial({ toneMapped: false, color: '#ffe14d', depthTest: false });
     this.tip = new THREE.Mesh(new THREE.SphereGeometry(0.007, 16, 10), tipMat);
     this.tip.position.set(0, 0, -TIP_DISTANCE);
     this.tip.renderOrder = 40;
     this.probe = new THREE.Line(
       new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -TIP_DISTANCE)]),
-      new THREE.LineBasicMaterial({ color: '#ffe14d', transparent: true, opacity: 0.8 }),
+      new THREE.LineBasicMaterial({ toneMapped: false, color: '#ffe14d', transparent: true, opacity: 0.8 }),
     );
     this.ray = new THREE.Line(
       new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]),
-      new THREE.LineBasicMaterial({ color: '#18d4ff', transparent: true, opacity: 0.85 }),
+      new THREE.LineBasicMaterial({ toneMapped: false, color: '#18d4ff', transparent: true, opacity: 0.85 }),
     );
     this.ray.frustumCulled = false;
     this.reticle = new THREE.Mesh(
       new THREE.RingGeometry(0.025, 0.035, 32).rotateX(-Math.PI / 2),
-      new THREE.MeshBasicMaterial({ color: '#18d4ff', depthTest: false, transparent: true, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ toneMapped: false, color: '#18d4ff', depthTest: false, transparent: true, side: THREE.DoubleSide }),
     );
     this.reticle.renderOrder = 40;
     this.reticle.visible = false;

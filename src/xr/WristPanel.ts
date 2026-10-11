@@ -23,7 +23,7 @@ export class WristPanel {
     this.ctx = this.canvas.getContext('2d')!;
     this.texture = new THREE.CanvasTexture(this.canvas);
     this.texture.colorSpace = THREE.SRGBColorSpace;
-    const mat = new THREE.MeshBasicMaterial({ map: this.texture, transparent: true, depthWrite: false });
+    const mat = new THREE.MeshBasicMaterial({ toneMapped: false, map: this.texture, transparent: true, depthWrite: false });
     this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.14, 0.07), mat);
     this.mesh.name = 'håndleddspanel';
     // Litt over og foran kontrolleren, vippet mot brukeren.
@@ -51,19 +51,20 @@ export class WristPanel {
     c.roundRect(4, 4, W - 8, H - 8, 28);
     c.fill();
     c.fillStyle = '#ffffff';
-    c.font = '600 30px system-ui, sans-serif';
-    let y = 52;
+    c.font = `600 ${this.lines.length > 3 ? 26 : 30}px system-ui, sans-serif`;
+    let y = 48;
     if (this.fpsLine) {
       c.fillStyle = '#7dffb0';
       c.font = '700 40px system-ui, sans-serif';
       c.fillText(this.fpsLine, 28, y);
       y += 50;
       c.fillStyle = '#ffffff';
-      c.font = '500 26px system-ui, sans-serif';
+      c.font = '500 24px system-ui, sans-serif';
     }
+    const step = this.fpsLine ? 34 : 44;
     for (const line of this.lines) {
-      c.fillText(line, 28, y);
-      y += 38;
+      c.fillText(line, 28, y, W - 48);
+      y += step;
     }
     this.texture.needsUpdate = true;
   }

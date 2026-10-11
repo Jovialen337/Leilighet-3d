@@ -16,7 +16,7 @@ import { h } from './dom';
 import { MeasureBox, type MeasureActions } from './MeasureBox';
 import { boundCheckbox, boundRange, boundSelect } from './controls';
 import { ACTION_TEXT, SHORTCUTS, isTypingTarget, shortcutFor } from './shortcuts';
-import { TURN_MODES, XR_RATES, type TurnMode, type XRRate } from '../state/ViewState';
+import { QUALITIES, TURN_MODES, XR_RATES, type Quality, type TurnMode, type XRRate } from '../state/ViewState';
 
 export interface DesktopActions {
   reload: () => void;
@@ -28,6 +28,7 @@ export interface DesktopActions {
   defaultSectionHeight: () => number;
 }
 
+const QUALITY_TEXT: Record<Quality, string> = { low: 'Rask', medium: 'Standard', high: 'Høy' };
 const TURN_TEXT = (t: TurnMode): string => (t === 'smooth' ? 'Myk dreiing' : `${t}° om gangen`);
 
 const VR_TEXT: Record<XRSupport, { label: string; hint: string; enabled: boolean }> = {
@@ -110,6 +111,8 @@ export class DesktopUI {
       'div',
       { class: 'group', 'data-testid': 'settings' },
       h('h2', {}, 'Innstillinger'),
+      boundSelect<Quality>('Grafikk', view.quality, QUALITIES.map((q) => ({ value: q, label: QUALITY_TEXT[q] })), 'setting-quality'),
+      h('p', { class: 'hint' }, 'Rask: enklest. Standard: myke skygger og himmel. Høy: også skarpere bilde (i VR fra neste gang du går inn).'),
       boundSelect<TurnMode>('VR: snu', view.turn, TURN_MODES.map((t) => ({ value: t, label: TURN_TEXT(t) })), 'setting-turn'),
       boundSelect<XRRate>('VR: bildefrekvens', view.xrRate, XR_RATES.map((r) => ({ value: r, label: `${r} Hz` })), 'setting-rate'),
       h('p', { class: 'hint' }, 'Valgene lagres i denne nettleseren. Quest og laptop har hver sine valg; i VR finner du dem i menyen (X).'),

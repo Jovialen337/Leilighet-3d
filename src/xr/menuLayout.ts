@@ -92,6 +92,12 @@ export function buildMenu(s: MenuState): { items: MenuItem[]; labels: MenuLabel[
       toggle('toggle:highlight', 'Marker umålte mål', s.highlight);
       y += ROW_H + GAP;
       toggle('toggle:fps', 'Vis bildefrekvens', s.fps);
+      y += ROW_H + GAP;
+      choices('Grafikk', [
+        { id: 'quality:low', label: 'Rask', active: s.quality === 'low' },
+        { id: 'quality:medium', label: 'Standard', active: s.quality === 'medium' },
+        { id: 'quality:high', label: 'Høy', active: s.quality === 'high' },
+      ]);
       break;
     case 'lag':
       grid(s.layers.map((l) => ({ id: `layer:${l.id}`, label: l.name, active: l.visible, kind: 'toggle' as const })));

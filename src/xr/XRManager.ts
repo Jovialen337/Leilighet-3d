@@ -136,7 +136,7 @@ export class XRManager {
     // Teleport-bue og landingsmarkør (i verdensrommet).
     const arcGeo = new THREE.BufferGeometry();
     arcGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(this.arc.points.length * 3), 3));
-    this.arcLine = new THREE.Line(arcGeo, new THREE.LineBasicMaterial({ color: '#39d98a' }));
+    this.arcLine = new THREE.Line(arcGeo, new THREE.LineBasicMaterial({ toneMapped: false, color: '#39d98a' }));
     this.arcLine.frustumCulled = false;
     this.arcLine.visible = false;
     this.marker = teleportMarker();
@@ -183,6 +183,8 @@ export class XRManager {
     this.error.set(null);
     this.requestedMode = 'walk';
     try {
+      // «Høy» grafikk: litt høyere oppløsning i VR (må settes før økten starter).
+      this.renderer.xr.setFramebufferScaleFactor(this.view.quality.value === 'high' ? 1.2 : 1);
       const session = await navigator.xr.requestSession('immersive-vr', {
         optionalFeatures: ['local-floor', 'bounded-floor'],
       });
@@ -236,6 +238,7 @@ export class XRManager {
     if (!ms) return;
     this.requestedMode = 'measure';
     try {
+      this.renderer.xr.setFramebufferScaleFactor(1);
       const session = await navigator.xr.requestSession('immersive-ar', {
         requiredFeatures: ['local-floor'],
         optionalFeatures: ['hit-test'],
@@ -537,8 +540,8 @@ export class XRManager {
     this.wrist.setLines([
       'Venstre stikke: teleport',
       t === 'smooth' ? 'Høyre stikke: snu (myk)' : `Høyre stikke: snu ${t}°`,
-      'Høyre stikke bakover: snu 180°',
-      'X: meny  ·  Y: bildefrekvens',
+      'Høyre stikke bak: snu 180°',
+      'X: meny · Y: bildefrekvens',
     ]);
   }
 
@@ -583,7 +586,7 @@ function controllerBody(): THREE.Object3D {
 
 function pointerLine(): THREE.Line {
   const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -0.35)]);
-  const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.5 }));
+  const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ toneMapped: false, color: '#ffffff', transparent: true, opacity: 0.5 }));
   line.name = 'peker';
   return line;
 }
@@ -592,11 +595,11 @@ function teleportMarker(): THREE.Group {
   const g = new THREE.Group();
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(0.16, 0.22, 40).rotateX(-Math.PI / 2),
-    new THREE.MeshBasicMaterial({ color: '#39d98a', transparent: true, opacity: 0.9, depthWrite: false }),
+    new THREE.MeshBasicMaterial({ toneMapped: false, color: '#39d98a', transparent: true, opacity: 0.9, depthWrite: false }),
   );
   const dot = new THREE.Mesh(
     new THREE.CircleGeometry(0.05, 20).rotateX(-Math.PI / 2),
-    new THREE.MeshBasicMaterial({ color: '#39d98a', transparent: true, opacity: 0.9, depthWrite: false }),
+    new THREE.MeshBasicMaterial({ toneMapped: false, color: '#39d98a', transparent: true, opacity: 0.9, depthWrite: false }),
   );
   g.add(ring, dot);
   g.renderOrder = 5;

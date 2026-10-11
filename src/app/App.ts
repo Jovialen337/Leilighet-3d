@@ -12,6 +12,8 @@ import { ApartmentStore } from '../model/ApartmentStore';
 import type { ApartmentModel } from '../model/ApartmentModel';
 import { ApartmentScene } from '../scene/ApartmentScene';
 import { Materials } from '../scene/materials';
+import { addLights, configureRenderer } from '../scene/lighting';
+import { createSky, setGroundLevel } from '../scene/sky';
 import { MM } from '../scene/geom';
 import { localStore } from '../state/persist';
 import { SettingsBinding } from '../state/settings';
@@ -35,6 +37,7 @@ export class App {
   readonly ui: DesktopUI;
   readonly fps = new FpsMeter();
   readonly labels: Labels;
+  readonly sky = createSky();
   measure: MeasureSession | null = null;
   readonly settings: SettingsBinding;
   private lastTime = -1;
@@ -49,12 +52,14 @@ export class App {
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    configureRenderer(this.renderer);
     this.renderer.domElement.className = 'viewport';
     this.renderer.domElement.dataset.testid = 'viewport';
     root.appendChild(this.renderer.domElement);
 
     this.scene.add(this.apartment.root);
     addLights(this.scene);
+    this.scene.add(this.sky);
 
     this.labels = new Labels(root);
     this.scene.add(this.labels.root);
@@ -186,6 +191,9 @@ export class App {
     this.apartment.setCeilingsVisible(this.view.ceilings.value);
     this.apartment.setMeasureHighlight(this.view.measureHighlight.value);
     this.scene.background = new THREE.Color(model.settings.backgroundColor);
+    const lowest = Math.min(model.lowestFloor, ...model.outdoor.map((a) => a.area.level));
+    setGroundLevel(this.sky, (lowest - 30) * MM);
+    this.apartment.setShadesVisible(this.view.quality.value !== 'low');
     if (!this.loaded) this.desktop.fit(model);
     this.desktop.setSectionHeight(this.view.sectionHeight.value, model);
     this.loaded = true;
@@ -208,12 +216,14 @@ export class App {
     });
     this.view.cameraMode.subscribe(() => this.applyCameraMode());
     this.view.dollhouse.subscribe(() => this.applyCameraMode());
+    this.view.quality.subscribe(() => this.applyQuality());
     this.view.sectionHeight.subscribe((mm) => this.desktop.setSectionHeight(mm));
     this.view.ceilings.subscribe((v) => this.apartment.setCeilingsVisible(v));
     this.view.measureHighlight.subscribe((v) => this.apartment.setMeasureHighlight(v));
     this.xr.measuring.subscribe((on) => {
       // Gjennomsyn: bare trådskjelettet fra oppmålingen vises.
       this.apartment.root.visible = !on;
+      this.applyQuality();
       this.desktop.grid.visible = !on && this.view.cameraMode.value === 'top';
       if (!on && this.draftDirty) this.showDraft();
     });
@@ -233,6 +243,22 @@ export class App {
     this.renderer.clippingPlanes = cut ? [this.desktop.cutPlane] : [];
     this.materials.setPlanMode(cut);
     this.labels.setVisible(top);
+    this.applyQuality();
+  }
+
+  /**
+   * Grafikkvalitet: «Rask» = bare modellen; «Standard» = + myke skygger og
+   * himmel; «Høy» = + skarpere bilde (høyere oppløsning, også i VR neste gang).
+   */
+  private applyQuality(): void {
+    const q = this.view.quality.value;
+    const top = this.view.cameraMode.value === 'top' && !this.view.inXR.value;
+    this.apartment.setShadesVisible(q !== 'low');
+    this.sky.visible = q !== 'low' && !top && !this.xr.measuring.value;
+    if (!this.renderer.xr.isPresenting) {
+      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, q === 'high' ? 3 : q === 'low' ? 1.25 : 2));
+      this.resize();
+    }
   }
 
   /** «Gå til rom»: i VR flyttes du dit, på laptopen flyttes kameraet. */
@@ -293,14 +319,3 @@ export class App {
   }
 }
 
-function addLights(scene: THREE.Scene): void {
-  // Mykt, jevnt lys uten skygger (billig på Quest). Lys "bakkefarge" så
-  // tak (som vender nedover) blir lyse og ikke grå/brune.
-  const hemi = new THREE.HemisphereLight('#ffffff', '#e4ddd0', 2.3);
-  const ambient = new THREE.AmbientLight('#ffffff', 0.6);
-  const sun = new THREE.DirectionalLight('#fff4e0', 0.9);
-  sun.position.set(-4, 10, -6);
-  const fill = new THREE.DirectionalLight('#dfe9ff', 0.45);
-  fill.position.set(6, 6, 8);
-  scene.add(hemi, ambient, sun, sun.target, fill, fill.target);
-}

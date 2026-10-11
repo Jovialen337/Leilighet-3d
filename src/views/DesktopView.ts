@@ -261,7 +261,7 @@ export class DesktopView {
     const mk = (pts: number[], color: string, opacity: number): THREE.LineSegments => {
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-      const m = new THREE.LineBasicMaterial({ color, transparent: true, opacity, depthTest: false, depthWrite: false });
+      const m = new THREE.LineBasicMaterial({ toneMapped: false, color, transparent: true, opacity, depthTest: false, depthWrite: false });
       const l = new THREE.LineSegments(g, m);
       l.renderOrder = 10;
       l.frustumCulled = false;
