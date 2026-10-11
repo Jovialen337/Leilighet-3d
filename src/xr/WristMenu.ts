@@ -164,7 +164,7 @@ export class WristMenu {
       c.fillStyle = '#ffffff';
       // Lange lister får lavere knapper (se menuLayout): tekst og bryter krymper med.
       const size = it.h >= 70 ? 36 : it.h >= 56 ? 32 : Math.max(18, Math.round(it.h * 0.55));
-      c.font = `${it.kind === 'tab' ? 700 : 500} ${size}px system-ui, sans-serif`;
+      c.font = it.kind === 'tab' ? '700 32px system-ui, sans-serif' : `500 ${size}px system-ui, sans-serif`;
       if (it.kind === 'toggle') {
         // Bryter til høyre.
         const sh = Math.min(40, it.h - 12);

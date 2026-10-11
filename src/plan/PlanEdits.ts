@@ -78,7 +78,10 @@ export class PlanEdits {
   /**
    * Rask vei når de som ikke passet sist er kjent: resten legges inn samlet, og
    * de kjente prøves én og én oppå. Brukes bare når ingen andre endringer
-   * gjelder de samme objektene (da betyr rekkefølgen ingenting).
+   * gjelder de samme objektene (så en sletting aldri overstyres). Resultatet er
+   * alltid gyldig, men kan vise flere enn gjennomgangen i rekkefølge, som
+   * prøver hver endring mot det som kom før (f.eks. en kabel på en kurs som
+   * lages senere).
    */
   private splitWithHint(
     base: ApartmentDoc,
@@ -146,10 +149,19 @@ export class PlanEdits {
     this.changed();
   }
 
-  undo(): PlanOp | null {
-    const op = this.ops.pop() ?? null;
-    if (op) this.changed();
-    return op;
+  /**
+   * Angrer siste endring. `skip` hopper over endringer (f.eks. tegninger som
+   * ikke vises nå), så «Angre» aldri sletter noe man ikke ser.
+   */
+  undo(skip: (op: PlanOp) => boolean = () => false): PlanOp | null {
+    for (let i = this.ops.length - 1; i >= 0; i--) {
+      const op = this.ops[i]!;
+      if (skip(op)) continue;
+      this.ops.splice(i, 1);
+      this.changed();
+      return op;
+    }
+    return null;
   }
 
   clear(): void {

@@ -133,7 +133,7 @@ describe('tegninger som ikke passer med modellen', () => {
     expect(s2.doc.fixtures.some((f) => f.id === 'stk-2')).toBe(true);
   });
 
-  it('med kjente skjulte holder det med få valideringer, og svaret er det samme', () => {
+  it('med kjente skjulte holder det med få valideringer (her med samme svar)', () => {
     const e = new PlanEdits(loadDoc());
     e.put('fixtures', outlet(4200));
     for (let i = 0; i < 8; i++) e.put('wiring', wire(`k-${i}`, 100 * i));
@@ -180,6 +180,18 @@ describe('tegninger som ikke passer med modellen', () => {
     expect(new PlanEdits(renamed, kv).size).toBe(1);
     e.removeOps([]);
     expect(calls).toBe(1);
+  });
+
+  it('«Angre» hopper over tegninger som ikke vises', () => {
+    const e = new PlanEdits(loadDoc());
+    e.put('wiring', wire('k-1'));
+    e.put('fixtures', outlet(4200));
+    const hidden = e.split(renamedDoc(), isValid).hidden;
+    const undone = e.undo((op) => hidden.includes(op));
+    expect(undone?.op === 'put' && undone.obj.id).toBe('k-1');
+    expect(e.size).toBe(1);
+    expect(e.undo((op) => hidden.includes(op))).toBeNull();
+    expect(e.size).toBe(1);
   });
 
   it('flere endringer på én gang varsler én gang og angres én om gangen', () => {

@@ -33,6 +33,9 @@ import type { ApartmentDoc } from '../schema/types';
 import { validateApartment, type ValidationResult } from '../schema/validate';
 import type { DrawTool } from '../plan/draw';
 
+/** Tegningene som passer (lagt inn), de som ikke passer nå, og valideringen av resultatet. */
+type PlanSplit = { doc: ApartmentDoc; hidden: PlanOp[]; result?: ValidationResult };
+
 export class App {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
@@ -65,7 +68,9 @@ export class App {
   /** Tegnede endringer som ikke passer med modellen nå (vises ikke, men beholdes). */
   private planHidden: PlanOp[] = [];
   /** Sist utregnede «tegningene som passer» for et grunnlag (slipper å validere på nytt ved hvert klikk). */
-  private planCache: { base: ApartmentDoc; rev: number; doc: ApartmentDoc; hidden: PlanOp[] } | null = null;
+  private planCache: ({ base: ApartmentDoc; rev: number } & PlanSplit) | null = null;
+  /** Siste godkjente forhåndssjekk: gjenbrukes når endringen lagres, så den ikke valideres to ganger. */
+  private planPending: { base: ApartmentDoc; rev: number; size: number; doc: ApartmentDoc; result: ValidationResult } | null = null;
 
   constructor(private readonly root: HTMLElement) {
     this.store = new ApartmentStore(`${import.meta.env.BASE_URL}apartment.json`);
@@ -74,6 +79,7 @@ export class App {
     this.plan = new PlanEdits(null, localStore());
     this.planCtrl = new PlanController(this.plan, () => this.store.model, () => this.baseDoc());
     this.planCtrl.canApply = (ops) => this.checkPlanOps(ops);
+    this.planCtrl.isHidden = (op) => this.planHidden.includes(op);
     // «Velg» skal bare treffe det som synes (lag og filtre).
     this.planCtrl.isVisible = (o) =>
       this.view.layers.isVisible(o.layer) &&
@@ -134,7 +140,9 @@ export class App {
           this.plan.clear();
         },
         discardPlanStale: () => {
-          if (confirm('Slette tegningene som ikke passer med modellen nå? Dette kan ikke angres.')) this.plan.removeOps(this.planHidden);
+          if (!confirm('Slette tegningene som ikke passer med modellen nå? Dette kan ikke angres.')) return;
+          this.plan.removeOps(this.planHidden);
+          this.planCtrl.message.set('Tegningene som ikke passet, er slettet.');
         },
         adoptStale: () => this.measure?.adoptStale(),
       },
@@ -169,6 +177,9 @@ export class App {
       return;
     }
     this.measure = this.createMeasureSession();
+    this.planHidden = [];
+    this.planCache = null;
+    this.planPending = null;
     if (this.store.fileDoc) this.plan.rebase(this.store.fileDoc);
     if (this.measure?.hasMeasurements || this.plan.size) this.showDraft(true);
     else {
@@ -226,23 +237,21 @@ export class App {
     this.draftDirty = false;
     const base = this.baseDoc();
     if (!base) return;
-    const checked = new Map<ApartmentDoc, ValidationResult>();
-    const { doc, hidden } = this.splitPlan(base, (d) => {
-      const r = validateApartment(d);
-      checked.set(d, r);
-      return r.ok;
-    });
-    const before = this.planHidden.length;
+    const { doc, hidden, result } = this.splitPlan(base);
+    const prev = this.planHidden;
     this.planHidden = hidden;
-    if (hidden.length !== before) {
+    if (hidden.length !== prev.length || hidden.some((o, i) => o !== prev[i])) {
       this.updateMeasureUi();
-      if (hidden.length > before)
+      const back = prev.filter((o) => !hidden.includes(o) && this.plan.ops.includes(o)).length;
+      if (hidden.some((o) => !prev.includes(o)))
         this.planCtrl.message.set(
           `${hidden.length} ${hidden.length === 1 ? 'tegnet endring passer' : 'tegnede endringer passer'} ikke med modellen nå og vises ikke (se «Oppmåling»).`,
         );
+      else if (back)
+        this.planCtrl.message.set(`${back} ${back === 1 ? 'tegnet endring passer' : 'tegnede endringer passer'} igjen og vises.`);
     }
     if (!force && doc === this.renderedDoc) return;
-    const r = this.store.setValidated(checked.get(doc) ?? validateApartment(doc));
+    const r = this.store.setValidated(result ?? validateApartment(doc));
     if (!r.ok) {
       console.error('Utkastet er ugyldig', r.errors);
       return;
@@ -252,11 +261,32 @@ export class App {
     this.ui.showModel(r.model, r.warnings);
   }
 
-  /** Tegningene som passer, lagt oppå `base` (og de som ikke passer nå). Mellomlagret per grunnlag og endring. */
-  private splitPlan(base: ApartmentDoc, isValid = (d: ApartmentDoc): boolean => validateApartment(d).ok): { doc: ApartmentDoc; hidden: PlanOp[] } {
+  /**
+   * Tegningene som passer, lagt oppå `base`, og de som ikke passer nå (med
+   * valideringen av resultatet). Mellomlagret per grunnlag og endring.
+   */
+  private splitPlan(base: ApartmentDoc): PlanSplit {
     const c = this.planCache;
     if (c && c.base === base && c.rev === this.plan.revision) return c;
-    const r = this.plan.split(base, isValid, this.planHidden);
+    const p = this.planPending;
+    this.planPending = null;
+    let r: PlanSplit;
+    if (p && p.base === base && p.rev + 1 === this.plan.revision && p.size === this.plan.size) {
+      // Akkurat den godkjente endringen er lagret: forhåndssjekken er svaret.
+      r = { doc: p.doc, hidden: [], result: p.result };
+    } else {
+      const checked = new Map<ApartmentDoc, ValidationResult>();
+      const s = this.plan.split(
+        base,
+        (d) => {
+          const v = validateApartment(d);
+          checked.set(d, v);
+          return v.ok;
+        },
+        this.planHidden,
+      );
+      r = { ...s, result: checked.get(s.doc) };
+    }
     this.planCache = { base, rev: this.plan.revision, ...r };
     return r;
   }
@@ -269,8 +299,13 @@ export class App {
   private checkPlanOps(ops: readonly PlanOp[]): string | null {
     const base = this.baseDoc();
     if (!base) return 'Ingen modell er lastet.';
-    const r = validateApartment(applyOps(this.planOn(base), ops));
-    return r.ok ? null : (r.errors[0]?.message ?? 'Ugyldig endring.');
+    const prev = this.splitPlan(base);
+    const doc = applyOps(prev.doc, ops);
+    const r = validateApartment(doc);
+    if (!r.ok) return r.errors[0]?.message ?? 'Ugyldig endring.';
+    // Når ingenting er skjult, er dette nøyaktig det neste utkastet blir.
+    if (!prev.hidden.length) this.planPending = { base, rev: this.plan.revision, size: this.plan.size + ops.length, doc, result: r };
+    return null;
   }
 
   /** Hele utkastet som tekst (målinger + tegninger som passer), for nedlasting og kopiering. */

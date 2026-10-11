@@ -241,6 +241,7 @@ test('lagrede tegninger som ikke passer med fila skjules, men beholdes – model
   page.once('dialog', (dlg) => void dlg.accept());
   await page.getByTestId('plan-stale-discard').click();
   await expect(page.getByTestId('plan-stale')).toBeHidden();
+  await expect(page.getByTestId('plan-message')).toHaveText('Tegningene som ikke passet, er slettet.');
   expect(await stored()).toBe(1);
   expect((await model(page)).wiring.some((w: any) => w.id === 'k-ok')).toBe(true);
   expect(errors).toEqual([]);
@@ -279,17 +280,24 @@ test('en måling som gjør at en tegning ikke passer, skjuler den – angre mål
         continue;
       }
       const hiddenText = (document.querySelector('[data-testid="plan-stale"]') as HTMLElement | null)?.hidden === false;
+      // «Angre» sletter ikke det som ikke vises.
+      a.planCtrl.undo();
+      const undoMsg = a.planCtrl.message.value;
+      const opsAfterUndo = a.plan.size;
       a.measure.undo();
       a.measure.undo();
-      return { wid, after, hiddenText, back: present(), opsBack: a.plan.size };
+      return { wid, after, hiddenText, undoMsg, opsAfterUndo, back: present(), opsBack: a.plan.size, backMsg: a.planCtrl.message.value };
     }
     return null;
   });
   expect(r).not.toBeNull();
   expect(r!.after).toEqual({ present: false, ops: 1, stored: true });
   expect(r!.hiddenText).toBe(true);
+  expect(r!.undoMsg).toBe('Ingenting å angre.');
+  expect(r!.opsAfterUndo).toBe(1);
   expect(r!.back).toBe(true);
   expect(r!.opsBack).toBe(1);
+  expect(r!.backMsg).toBe('1 tegnet endring passer igjen og vises.');
   await expect(page.getByTestId('plan-stale')).toBeHidden();
   expect(errors).toEqual([]);
 });

@@ -51,6 +51,8 @@ export class PlanController {
    * ellers grunnen til at de avvises. Settes av appen.
    */
   canApply: (ops: readonly PlanOp[]) => string | null = () => null;
+  /** Tegnede endringer som ikke vises nå (de hoppes over av «Angre»). Settes av appen. */
+  isHidden: (op: PlanOp) => boolean = () => false;
   /** Siste festepunkt under pekeren/strålen (for forhåndsvisning). */
   hover: { p: P2; h: number; snap: Snap['kind']; floor: number } | null = null;
   /** Gjenbrukte objekter: forhåndsvisningen lager ingen nye objekter per ramme. */
@@ -214,7 +216,7 @@ export class PlanController {
       this.message.set('Punkt fjernet.');
       return;
     }
-    const op = this.edits.undo();
+    const op = this.edits.undo(this.isHidden);
     this.message.set(op ? 'Angret.' : 'Ingenting å angre.');
   }
 
