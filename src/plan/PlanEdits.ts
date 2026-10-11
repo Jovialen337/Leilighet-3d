@@ -48,6 +48,55 @@ export class PlanEdits {
     }
   }
 
+  /** Endringer som ikke passet med fila (lagt til side, kan forkastes). */
+  get staleCount(): number {
+    try {
+      const t = this.storage?.getItem(`${this.key}:gammel`);
+      const ops = t ? (JSON.parse(t) as { ops?: unknown[] }).ops : null;
+      return Array.isArray(ops) ? ops.length : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  discardStale(): void {
+    try {
+      this.storage?.removeItem(`${this.key}:gammel`);
+    } catch {
+      /* lagring utilgjengelig */
+    }
+    for (const l of this.listeners) l();
+  }
+
+  /**
+   * Beholder bare endringene som gir en gyldig fil (i rekkefølge). De andre
+   * fjernes – eller legges til side (`setAside`), f.eks. når fila er byttet ut
+   * og en vegg en tegning hang på, er borte. Returnerer antall som ble tatt ut.
+   */
+  keepValid(base: ApartmentDoc, isValid: (doc: ApartmentDoc) => boolean, setAside: boolean): number {
+    const kept: PlanOp[] = [];
+    const out: PlanOp[] = [];
+    for (const op of this.ops) {
+      const all = this.ops;
+      this.ops = [...kept, op];
+      const ok = isValid(this.apply(base));
+      this.ops = all;
+      (ok ? kept : out).push(op);
+    }
+    if (!out.length) return 0;
+    this.ops = kept;
+    if (setAside) {
+      try {
+        const prev = this.staleCount ? (JSON.parse(this.storage!.getItem(`${this.key}:gammel`)!) as { ops: PlanOp[] }).ops : [];
+        this.storage?.setItem(`${this.key}:gammel`, JSON.stringify({ version: 1, ops: [...prev, ...out] }));
+      } catch {
+        /* lagring utilgjengelig */
+      }
+    }
+    this.changed();
+    return out.length;
+  }
+
   /** Ny grunnfil (lastet på nytt): fjerner det fila allerede har. */
   rebase(base: ApartmentDoc): void {
     const before = this.ops.length;

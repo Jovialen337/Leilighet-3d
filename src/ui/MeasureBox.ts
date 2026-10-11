@@ -13,6 +13,8 @@ export interface MeasureActions {
   uploadUrl(): string;
   discard(): void;
   adoptStale(): void;
+  /** Forkast tegnede endringer som ble lagt til side. */
+  discardPlanStale?(): void;
 }
 
 export interface MeasureUiState {
@@ -24,6 +26,8 @@ export interface MeasureUiState {
   /** Antall objekter endret med tegneverktøyet (el og vann), og om de er publisert. */
   planChanges?: number;
   planPublished?: boolean;
+  /** Tegnede endringer som ikke passet med fila og er lagt til side. */
+  planStale?: number;
 }
 
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
@@ -38,6 +42,8 @@ export class MeasureBox {
   private readonly stale: HTMLElement;
   private readonly staleText: HTMLElement;
   private readonly published: HTMLElement;
+  private readonly planStale: HTMLElement;
+  private readonly planStaleText: HTMLElement;
   private readonly upload: HTMLAnchorElement;
   private readonly copyButton: HTMLButtonElement;
   private measuring = false;
@@ -89,6 +95,10 @@ export class MeasureBox {
       if (confirm('Slette de gamle målingene?')) actions.discard();
     });
     this.stale = h('div', { class: 'draft stale', 'data-testid': 'draft-stale', hidden: '' }, this.staleText, h('div', { class: 'actions' }, adopt, dropStale));
+    this.planStaleText = h('p', {});
+    const dropPlanStale = h('button', { class: 'link danger', 'data-testid': 'plan-stale-discard' }, 'Forkast dem');
+    dropPlanStale.addEventListener('click', () => actions.discardPlanStale?.());
+    this.planStale = h('div', { class: 'draft stale', 'data-testid': 'plan-stale', hidden: '' }, this.planStaleText, dropPlanStale);
     this.published = h(
       'p',
       { class: 'draft-ok', 'data-testid': 'draft-published', hidden: '' },
@@ -103,6 +113,7 @@ export class MeasureBox {
       this.hint,
       this.draft,
       this.stale,
+      this.planStale,
       this.published,
     );
   }
@@ -141,6 +152,9 @@ export class MeasureBox {
     this.stale.hidden = !ms?.stale;
     if (ms?.stale)
       this.staleText.textContent = `Det finnes ${plural(ms.stale.count, 'måling', 'målinger')} laget mot en eldre versjon av apartment.json.`;
+    const ps = s.planStale ?? 0;
+    this.planStale.hidden = ps === 0;
+    this.planStaleText.textContent = `${plural(ps, 'tegnet endring', 'tegnede endringer')} passet ikke med apartment.json (f.eks. en vegg er borte) og er lagt til side.`;
     this.published.hidden = !ms?.published && !s.planPublished;
   }
 }

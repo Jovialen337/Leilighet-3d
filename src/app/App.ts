@@ -30,6 +30,7 @@ import { PlanOverlay } from '../plan/PlanOverlay';
 import { PlanBox } from '../ui/PlanBox';
 import { isTypingTarget } from '../ui/shortcuts';
 import type { ApartmentDoc } from '../schema/types';
+import { validateApartment } from '../schema/validate';
 import type { DrawTool } from '../plan/draw';
 
 export class App {
@@ -59,6 +60,8 @@ export class App {
   private loaded = false;
   /** Utkastet er endret under oppmåling og tegnes når AR-økten er over. */
   private draftDirty = false;
+  /** Dokumentet som sist ble tegnet (for å slippe unødvendig ombygging). */
+  private renderedDoc: ApartmentDoc | null = null;
 
   constructor(private readonly root: HTMLElement) {
     this.store = new ApartmentStore(`${import.meta.env.BASE_URL}apartment.json`);
@@ -117,6 +120,7 @@ export class App {
           this.measure?.discard();
           this.plan.clear();
         },
+        discardPlanStale: () => this.plan.discardStale(),
         adoptStale: () => this.measure?.adoptStale(),
       },
     });
@@ -151,8 +155,18 @@ export class App {
     }
     this.measure = this.createMeasureSession();
     if (this.store.fileDoc) this.plan.rebase(this.store.fileDoc);
+    const base = this.baseDoc();
+    if (base && this.plan.size) {
+      // Tegninger som ikke passer med (en ny) fil, legges til side – modellen vises alltid.
+      const n = this.plan.keepValid(base, (d) => validateApartment(d).ok, true);
+      if (n)
+        this.planCtrl.message.set(
+          `${n} tegnet ${n === 1 ? 'endring' : 'endringer'} passet ikke med fila og er lagt til side.`,
+        );
+    }
     if (this.measure?.hasMeasurements || this.plan.size) this.showDraft(true);
     else {
+      this.renderedDoc = this.store.doc;
       this.applyModel(result.model);
       this.ui.showModel(result.model, result.warnings);
     }
@@ -165,7 +179,11 @@ export class App {
   }
 
   private updateMeasureUi(): void {
-    this.ui.updateMeasure(this.measure, { planChanges: this.plan.changedObjects, planPublished: this.plan.published });
+    this.ui.updateMeasure(this.measure, {
+      planChanges: this.plan.changedObjects,
+      planPublished: this.plan.published,
+      planStale: this.plan.staleCount,
+    });
   }
 
   private onPlanChanged(): void {
@@ -199,13 +217,19 @@ export class App {
     const base = this.baseDoc();
     if (!base) return;
     const doc = this.plan.apply(base);
-    if (!force && doc === this.store.doc) return;
+    if (!force && doc === this.renderedDoc) return;
     const r = this.store.setDoc(doc);
     if (!r.ok) {
-      console.warn('Utkastet er ugyldig', r.errors);
-      this.planCtrl.message.set(`Endringen ga en feil i modellen: ${r.errors[0]?.message ?? ''} Trykk «Angre».`);
+      // En tegnet endring ga en ugyldig fil: den avvises, og det gyldige vises.
+      const why = r.errors[0]?.message ?? '';
+      console.warn('Tegnet endring avvist', r.errors);
+      if (doc !== base && this.plan.keepValid(base, (d) => validateApartment(d).ok, false) > 0) {
+        this.planCtrl.message.set(`Endringen ble avvist: ${why}`);
+        return; // keepValid varsler, og showDraft kjøres på nytt med det gyldige
+      }
       return;
     }
+    this.renderedDoc = doc;
     this.applyModel(r.model);
     this.ui.showModel(r.model, r.warnings);
   }

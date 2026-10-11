@@ -71,7 +71,7 @@ export class DesktopUI {
   private readonly roomList: HTMLElement;
   private readonly helpDialog: HTMLElement;
   private readonly tooltip: HTMLElement;
-  private planState: { planChanges: number; planPublished: boolean } = { planChanges: 0, planPublished: false };
+  private planState: { planChanges: number; planPublished: boolean; planStale?: number } = { planChanges: 0, planPublished: false };
 
   constructor(
     root: HTMLElement,
@@ -320,7 +320,7 @@ export class DesktopUI {
   /** Oppdaterer oppmålingsboksen (kalles når målinger eller tegninger endres). */
   updateMeasure(
     session: MeasureSession | null = this.measureSession,
-    plan: { planChanges: number; planPublished: boolean } = this.planState,
+    plan: { planChanges: number; planPublished: boolean; planStale?: number } = this.planState,
   ): void {
     this.measureSession = session;
     this.planState = plan;
