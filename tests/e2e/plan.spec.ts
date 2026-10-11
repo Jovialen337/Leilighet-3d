@@ -357,39 +357,48 @@ test('VR: avslutt økten midt i en tegning – verktøy og utkast nullstilles, r
   expect(errors).toEqual([]);
 });
 
-test('VR: kursfilter og kurs for nye kabler velges i menyen, og «Høy» sier at den gjelder neste økt', async ({ page }) => {
+/** Kjører et uttrykk mot appen (`a` = window.leilighet). */
+const app = (page: Page, expr: string) => page.evaluate((e) => new Function('a', `return ${e}`)((window as any).leilighet), expr);
+
+test('VR: kursfilteret i Lag-fanen går gjennom kursene og tilbake til alle', async ({ page }) => {
+  // Mange menytrykk i emulert VR: tregere på CI-maskinene enn lokalt.
+  test.setTimeout(90_000);
   await enterVR(page);
-  const a = (expr: string) => page.evaluate((e) => new Function('a', `return ${e}`)((window as any).leilighet), expr);
-  const ids: string[] = await a('a.store.model.data.circuits.map((c) => c.id)');
+  const ids: string[] = await app(page, 'a.store.model.data.circuits.map((c) => c.id)');
   expect(ids.length).toBeGreaterThan(1);
   await press(page, 'left', 'x-button');
   await menuPress(page, 'tab:lag');
   // Hvert trykk: neste kurs, og til slutt alle igjen.
   for (const id of ids) {
     await menuPress(page, 'circuit:next');
-    expect(await a('a.view.circuit.value')).toBe(id);
+    expect(await app(page, 'a.view.circuit.value')).toBe(id);
   }
-  expect(await a("a.apartment.ranges.has('kabel-planterom')")).toBe(ids.at(-1) === 'kurs-2');
+  expect(await app(page, "a.apartment.ranges.has('kabel-planterom')")).toBe(ids.at(-1) === 'kurs-2');
   await menuPress(page, 'circuit:next');
-  expect(await a('a.view.circuit.value')).toBeNull();
-  expect(await a("a.apartment.ranges.has('kabel-planterom')")).toBe(true);
+  expect(await app(page, 'a.view.circuit.value')).toBeNull();
+  expect(await app(page, "a.apartment.ranges.has('kabel-planterom')")).toBe(true);
+});
 
-  // Kurs for nye kabler, og den står på håndleddet.
-  await menuPress(page, 'tab:tegn');
-  await menuPress(page, 'draw:wire:power');
+test('VR: kurs for nye kabler velges i Tegn og står på håndleddet; «Høy» sier at den gjelder neste økt', async ({ page }) => {
+  test.setTimeout(90_000);
+  await enterVR(page);
+  const ids: string[] = await app(page, 'a.store.model.data.circuits.map((c) => c.id)');
   await press(page, 'left', 'x-button');
   await menuPress(page, 'tab:tegn');
-  const before = await a('a.planCtrl.options.value.circuit');
+  await menuPress(page, 'draw:wire:power'); // lukker menyen
+  await press(page, 'left', 'x-button'); // åpner igjen på «Tegn»
+  const before = await app(page, 'a.planCtrl.options.value.circuit');
   await menuPress(page, 'drawcircuit:next');
-  const after = await a('a.planCtrl.options.value.circuit');
+  const after = await app(page, 'a.planCtrl.options.value.circuit');
   expect(after).toBe(ids[(before ? ids.indexOf(before) : -1) + 1] ?? null);
-  const name = await a(`a.store.model.data.circuits.find((c) => c.id === ${JSON.stringify(after)})?.name ?? 'ingen kurs'`);
-  expect(await a('a.xr.wrist.lines')).toContain(`Kurs: ${name}`);
+  const name = await app(page, `a.store.model.data.circuits.find((c) => c.id === ${JSON.stringify(after)})?.name ?? 'ingen kurs'`);
+  expect(await app(page, 'a.xr.wrist.lines')).toContain(`Kurs: ${name}`);
 
   // «Høy» i VR: beskjed om at skarpheten gjelder neste økt.
+  expect(await app(page, 'a.xr.menuLabels().map((l) => l.text)')).not.toContain('Skarpheten endres neste gang du går inn i VR.');
   await menuPress(page, 'tab:visning');
   await menuPress(page, 'quality:high');
-  expect(await a('a.xr.menuLabels().map((l) => l.text)')).toContain('Skarpheten endres neste gang du går inn i VR.');
+  expect(await app(page, 'a.xr.menuLabels().map((l) => l.text)')).toContain('Skarpheten endres neste gang du går inn i VR.');
 });
 
 test('PC: skarphet ved skjermskala 1 (Rask/Standard/Høy)', async ({ browser }) => {
