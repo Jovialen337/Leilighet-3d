@@ -111,11 +111,18 @@ test('VR-menyen (X): pek og trykk for å skru av taket og gå til et rom', async
   expect(s.menu.tab).toBe('visning');
   await menuPress(page, 'toggle:ceilings');
   expect(await page.evaluate(() => (window as any).leilighet.view.ceilings.value)).toBe(false);
-  // Lag-fanen: skjul gruppen «Interiør» (møbler).
+  // Lag-fanen → «Alle lag …»: skjul bare møblene.
   await menuPress(page, 'tab:lag');
   expect((await xrState(page)).menu.tab).toBe('lag');
-  await menuPress(page, 'group:interior');
+  await menuPress(page, 'tab:lagliste');
+  expect((await xrState(page)).menu.tab).toBe('lagliste');
+  await menuPress(page, 'layer:furniture');
   expect(await page.evaluate(() => (window as any).leilighet.view.layers.isVisible('furniture'))).toBe(false);
+  expect(await page.evaluate(() => (window as any).leilighet.view.layers.isVisible('workshop-zone'))).toBe(true);
+  // Gruppebryteren skjuler hele gruppen («Interiør»).
+  await menuPress(page, 'tab:lag');
+  await menuPress(page, 'group:interior');
+  expect(await page.evaluate(() => (window as any).leilighet.view.layers.isVisible('workshop-zone'))).toBe(false);
   // Gå til stua: opp trinnet, og menyen lukkes.
   await menuPress(page, 'tab:ga');
   await menuPress(page, 'room:stue');

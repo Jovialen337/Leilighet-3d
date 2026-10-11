@@ -56,8 +56,8 @@ export class WristPanel {
     let y = 48;
     if (this.fpsLine) {
       c.fillStyle = '#7dffb0';
-      c.font = '700 40px system-ui, sans-serif';
-      c.fillText(this.fpsLine, 28, y);
+      c.font = '700 32px system-ui, sans-serif';
+      c.fillText(this.fpsLine, 28, y, W - 48);
       y += 50;
       c.fillStyle = '#ffffff';
       c.font = '500 24px system-ui, sans-serif';

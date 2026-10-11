@@ -9,13 +9,14 @@ import { p2 } from '../geometry/math2d';
 import { MM } from '../scene/geom';
 import type { PlanController } from './PlanController';
 
-const SNAP_COLOR: Record<string, string> = {
-  punkt: '#ff6bd6',
-  hjørne: '#ffd400',
-  vegg: '#39d98a',
-  '90°': '#18d4ff',
-  rutenett: '#ffffff',
-  fri: '#ff9f1a',
+/** Festemarkørens farge etter hva den festet til (ferdig tolket, så den ikke tolkes hver ramme). */
+const SNAP_COLOR: Record<string, THREE.Color> = {
+  punkt: new THREE.Color('#ff6bd6'),
+  hjørne: new THREE.Color('#ffd400'),
+  vegg: new THREE.Color('#39d98a'),
+  '90°': new THREE.Color('#18d4ff'),
+  rutenett: new THREE.Color('#ffffff'),
+  fri: new THREE.Color('#ff9f1a'),
 };
 
 const mat = (color: string, opacity = 1): THREE.MeshBasicMaterial =>
@@ -54,6 +55,10 @@ export class PlanOverlay {
   private readonly highlight = new THREE.Mesh(new THREE.BufferGeometry(), mat('#ffe14d', 0.85));
   private readonly ghostPos = new Float32Array(6);
   private readonly tmp = new THREE.Matrix4();
+  /** Siste punkt under tegning (m, verden), regnet ut når utkastet endres. */
+  private readonly lastWorld = new THREE.Vector3();
+  private hasLast = false;
+  private lastSnap = '';
   /** Størrelse på markører (m): større i VR. */
   scale = 0.02;
 
@@ -84,6 +89,8 @@ export class PlanOverlay {
 
   private rebuildPath(): void {
     const pts = this.ctrl.draft.points.map(([x, h, z]) => this.worldOf(x, h, z));
+    this.hasLast = pts.length > 0;
+    if (this.hasLast) this.lastWorld.copy(pts[pts.length - 1]!);
     const pos: number[] = [];
     for (let i = 1; i < pts.length; i++) bar(pts[i - 1]!, pts[i]!, this.scale * 0.35, pos);
     this.path.geometry.dispose();
@@ -122,22 +129,27 @@ export class PlanOverlay {
     this.highlight.geometry.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   }
 
-  /** Kalles hver ramme: markør og spøkelseslinje følger pekeren (ingen nye objekter). */
+  /** Kalles hver ramme: markør og spøkelseslinje følger pekeren. Lager ingen nye objekter. */
   update(): void {
     const hv = this.ctrl.hover;
     const show = !!hv && this.ctrl.tool !== 'select';
     this.marker.visible = show;
     this.ghost.visible = false;
     if (!hv || !show) return;
-    const model = this.getModel();
-    const floor = model ? model.floorOrDefault(hv.p) : 0;
-    this.marker.position.set(hv.p.x * MM, (floor + hv.h) * MM, hv.p.z * MM);
+    this.marker.position.set(hv.p.x * MM, (hv.floor + hv.h) * MM, hv.p.z * MM);
     this.marker.scale.setScalar(this.scale);
-    (this.marker.material as THREE.MeshBasicMaterial).color.set(SNAP_COLOR[hv.snap] ?? '#ffffff');
-    const last = this.ctrl.draft.last;
-    if (last) {
-      const lf = model ? model.floorOrDefault(p2(last[0], last[2])) : 0;
-      this.ghostPos.set([last[0] * MM, (lf + last[1]) * MM, last[2] * MM, this.marker.position.x, this.marker.position.y, this.marker.position.z]);
+    if (hv.snap !== this.lastSnap) {
+      this.lastSnap = hv.snap;
+      (this.marker.material as THREE.MeshBasicMaterial).color.copy(SNAP_COLOR[hv.snap] ?? SNAP_COLOR.rutenett!);
+    }
+    if (this.hasLast && this.ctrl.draft.points.length) {
+      const g = this.ghostPos;
+      g[0] = this.lastWorld.x;
+      g[1] = this.lastWorld.y;
+      g[2] = this.lastWorld.z;
+      g[3] = this.marker.position.x;
+      g[4] = this.marker.position.y;
+      g[5] = this.marker.position.z;
       this.ghost.geometry.getAttribute('position').needsUpdate = true;
       this.ghost.visible = true;
     }

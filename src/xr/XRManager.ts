@@ -96,6 +96,8 @@ export class XRManager {
   private readonly drawHits: THREE.Intersection[] = [];
   private readonly drawO = new THREE.Vector3();
   private readonly drawD = new THREE.Vector3();
+  /** Gjenbrukt resultat fra strålen (ingen nye objekter per ramme). */
+  private readonly drawTargetObj = { p: { x: 0, z: 0 }, h: 0 };
   private aiming = false;
   private turnArmed = true;
   private smoothTurning = false;
@@ -164,7 +166,7 @@ export class XRManager {
     const dirty = (): void => {
       this.menuDirty = true;
     };
-    for (const o of [view.ceilings, view.measureHighlight, view.fps, view.quality, view.turn, view.xrRate, view.showExisting, view.showPlanned, view.xray] as const)
+    for (const o of [view.ceilings, view.measureHighlight, view.fps, view.quality, view.turn, view.xrRate, view.showExisting, view.showPlanned, view.xray, view.circuit] as const)
       (o as { subscribe: (l: () => void) => void }).subscribe(dirty);
     view.xrRate.subscribe(() => void this.applyFrameRate());
     view.fps.subscribe(() => this.updateWristFps(), true);
@@ -298,6 +300,10 @@ export class XRManager {
   private onSessionEnd(): void {
     this.aiming = false;
     this.setMenuOpen(false);
+    // Tegning i VR avsluttes sammen med økten (verktøyet på PC beholdes).
+    this.drawTool = null;
+    if (this.plan) this.plan.hover = null;
+    this.updateWristHelp();
     this.arcLine.visible = false;
     this.marker.visible = false;
     if (this.mode === 'measure') {
@@ -439,6 +445,7 @@ export class XRManager {
       presets: LAYER_PRESETS.map((p) => ({ id: p.id, name: p.name })),
       drawTool: this.drawTool,
       drawPlanned: (this.plan?.options.value.status ?? 'planned') === 'planned',
+      circuitFiltered: this.view.circuit.value !== null,
     };
   }
 
@@ -487,6 +494,9 @@ export class XRManager {
       case 'draw':
         this.drawAction(id);
         break;
+      case 'circuit':
+        v.circuit.set(null);
+        break;
     }
     this.menuDirty = true;
   }
@@ -534,8 +544,11 @@ export class XRManager {
     this.drawHits.length = 0;
     const hit = this.drawRay.intersectObjects(this.apartment.visibleProxies(), false, this.drawHits)[0];
     if (!hit) return null;
-    const p = { x: hit.point.x / MM, z: hit.point.z / MM };
-    return { p, h: Math.max(0, Math.round(hit.point.y / MM - model.floorOrDefault(p))) };
+    const t = this.drawTargetObj;
+    t.p.x = hit.point.x / MM;
+    t.p.z = hit.point.z / MM;
+    t.h = Math.max(0, Math.round(hit.point.y / MM - model.floorOrDefault(t.p)));
+    return t;
   }
 
   private updateDraw(right: Gamepad | null): void {
@@ -570,9 +583,9 @@ export class XRManager {
       if (slot) this.pulse(slot, ok ? 0.8 : 0.3, ok ? 80 : 30);
     }
     if (bEdge) p.undo();
-    // Hjelpeteksten (med lengde) tegnes høyst ca. 6 ganger i sekundet.
+    // Hjelpeteksten (med lengde) tegnes høyst 4 ganger i sekundet, og bare når teksten er endret.
     const now = performance.now();
-    if (edge || aEdge || bEdge || now - this.lastHelp > 160) {
+    if (edge || aEdge || bEdge || now - this.lastHelp > 250) {
       this.lastHelp = now;
       this.updateWristHelp();
     }

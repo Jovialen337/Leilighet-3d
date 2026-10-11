@@ -219,6 +219,7 @@ export class DesktopUI {
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && !this.helpDialog.hidden) {
         this.toggleHelp(false);
+        e.stopImmediatePropagation(); // Esc lukker bare hjelpen
         return;
       }
       if (isTypingTarget(e.target) || e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
@@ -300,6 +301,10 @@ export class DesktopUI {
       if (e.target === dialog) this.toggleHelp(false);
     });
     return dialog;
+  }
+
+  get helpOpen(): boolean {
+    return !this.helpDialog.hidden;
   }
 
   private toggleHelp(show = this.helpDialog.hidden): void {

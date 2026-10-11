@@ -14,6 +14,7 @@ import { ApartmentScene } from '../scene/ApartmentScene';
 import { Materials } from '../scene/materials';
 import { addLights, configureRenderer } from '../scene/lighting';
 import { createSky, setGroundLevel } from '../scene/sky';
+import { passes } from '../scene/ApartmentScene';
 import { MM } from '../scene/geom';
 import { localStore } from '../state/persist';
 import { SettingsBinding } from '../state/settings';
@@ -69,6 +70,14 @@ export class App {
     this.settings = new SettingsBinding(this.view, localStore());
     this.plan = new PlanEdits(null, localStore());
     this.planCtrl = new PlanController(this.plan, () => this.store.model, () => this.baseDoc());
+    // «Velg» skal bare treffe det som synes (lag og filtre).
+    this.planCtrl.isVisible = (o) =>
+      this.view.layers.isVisible(o.layer) &&
+      passes({ kind: o.kind, status: o.status, ...(o.circuit ? { circuit: o.circuit } : {}) }, {
+        existing: this.view.showExisting.value,
+        planned: this.view.showPlanned.value,
+        circuit: this.view.circuit.value,
+      });
     this.planOverlay = new PlanOverlay(this.planCtrl, () => this.store.model);
     this.planBox = new PlanBox(this.planCtrl);
     this.plan.subscribe(() => this.onPlanChanged());
@@ -332,6 +341,8 @@ export class App {
     const top = v.cameraMode.value === 'top' && !v.inXR.value;
     const cut = (top || v.dollhouse.value) && !v.inXR.value;
     this.desktop.setMode(v.cameraMode.value);
+    // Rutenettet hører til 2D-planen på laptopen, ikke VR.
+    this.desktop.grid.visible = top;
     this.materials.setCut(cut ? this.desktop.cutPlane : null, top);
     this.labels.setVisible(top);
     this.applyQuality();
@@ -347,7 +358,9 @@ export class App {
     this.apartment.setShadesVisible(q !== 'low');
     this.sky.visible = q !== 'low' && !top && !this.xr.measuring.value;
     if (!this.renderer.xr.isPresenting) {
-      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, q === 'high' ? 3 : q === 'low' ? 1.25 : 2));
+      // «Høy» tegner med 1,5 × skjermens oppløsning (skarpere kanter), «Rask» med lav.
+      const dpr = window.devicePixelRatio || 1;
+      this.renderer.setPixelRatio(q === 'high' ? Math.min(dpr * 1.5, 3) : q === 'low' ? Math.min(dpr, 1.25) : Math.min(dpr, 2));
       this.resize();
     }
   }
@@ -442,6 +455,7 @@ export class App {
         e.preventDefault();
         this.planCtrl.undoPoint();
       } else if (k === 'Escape') {
+        if (this.ui.helpOpen) return; // Esc lukker hjelpen (DesktopUI), ikke tegningen
         if (this.planCtrl.drawing) this.planCtrl.cancel();
         else if (this.planCtrl.tool !== 'select') this.planCtrl.set({ tool: 'select' });
       } else if (k === 'Delete') this.planCtrl.deleteSelected();

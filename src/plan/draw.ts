@@ -10,7 +10,7 @@
  * - Punkt (stikkontakt, bryter, kran …): festes på nærmeste veggflate, ellers
  *   fritt i rommet. Lamper settes i taket.
  */
-import { frameAt, type ApartmentModel } from '../model/ApartmentModel';
+import type { ApartmentModel } from '../model/ApartmentModel';
 import { dist, dot, p2, sub, type P2 } from '../geometry/math2d';
 import {
   WATER_FIXTURES,
@@ -95,72 +95,155 @@ export interface Snap {
 const GRID = 50;
 const RIGHT_ANGLE_TOL = (7 * Math.PI) / 180;
 
-/** Alle punkter man kan feste til: kabel-/rørpunkter, installasjoner og romhjørner. */
-function anchorPoints(model: ApartmentModel): { p: P2; kind: SnapKind }[] {
-  const out: { p: P2; kind: SnapKind }[] = [];
-  for (const w of model.data.wiring) for (const [x, , z] of w.points) out.push({ p: p2(x, z), kind: 'punkt' });
-  for (const r of model.data.pipes ?? []) for (const [x, , z] of r.points) out.push({ p: p2(x, z), kind: 'punkt' });
-  for (const fx of model.data.fixtures) {
-    const pl = model.fixturePlacement(fx);
-    if (pl) out.push({ p: p2(pl.x, pl.z), kind: 'punkt' });
+/**
+ * Festing uten nye objekter per ramme (viktig i VR, der det skjer hver ramme):
+ * festepunktene (kabel-/rørpunkter, installasjoner, romhjørner) og veggflatene
+ * regnes ut én gang per modell, og resultatet skrives inn i et gjenbrukt objekt.
+ */
+export class Snapper {
+  /** x, z for hvert festepunkt (flatt), og om det er et hjørne. */
+  private readonly ax: Float64Array;
+  private readonly az: Float64Array;
+  private readonly corner: Uint8Array;
+  /** Veggflater: p0 (x, z), retning (x, z), lengde, og normalavstand per side. */
+  private readonly walls: { id: string; x: number; z: number; dx: number; dz: number; lx: number; lz: number; len: number; nMax: number; nMin: number }[];
+
+  constructor(readonly model: ApartmentModel) {
+    const xs: number[] = [];
+    const zs: number[] = [];
+    const cs: number[] = [];
+    const add = (x: number, z: number, c: boolean): void => {
+      xs.push(x);
+      zs.push(z);
+      cs.push(c ? 1 : 0);
+    };
+    for (const w of model.data.wiring) for (const [x, , z] of w.points) add(x, z, false);
+    for (const r of model.data.pipes ?? []) for (const [x, , z] of r.points) add(x, z, false);
+    for (const fx of model.data.fixtures) {
+      const pl = model.fixturePlacement(fx);
+      if (pl) add(pl.x, pl.z, false);
+    }
+    for (const info of model.rooms.values()) for (const v of info.polygon) add(v.x, v.z, true);
+    this.ax = Float64Array.from(xs);
+    this.az = Float64Array.from(zs);
+    this.corner = Uint8Array.from(cs);
+    this.walls = [...model.walls.values()].map((f) => ({
+      id: f.wall.id,
+      x: f.p0.x,
+      z: f.p0.z,
+      dx: f.dir.x,
+      dz: f.dir.z,
+      lx: f.left.x,
+      lz: f.left.z,
+      len: f.length,
+      nMax: f.nMax,
+      nMin: f.nMin,
+    }));
   }
-  for (const info of model.rooms.values()) for (const v of info.polygon) out.push({ p: v, kind: 'hjørne' });
-  return out;
+
+  /** Nærmeste veggflate: skriver punktet på flaten i `out` og returnerer avstanden (Infinity hvis ingen vegger). */
+  nearestWall(px: number, pz: number, out: { x: number; z: number; wallId: string; face: 'left' | 'right'; along: number }): number {
+    let best = Infinity;
+    for (const w of this.walls) {
+      const u = Math.max(0, Math.min(w.len, (px - w.x) * w.dx + (pz - w.z) * w.dz));
+      for (let k = 0; k < 2; k++) {
+        const n = k === 0 ? w.nMax : w.nMin;
+        const qx = w.x + w.dx * u + w.lx * n;
+        const qz = w.z + w.dz * u + w.lz * n;
+        const d = Math.hypot(px - qx, pz - qz);
+        if (d < best) {
+          best = d;
+          out.x = qx;
+          out.z = qz;
+          out.wallId = w.id;
+          out.face = k === 0 ? 'left' : 'right';
+          out.along = u;
+        }
+      }
+    }
+    return best;
+  }
+
+  private readonly wallTmp = { x: 0, z: 0, wallId: '', face: 'left' as 'left' | 'right', along: 0 };
+
+  /**
+   * Fester (px, pz) og skriver resultatet i `out`. `prev` = forrige punkt
+   * (for rett vinkel), `tol` i mm, `free` = ingen festing.
+   */
+  snapInto(
+    px: number,
+    pz: number,
+    prevX: number | null,
+    prevZ: number | null,
+    tol: number,
+    free: boolean,
+    out: { x: number; z: number; kind: SnapKind },
+  ): void {
+    if (free) {
+      out.x = px;
+      out.z = pz;
+      out.kind = 'fri';
+      return;
+    }
+    let bi = -1;
+    let bd = tol;
+    for (let i = 0; i < this.ax.length; i++) {
+      const d = Math.hypot(px - this.ax[i]!, pz - this.az[i]!);
+      if (d < bd) {
+        bd = d;
+        bi = i;
+      }
+    }
+    if (bi >= 0) {
+      out.x = this.ax[bi]!;
+      out.z = this.az[bi]!;
+      out.kind = this.corner[bi] ? 'hjørne' : 'punkt';
+      return;
+    }
+    if (this.nearestWall(px, pz, this.wallTmp) < tol) {
+      out.x = this.wallTmp.x;
+      out.z = this.wallTmp.z;
+      out.kind = 'vegg';
+      return;
+    }
+    if (prevX !== null && prevZ !== null) {
+      const dx = px - prevX;
+      const dz = pz - prevZ;
+      const len = Math.hypot(dx, dz);
+      if (len > 1) {
+        const a = Math.atan2(dz, dx);
+        const k = Math.round(a / (Math.PI / 2));
+        if (Math.abs(a - (k * Math.PI) / 2) < RIGHT_ANGLE_TOL) {
+          const l = Math.round(len / 10) * 10;
+          out.x = prevX + Math.round(Math.cos((k * Math.PI) / 2)) * l;
+          out.z = prevZ + Math.round(Math.sin((k * Math.PI) / 2)) * l;
+          out.kind = '90°';
+          return;
+        }
+      }
+    }
+    out.x = Math.round(px / GRID) * GRID;
+    out.z = Math.round(pz / GRID) * GRID;
+    out.kind = 'rutenett';
+  }
 }
 
 /** Nærmeste punkt på en veggflate (begge sider av alle vegger). */
 export function nearestWallFace(model: ApartmentModel, p: P2): { q: P2; wallId: string; face: 'left' | 'right'; along: number; d: number } | null {
-  let best: { q: P2; wallId: string; face: 'left' | 'right'; along: number; d: number } | null = null;
-  for (const f of model.walls.values()) {
-    const u = Math.max(0, Math.min(f.length, dot(sub(p, f.p0), f.dir)));
-    for (const [n, face] of [
-      [f.nMax, 'left'],
-      [f.nMin, 'right'],
-    ] as const) {
-      const q = frameAt(f, u, n);
-      const d = dist(p, q);
-      if (!best || d < best.d) best = { q, wallId: f.wall.id, face, along: u, d };
-    }
-  }
-  return best;
+  const out = { x: 0, z: 0, wallId: '', face: 'left' as 'left' | 'right', along: 0 };
+  const d = new Snapper(model).nearestWall(p.x, p.z, out);
+  return Number.isFinite(d) ? { q: p2(out.x, out.z), wallId: out.wallId, face: out.face, along: out.along, d } : null;
 }
 
 /**
  * Fester et punkt i planet. `tol` er festeavstanden i mm (regnet om fra
  * piksler eller vinkel av den som kaller). `free` = ingen festing.
+ * (Enkel variant; hver ramme brukes en Snapper som gjenbrukes.)
  */
-export function snapPlan(model: ApartmentModel, p: P2, opts: { prev: P2 | null; tol: number; free?: boolean }): Snap {
-  if (opts.free) return { p, kind: 'fri' };
-  let bestA: { p: P2; kind: SnapKind } | null = null;
-  let bestD = opts.tol;
-  for (const a of anchorPoints(model)) {
-    const d = dist(p, a.p);
-    if (d < bestD) {
-      bestD = d;
-      bestA = a;
-    }
-  }
-  if (bestA) return { p: bestA.p, kind: bestA.kind };
-
-  const wall = nearestWallFace(model, p);
-  if (wall && wall.d < opts.tol) return { p: wall.q, kind: 'vegg' };
-
-  const prev = opts.prev;
-  if (prev) {
-    const d = sub(p, prev);
-    const len = Math.hypot(d.x, d.z);
-    if (len > 1) {
-      const a = Math.atan2(d.z, d.x);
-      const k = Math.round(a / (Math.PI / 2));
-      if (Math.abs(a - (k * Math.PI) / 2) < RIGHT_ANGLE_TOL) {
-        const ax = Math.round(Math.cos((k * Math.PI) / 2));
-        const az = Math.round(Math.sin((k * Math.PI) / 2));
-        const l = Math.round(len / 10) * 10;
-        return { p: p2(prev.x + ax * l, prev.z + az * l), kind: '90°' };
-      }
-    }
-  }
-  return { p: p2(Math.round(p.x / GRID) * GRID, Math.round(p.z / GRID) * GRID), kind: 'rutenett' };
+export function snapPlan(model: ApartmentModel, p: P2, opts: { prev: P2 | null; tol: number; free?: boolean }, snapper = new Snapper(model)): Snap {
+  const out = { x: 0, z: 0, kind: 'fri' as SnapKind };
+  snapper.snapInto(p.x, p.z, opts.prev?.x ?? null, opts.prev?.z ?? null, opts.tol, !!opts.free, out);
+  return { p: opts.free ? p : p2(out.x, out.z), kind: out.kind };
 }
 
 /** Høyde (mm over gulv) i et punkt, med «under taket» regnet ut fra taket der. */
@@ -282,10 +365,19 @@ export function makeFixture(
 }
 
 /** Nærmeste kabel, rør eller installasjon (i planet) innen `tol` mm. */
+/** Det som kan velges, slik `pickNearest` ser det (for filter på synlighet). */
+export interface Pickable {
+  kind: 'wire' | 'pipe' | 'fixture';
+  layer: string;
+  status: 'existing' | 'planned';
+  circuit?: string;
+}
+
 export function pickNearest(
   model: ApartmentModel,
   p: P2,
   tol: number,
+  visible: (o: Pickable) => boolean = () => true,
 ): { c: 'wiring' | 'pipes' | 'fixtures'; id: string; d: number } | null {
   let best: { c: 'wiring' | 'pipes' | 'fixtures'; id: string; d: number } | null = null;
   const consider = (c: 'wiring' | 'pipes' | 'fixtures', id: string, d: number): void => {
@@ -300,9 +392,13 @@ export function pickNearest(
     }
     return m;
   };
-  for (const w of model.data.wiring) consider('wiring', w.id, segDist(w.points));
-  for (const r of model.data.pipes ?? []) consider('pipes', r.id, segDist(r.points));
+  for (const w of model.data.wiring)
+    if (visible({ kind: 'wire', layer: w.layer, status: w.status, ...(w.circuit ? { circuit: w.circuit } : {}) }))
+      consider('wiring', w.id, segDist(w.points));
+  for (const r of model.data.pipes ?? [])
+    if (visible({ kind: 'pipe', layer: r.layer, status: r.status })) consider('pipes', r.id, segDist(r.points));
   for (const fx of model.data.fixtures) {
+    if (!visible({ kind: 'fixture', layer: fx.layer, status: fx.status, ...(fx.circuit ? { circuit: fx.circuit } : {}) })) continue;
     const pl = model.fixturePlacement(fx);
     if (pl) consider('fixtures', fx.id, dist(p, p2(pl.x, pl.z)) - 20);
   }

@@ -65,3 +65,30 @@ describe('lokale planendringer', () => {
     expect(new PlanEdits(loadDoc(), kv).size).toBe(1);
   });
 });
+
+describe('tegninger som ikke passer med fila', () => {
+  it('legges til side når veggen de hang på er borte, og resten beholdes', async () => {
+    const { validateApartment } = await import('../../src/schema/validate');
+    const kv = new MemoryKV();
+    const base = loadDoc();
+    const e = new PlanEdits(base, kv);
+    e.put('fixtures', { id: 'stk-1', type: 'outlet', layer: 'electrical-planned', status: 'planned', mount: { wall: 'v-inngang', room: 'stue', along: 4200, height: 300 } });
+    e.put('wiring', wire('k-1'));
+    // Ny fil der inngangsveggen har fått ny id.
+    const renamed = loadDoc();
+    const w = renamed.walls.find((x) => x.id === 'v-inngang')!;
+    w.id = 'v-ost';
+    for (const o of renamed.openings) if (o.wall === 'v-inngang') o.wall = 'v-ost';
+    for (const f of renamed.fixtures) if (f.mount?.wall === 'v-inngang') f.mount.wall = 'v-ost';
+    expect(validateApartment(renamed).ok).toBe(true);
+    const b = new PlanEdits(renamed, kv);
+    expect(validateApartment(b.apply(renamed)).ok).toBe(false);
+    const n = b.keepValid(renamed, (d) => validateApartment(d).ok, true);
+    expect(n).toBe(1);
+    expect(b.size).toBe(1);
+    expect(validateApartment(b.apply(renamed)).ok).toBe(true);
+    expect(b.staleCount).toBe(1);
+    b.discardStale();
+    expect(b.staleCount).toBe(0);
+  });
+});

@@ -14,15 +14,15 @@ import {
   PIPE_KIND_TEXT,
   RunDraft,
   WIRE_KIND_TEXT,
-  layerFor,
   makeFixture,
   makeRun,
   metres,
   pickNearest,
   resolveHeight,
   runLength,
-  snapPlan,
+  Snapper,
   type DrawOptions,
+  type Pickable,
   type DrawTool,
   type Snap,
 } from './draw';
@@ -44,8 +44,37 @@ export class PlanController {
   readonly message = new Observable<string>('');
   /** Endres hver gang utkastet (punktene under tegning) endres. */
   readonly draftVersion = new Observable(0);
+  /** Hva som synes (lag og filtre); «Velg» treffer bare det. Settes av appen. */
+  isVisible: (o: Pickable) => boolean = () => true;
   /** Siste festepunkt under pekeren/strålen (for forhåndsvisning). */
-  hover: { p: P2; h: number; snap: Snap['kind'] } | null = null;
+  hover: { p: P2; h: number; snap: Snap['kind']; floor: number } | null = null;
+  /** Gjenbrukte objekter: forhåndsvisningen lager ingen nye objekter per ramme. */
+  private readonly hoverObj = { p: { x: 0, z: 0 }, h: 0, snap: 'fri' as Snap['kind'], floor: 0 };
+  private readonly snapOut = { x: 0, z: 0, kind: 'fri' as Snap['kind'] };
+  private snapper: Snapper | null = null;
+
+  /** Festeren for gjeldende modell (bygges på nytt bare når modellen er ny). */
+  private snapperFor(model: ApartmentModel): Snapper {
+    if (this.snapper?.model !== model) this.snapper = new Snapper(model);
+    return this.snapper;
+  }
+
+  /** Fester (x, z) til punktene under tegning eller modellen; resultatet i `snapOut`. */
+  private snapRaw(model: ApartmentModel, x: number, z: number, tol: number, free: boolean): void {
+    const o = this.snapOut;
+    if (!free) {
+      for (const q of this.draft.points) {
+        if (Math.hypot(q[0] - x, q[2] - z) < tol) {
+          o.x = q[0];
+          o.z = q[2];
+          o.kind = 'punkt';
+          return;
+        }
+      }
+    }
+    const last = this.draft.last;
+    this.snapperFor(model).snapInto(x, z, last ? last[0] : null, last ? last[2] : null, tol, free, o);
+  }
 
   constructor(
     readonly edits: PlanEdits,
@@ -89,22 +118,25 @@ export class PlanController {
   snap(p: P2, tol: number, free = false): Snap {
     const model = this.getModel();
     if (!model) return { p, kind: 'fri' };
-    const last = this.draft.last;
-    if (!free)
-      for (const q of this.draft.points)
-        if (Math.hypot(q[0] - p.x, q[2] - p.z) < tol) return { p: { x: q[0], z: q[2] }, kind: 'punkt' };
-    return snapPlan(model, p, { prev: last ? { x: last[0], z: last[2] } : null, tol, free });
+    this.snapRaw(model, p.x, p.z, tol, free);
+    return { p: { x: this.snapOut.x, z: this.snapOut.z }, kind: this.snapOut.kind };
   }
 
-  /** Oppdaterer forhåndsvisningen under pekeren. */
+  /** Oppdaterer forhåndsvisningen under pekeren (kalles hver ramme i VR; lager ingen nye objekter). */
   hoverAt(p: P2 | null, tol: number, h?: number, free = false): void {
     const model = this.getModel();
     if (!p || !model || this.tool === 'select') {
       this.hover = null;
       return;
     }
-    const s = this.snap(p, tol, free);
-    this.hover = { p: s.p, h: h ?? resolveHeight(model, s.p, this.options.value.height), snap: s.kind };
+    this.snapRaw(model, p.x, p.z, tol, free);
+    const hv = this.hoverObj;
+    hv.p.x = this.snapOut.x;
+    hv.p.z = this.snapOut.z;
+    hv.snap = this.snapOut.kind;
+    hv.h = h ?? resolveHeight(model, hv.p, this.options.value.height);
+    hv.floor = model.floorOrDefault(hv.p);
+    this.hover = hv;
   }
 
   /** Et klikk/avtrekk i planet. */
@@ -114,7 +146,7 @@ export class PlanController {
     if (!model || !base) return;
     const o = this.options.value;
     if (o.tool === 'select') {
-      const hit = pickNearest(model, p, tol);
+      const hit = pickNearest(model, p, tol, this.isVisible);
       this.selected.set(hit ? { c: hit.c, id: hit.id } : null);
       this.message.set(hit ? this.describe(model, hit) : 'Ingenting her. Klikk nærmere en kabel, et rør eller et punkt.');
       return;
@@ -240,4 +272,3 @@ export class PlanController {
   }
 }
 
-export { layerFor };

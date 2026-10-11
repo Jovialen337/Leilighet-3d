@@ -110,10 +110,6 @@ export class Materials {
     }
   }
 
-  get xrayOn(): boolean {
-    return this.xray;
-  }
-
   dispose(): void {
     for (const m of [...this.cuttable, this.lines, this.proxy]) m.dispose();
   }

@@ -156,3 +156,77 @@ test('VR: Lag-fanen – forhåndsvalg og filtre', async ({ page }) => {
   await menuPress(page, 'toggle:xray');
   expect(await page.evaluate(() => (window as any).leilighet.view.xray.value)).toBe(true);
 });
+
+test('PC: grafikkvalitet – himmel, myke skygger og skarphet, og valget huskes', async ({ browser }) => {
+  const ctx = await browser.newContext({ deviceScaleFactor: 2, viewport: { width: 1280, height: 800 } });
+  const page = await ctx.newPage();
+  await page.route('**/apartment.json', async (route) =>
+    route.fulfill({ json: JSON.parse((await import('node:fs')).readFileSync(new URL('../fixtures/placeholder.json', import.meta.url), 'utf8')) }),
+  );
+  await page.goto('./');
+  await waitForModel(page);
+  const state = () =>
+    page.evaluate(() => {
+      const a = (window as any).leilighet;
+      return { sky: a.sky.visible, shades: a.apartment.shades.every((m: any) => m.visible), ratio: a.renderer.getPixelRatio() };
+    });
+  expect(await state()).toEqual({ sky: true, shades: true, ratio: 2 });
+  await page.getByTestId('setting-quality').selectOption({ label: 'Rask' });
+  expect(await state()).toEqual({ sky: false, shades: false, ratio: 1.25 });
+  await page.getByTestId('setting-quality').selectOption({ label: 'Høy' });
+  expect(await state()).toEqual({ sky: true, shades: true, ratio: 3 });
+  await page.reload();
+  await waitForModel(page);
+  expect((await state()).ratio).toBe(3);
+  await expect(page.getByTestId('setting-quality')).toHaveValue('2');
+  await ctx.close();
+});
+
+test('VR: grafikkvalitet velges i menyen', async ({ page }) => {
+  await enterVR(page);
+  await press(page, 'left', 'x-button');
+  await menuPress(page, 'quality:low');
+  expect(await page.evaluate(() => (window as any).leilighet.view.quality.value)).toBe('low');
+  expect(await page.evaluate(() => (window as any).leilighet.apartment.shades.some((m: any) => m.visible))).toBe(false);
+});
+
+test('PC: kursfilteret viser bare én kurs', async ({ page }) => {
+  await page.goto('./');
+  await waitForModel(page);
+  const has = (id: string) => page.evaluate((i) => (window as any).leilighet.apartment.ranges.has(i), id);
+  expect(await has('kabel-planterom')).toBe(true);
+  await page.getByTestId('filter-circuit').selectOption({ label: 'Kurs 1 – gang og stue' });
+  expect(await has('kabel-planterom')).toBe(false); // kurs 2
+  expect(await has('lampe-stue')).toBe(true); // kurs 1
+  expect(await has('kran-bad')).toBe(true); // vann har ingen kurs
+  await page.getByTestId('filter-circuit').selectOption({ label: 'Alle kurser' });
+  expect(await has('kabel-planterom')).toBe(true);
+});
+
+test('lagrede tegninger som ikke passer med fila legges til side – modellen vises likevel', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.addInitScript(() => {
+    if (sessionStorage.getItem('seeded')) return;
+    sessionStorage.setItem('seeded', '1');
+    localStorage.setItem(
+      'leilighet:plan:v1',
+      JSON.stringify({
+        version: 1,
+        ops: [
+          { op: 'put', c: 'fixtures', obj: { id: 'stk-x', type: 'outlet', layer: 'electrical-planned', status: 'planned', mount: { wall: 'finnes-ikke', room: 'stue', along: 100, height: 300 } } },
+          { op: 'put', c: 'wiring', obj: { id: 'k-ok', layer: 'wiring', status: 'planned', kind: 'power', points: [[3000, 300, 1000], [4000, 300, 1000]] } },
+        ],
+      }),
+    );
+  });
+  await page.goto('./');
+  await waitForModel(page);
+  const d = await model(page);
+  expect(d.wiring.some((w: any) => w.id === 'k-ok')).toBe(true);
+  expect(d.fixtures.some((f: any) => f.id === 'stk-x')).toBe(false);
+  expect(await page.evaluate(() => (window as any).leilighet.stats().mergedMeshes)).toBeGreaterThan(10);
+  await expect(page.getByTestId('plan-stale')).toContainText('1 tegnet endring passet ikke');
+  await page.getByTestId('plan-stale-discard').click();
+  await expect(page.getByTestId('plan-stale')).toBeHidden();
+  expect(errors).toEqual([]);
+});

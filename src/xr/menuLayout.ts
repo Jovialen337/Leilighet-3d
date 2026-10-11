@@ -8,7 +8,8 @@ import type { Quality, TurnMode, XRRate } from '../state/ViewState';
 export const MENU_W = 1024;
 export const MENU_H = 768;
 
-export type MenuTab = 'visning' | 'lag' | 'tegn' | 'ga' | 'komfort';
+/** «lagliste» er en underside av «Lag» med hvert enkelt lag. */
+export type MenuTab = 'visning' | 'lag' | 'lagliste' | 'tegn' | 'ga' | 'komfort';
 export const TABS: readonly { id: MenuTab; label: string }[] = [
   { id: 'visning', label: 'Visning' },
   { id: 'lag', label: 'Lag' },
@@ -64,6 +65,8 @@ export interface MenuState {
   /** Aktivt tegneverktøy i VR (id fra DRAW_ITEMS), eller null. */
   drawTool: string | null;
   drawPlanned: boolean;
+  /** Bare én kurs vises (filter på). */
+  circuitFiltered: boolean;
 }
 
 /** Overskrifter i lerretet (tegnes, men kan ikke trykkes på). */
@@ -83,7 +86,16 @@ export function buildMenu(s: MenuState): { items: MenuItem[]; labels: MenuLabel[
   const labels: MenuLabel[] = [];
   const tabW = (MENU_W - 2 * PAD - (TABS.length - 1) * GAP) / TABS.length;
   TABS.forEach((t, i) =>
-    items.push({ id: `tab:${t.id}`, kind: 'tab', label: t.label, active: s.tab === t.id, x: PAD + i * (tabW + GAP), y: PAD, w: tabW, h: TAB_H }),
+    items.push({
+      id: `tab:${t.id}`,
+      kind: 'tab',
+      label: t.label,
+      active: s.tab === t.id || (t.id === 'lag' && s.tab === 'lagliste'),
+      x: PAD + i * (tabW + GAP),
+      y: PAD,
+      w: tabW,
+      h: TAB_H,
+    }),
   );
   let y = PAD + TAB_H + 28;
   const full = MENU_W - 2 * PAD;
@@ -126,18 +138,20 @@ export function buildMenu(s: MenuState): { items: MenuItem[]; labels: MenuLabel[
     case 'lag': {
       labels.push({ text: 'Vis', x: PAD, y: y + 34 });
       y += 52;
-      const pw = (full - (s.presets.length - 1) * GAP) / s.presets.length;
-      s.presets.forEach((p, i) =>
-        items.push({ id: `preset:${p.id}`, kind: 'action', label: p.name, active: false, x: PAD + i * (pw + GAP), y, w: pw, h: ROW_H }),
+      const row1 = [...s.presets.map((p) => ({ id: `preset:${p.id}`, label: p.name })), { id: 'tab:lagliste', label: 'Alle lag …' }];
+      const pw = (full - (row1.length - 1) * GAP) / row1.length;
+      row1.forEach((p, i) =>
+        items.push({ id: p.id, kind: 'action', label: p.label, active: false, x: PAD + i * (pw + GAP), y, w: pw, h: ROW_H }),
       );
       y += ROW_H + GAP + 8;
-      const tw = (full - 2 * GAP) / 3;
       const t3 = [
-        { id: 'toggle:existing', label: 'Eksisterende', on: s.showExisting },
-        { id: 'toggle:planned', label: 'Planlagt', on: s.showPlanned },
-        { id: 'toggle:xray', label: 'Røntgen', on: s.xray },
+        { id: 'toggle:existing', label: 'Eksisterende', on: s.showExisting, kind: 'toggle' as const },
+        { id: 'toggle:planned', label: 'Planlagt', on: s.showPlanned, kind: 'toggle' as const },
+        { id: 'toggle:xray', label: 'Røntgen', on: s.xray, kind: 'toggle' as const },
+        ...(s.circuitFiltered ? [{ id: 'circuit:all', label: 'Alle kurser', on: false, kind: 'action' as const }] : []),
       ];
-      t3.forEach((t, i) => items.push({ id: t.id, kind: 'toggle', label: t.label, active: t.on, x: PAD + i * (tw + GAP), y, w: tw, h: ROW_H }));
+      const tw = (full - (t3.length - 1) * GAP) / t3.length;
+      t3.forEach((t, i) => items.push({ id: t.id, kind: t.kind, label: t.label, active: t.on, x: PAD + i * (tw + GAP), y, w: tw, h: ROW_H }));
       y += ROW_H + GAP + 8;
       labels.push({ text: 'Laggrupper', x: PAD, y: y + 34 });
       y += 52;
@@ -151,6 +165,11 @@ export function buildMenu(s: MenuState): { items: MenuItem[]; labels: MenuLabel[
       );
       break;
     }
+    case 'lagliste':
+      items.push({ id: 'tab:lag', kind: 'action', label: '‹ Tilbake', active: false, x: PAD, y, w: 260, h: 64 });
+      y += 64 + GAP;
+      grid(s.layers.map((l) => ({ id: `layer:${l.id}`, label: l.name, active: l.visible, kind: 'toggle' as const })));
+      break;
     case 'tegn': {
       grid([
         ...DRAW_ITEMS.map((d) => ({ id: d.id, label: d.label, active: s.drawTool === d.id, kind: 'choice' as const })),

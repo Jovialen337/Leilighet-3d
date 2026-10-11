@@ -283,7 +283,7 @@ function buildOpening(model: ApartmentModel, o: Opening, push: Push): void {
     wallBox(frame, f, span.u1 - jamb / 2, span.bottom + height / 2, midN, jamb, height, thick + 20);
     wallBox(frame, f, midU, span.top - jamb / 2, midN, width, jamb, thick + 20);
     push({ id: o.id, kind: 'door', layer, bucket: 'solid', pick: 'none', geometry: frame.build(), color: col(COLORS.frame) });
-    push({ id: o.id, kind: 'trim', layer, bucket: 'solid', pick: 'none', geometry: casing(f, span, [f.nMin, f.nMax], false), color: col(COLORS.frame) });
+    push({ id: o.id, kind: 'trim', layer, bucket: 'solid', pick: 'none', geometry: casing(f, span, [f.nMin, f.nMax]), color: col(COLORS.frame) });
 
     const dg = model.doorGeometry(o);
     if (!dg) return;
@@ -328,7 +328,7 @@ function buildOpening(model: ApartmentModel, o: Opening, push: Push): void {
     push({ id: o.id, kind: 'window', layer, bucket: 'solid', pick: 'none', geometry: frame.build(), color: col(o.frameColor ?? COLORS.frame) });
     const roomSide = o.room ? model.sideOfRoom(f, o.room, midU) : null;
     if (roomSide)
-      push({ id: o.id, kind: 'trim', layer, bucket: 'solid', pick: 'none', geometry: casing(f, span, [roomSide === 'left' ? f.nMax : f.nMin], true), color: col(o.frameColor ?? COLORS.frame) });
+      push({ id: o.id, kind: 'trim', layer, bucket: 'solid', pick: 'none', geometry: casing(f, span, [roomSide === 'left' ? f.nMax : f.nMin]), color: col(o.frameColor ?? COLORS.frame) });
 
     const glass = new GeoBuilder();
     wallBox(glass, f, midU, span.bottom + height / 2, midN, width - 2 * fw, height - 2 * fw, 8);
@@ -347,8 +347,8 @@ function buildOpening(model: ApartmentModel, o: Opening, push: Push): void {
   }
 }
 
-/** Gerikt rundt en åpning på de gitte veggflatene (sider + topp; vinduer har vinduskarm nederst). */
-function casing(f: WallFrame, span: { u0: number; u1: number; bottom: number; top: number }, faces: number[], window: boolean): THREE.BufferGeometry {
+/** Gerikt rundt en åpning på de gitte veggflatene: to sider og topp (under vinduer er det vinduskarmen). */
+function casing(f: WallFrame, span: { u0: number; u1: number; bottom: number; top: number }, faces: number[]): THREE.BufferGeometry {
   const g = new GeoBuilder();
   const w = TRIM.casingWidth;
   const t = TRIM.casingDepth;
@@ -356,9 +356,8 @@ function casing(f: WallFrame, span: { u0: number; u1: number; bottom: number; to
   for (const face of faces) {
     const out = face === f.nMax ? 1 : -1;
     const n = face + (out * t) / 2;
-    const bottom = window ? span.bottom : span.bottom;
-    wallBox(g, f, span.u0 - w / 2, bottom + (h + w) / 2, n, w, h + w, t);
-    wallBox(g, f, span.u1 + w / 2, bottom + (h + w) / 2, n, w, h + w, t);
+    wallBox(g, f, span.u0 - w / 2, span.bottom + (h + w) / 2, n, w, h + w, t);
+    wallBox(g, f, span.u1 + w / 2, span.bottom + (h + w) / 2, n, w, h + w, t);
     wallBox(g, f, (span.u0 + span.u1) / 2, span.top + w / 2, n, span.u1 - span.u0, w, t);
   }
   return g.build();

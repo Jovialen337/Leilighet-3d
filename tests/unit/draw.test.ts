@@ -140,3 +140,36 @@ describe('oversikt', () => {
     expect(planHints(model).some((h) => h.includes('kabel-planterom') || h.includes('Ny kurs til planterom'))).toBe(true);
   });
 });
+
+describe('filtre og eldre filer', () => {
+  it('kursfilteret viser bare kabler og punkter i den kursen', async () => {
+    const { passes, NO_FILTER } = await import('../../src/scene/ApartmentScene');
+    const f = { ...NO_FILTER, circuit: 'kurs-2' };
+    expect(passes({ kind: 'wire', status: 'planned', circuit: 'kurs-2' }, f)).toBe(true);
+    expect(passes({ kind: 'wire', status: 'planned', circuit: 'kurs-1' }, f)).toBe(false);
+    expect(passes({ kind: 'wire', status: 'planned' }, f)).toBe(false); // kabel uten kurs
+    expect(passes({ kind: 'fixture', status: 'existing', circuit: 'kurs-1' }, f)).toBe(false);
+    expect(passes({ kind: 'fixture', status: 'existing' }, f)).toBe(true); // f.eks. kran
+    expect(passes({ kind: 'wall' }, f)).toBe(true);
+    expect(passes({ kind: 'pipe', status: 'planned' }, { ...NO_FILTER, planned: false })).toBe(false);
+  });
+
+  it('en fil uten «pipes» og «circuits» er gyldig og tegnes', async () => {
+    const { buildParts } = await import('../../src/scene/buildParts');
+    const old = loadDoc() as unknown as Record<string, unknown>;
+    delete old.pipes;
+    delete old.circuits;
+    for (const w of (old.wiring as { circuit?: string }[])) delete w.circuit;
+    for (const f of (old.fixtures as { circuit?: string }[])) delete f.circuit;
+    const r = validateApartment(old);
+    expect(r.errors).toEqual([]);
+    expect(r.model!.data.pipes).toEqual([]);
+    expect(r.model!.data.circuits).toEqual([]);
+    expect(buildParts(r.model!).length).toBeGreaterThan(50);
+    expect(summarize(r.model!).pipes).toEqual([]);
+  });
+
+  it('«Velg» treffer ikke det som er skjult', () => {
+    expect(pickNearest(model, { x: 40, z: 3000 }, 100, (o) => o.layer !== 'wiring')).toBeNull();
+  });
+});
