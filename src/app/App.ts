@@ -135,10 +135,9 @@ export class App {
         download: () => this.downloadDraft(),
         copy: () => this.copyDraft(),
         uploadUrl: () => uploadUrl(repoFromLocation()),
-        discard: () => {
-          this.measure?.discard();
-          this.plan.clear();
-        },
+        discard: () => this.measure?.discard(),
+        discardPlan: () => this.plan.clear(),
+        discardStale: () => this.measure?.discardStale(),
         discardPlanStale: () => {
           if (!confirm('Slette tegningene som ikke passer med modellen nå? Dette kan ikke angres.')) return;
           this.plan.removeOps(this.planHidden);

@@ -212,6 +212,27 @@ describe('lagring lokalt', () => {
     expect(new MeasureSession(changed, kv).progress().done).toBe(2);
   });
 
+  it('«Forkast» på gamle målinger sletter bare dem – dagens målinger beholdes', () => {
+    const kv = new MemoryKV();
+    const a = new MeasureSession(base, kv);
+    measureCurrent(a, 10);
+    measureCurrent(a, 10);
+    const changed = loadDoc();
+    changed.meta.name = 'Endret';
+    const b = new MeasureSession(changed, kv);
+    measureCurrent(b, 10);
+    expect(b.stale).toMatchObject({ count: 2 });
+    let calls = 0;
+    b.subscribe(() => calls++);
+    b.discardStale();
+    expect(calls).toBe(1);
+    expect(b.stale).toBeNull();
+    expect(b.progress().done).toBe(1);
+    const c = new MeasureSession(changed, kv);
+    expect(c.stale).toBeNull();
+    expect(c.progress().done).toBe(1);
+  });
+
   it('når den eksporterte fila er lastet opp, ryddes de lokale målingene', () => {
     const kv = new MemoryKV();
     const a = new MeasureSession(base, kv);

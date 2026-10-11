@@ -273,6 +273,18 @@ export class MeasureSession {
     this.notify();
   }
 
+  /** Forkaster bare de gamle målingene (laget mot en eldre fil); dagens beholdes. */
+  discardStale(): void {
+    if (!this.stale) return;
+    this.stale = null;
+    try {
+      this.storage?.removeItem(this.staleKey);
+    } catch {
+      /* lagring utilgjengelig */
+    }
+    this.notify();
+  }
+
   /** Bruker målinger som ble laget mot en eldre versjon av fila. */
   adoptStale(): boolean {
     const saved = this.read(this.staleKey);

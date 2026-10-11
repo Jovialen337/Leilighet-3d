@@ -118,3 +118,78 @@ Built and tested, then merged at the user's request before the gatekeeper/judge 
 - **Hurtigtaster** (1/2/T/U/K/R/F/H) with a help window. Fixed: F stopped working after a checkbox was clicked. Added «Tilbakestill visning» and «Fullskjerm».
 - Less per-frame work while aiming the teleport arc.
 - Tests: 94 unit tests and 30 Playwright tests, all green; 7 of the Playwright tests are new and cover these features.
+
+## Improvement round 2b – graphics, el og vann, lag og filtre – 2026-10-11
+
+Scored with the system in docs/SCORING.md: a gatekeeper checks before a judge scores.
+
+### What was built
+- **Graphics:**
+  - Lighting with neutral tone mapping, skirting and casings, soft wall, corner and contact shading, sky and ground, and dark cut faces in 2D.
+  - Quality presets «Rask», «Standard» and «Høy», and a counter for dropped frames.
+- **Electrical and water planning:**
+  - Pipes, circuits and new point types in the file.
+  - Local plan changes with undo.
+  - Drawing on the PC (mouse and keyboard, or large buttons) and in VR (ray, trigger, A and B).
+  - A summary with a materials list and guidance hints.
+- **Layers and filters:**
+  - Groups with a three-state switch and «Bare».
+  - Presets, existing/planned, circuit and x-ray, on PC and in VR.
+  - Cables and points are never cut and are drawn on top in 2D.
+
+### Gatekeeper (3 passes)
+1. **FAIL.**
+   - Stored drawings that were invalid could stop the model from loading.
+   - VR drawing allocated memory every frame.
+   - Missing tests and dead code.
+2. **FAIL.**
+   - The fix for pass 1 deleted older drawings for good when a measurement made them invalid.
+   - VR drawing still allocated about 5 KB per frame.
+3. **PASS** (e52d876).
+   - All gates green: 130 unit tests and 45 browser tests.
+   - 29 draw calls per eye by default and 33 at worst (limit 40). Textures about 4.7 MB.
+   - Drawings that no longer fit are hidden, not deleted, and come back when they fit.
+   - VR drawing allocates about 2 KB per frame, all of it three.js raycasting (the same kind as the accepted teleport aim), and `xr.update` takes about 0.5 ms.
+   - All 8 non-blocking remarks were then fixed in 216dc4b: «Angre» skips hidden drawings, clearer messages, one validation per click, and more.
+
+### Judge (scored at 216dc4b): **7.00 – not accepted**
+| Dimension | Weight | Score |
+|---|---|---|
+| Visual quality | 25 % | 7 |
+| Performance on Quest 3 | 20 % | 7 |
+| Options and control | 20 % | 7 |
+| Intuitive use | 15 % | 7 |
+| Code quality and integrity | 10 % | 8 |
+| Robustness | 10 % | 6 |
+
+**The blocking finding: ❌ Ikke akseptabel (data loss).** «Forkast» on *old* measurements also deleted every drawing. **Fixed after scoring:**
+- It now deletes only the old measurements. «Forkast målingene» and «Forkast tegningene» are separate buttons.
+- Unit and browser tests cover it.
+
+Other judge items fixed after scoring:
+- VR can choose a circuit for new cables («Kurs for nye» in «Tegn», shown on the wrist panel).
+- VR can choose a circuit for the filter («Lag»).
+- The VR menu says that «Høy» applies from the next VR session.
+- Cable is listed per kind in the materials list.
+- The drain-fall hint now checks 1:60, as its text says, toward the lower end.
+
+These fixes have **not** been re-scored by the judge. The round is merged at the user's request («Finish, test, then merge»), with every gate green.
+
+### Next round (the judge's priorities)
+1. **Edit what has been drawn:**
+   - Change the properties of the selected item.
+   - Drag points in 2D.
+   - A proper circuit form instead of `prompt()`, with renaming and deleting.
+2. **Make the plan easier to read and save:**
+   - A distinct symbol or colour per planned point type, and a legend for circuit colours.
+   - A save/download button inside «Tegn el og vann».
+3. **VR performance:** an allocation-free ray test against the cached wall and floor faces instead of three.js `intersectObjects`.
+4. **Measure on the real Quest 3:** read the FPS (Y) in Stue on «Standard», with «Røntgen» on, and while drawing a pipe. This is what can lift Performance to 8.
+
+### Test on the Quest (round 2b)
+1. Press X → «Visning» → try «Rask», «Standard» and «Høy». Read the FPS (Y) in the living room on each.
+2. X → «Tegn» → «Kaldtvann» (or a cable).
+   - Aim at a wall, pull the trigger for each point, then A to finish and B to undo.
+   - Try «Kurs for nye» for cables.
+3. X → «Lag» → «Elplan» / «Rørplan», then «Røntgen». Does the plan read well inside the walls?
+4. On the laptop: draw a cable in 2D (E, click, Enter). Look at the summary and the materials list in «Tegn el og vann».

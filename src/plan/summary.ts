@@ -7,8 +7,8 @@
  */
 import type { ApartmentModel } from '../model/ApartmentModel';
 import { p2 } from '../geometry/math2d';
-import type { FixtureType, PipeKind, Status } from '../schema/types';
-import { FIXTURE_TEXT, PIPE_KIND_TEXT, metres, runLength } from './draw';
+import type { FixtureType, PipeKind, Status, WireKind } from '../schema/types';
+import { FIXTURE_TEXT, PIPE_KIND_TEXT, WIRE_KIND_TEXT, metres, runLength } from './draw';
 
 export interface CircuitSummary {
   id: string | null;
@@ -25,6 +25,8 @@ export interface CircuitSummary {
 export interface PlanSummary {
   circuits: CircuitSummary[];
   pipes: { kind: PipeKind; length: number; planned: number }[];
+  /** Kabellengde per type (strøm, lys, data …), mm. */
+  cables: { kind: WireKind; length: number }[];
   water: Partial<Record<FixtureType, number>>;
   materials: string[];
   hints: string[];
@@ -49,7 +51,15 @@ export function summarize(model: ApartmentModel, include: { existing: boolean } 
     return c;
   };
   for (const k of d.circuits ?? []) circ(k.id);
-  for (const w of d.wiring) if (take(w.status)) circ(w.circuit ?? null).length += runLength(w.points);
+  const cableMap = new Map<WireKind, number>();
+  for (const w of d.wiring) {
+    if (!take(w.status)) continue;
+    const l = runLength(w.points);
+    circ(w.circuit ?? null).length += l;
+    const kind = w.kind ?? 'other';
+    cableMap.set(kind, (cableMap.get(kind) ?? 0) + l);
+  }
+  const cables = [...cableMap].map(([kind, length]) => ({ kind, length })).filter((c) => c.length > 0);
   const water: Partial<Record<FixtureType, number>> = {};
   for (const fx of d.fixtures) {
     if (!take(fx.status)) continue;
@@ -78,8 +88,8 @@ export function summarize(model: ApartmentModel, include: { existing: boolean } 
 
   // Materialliste (planlagt).
   const materials: string[] = [];
-  const cable = circuits.reduce((s, c) => s + c.length, 0);
-  if (cable > 0) materials.push(`Kabel: ${metres(cable * (1 + MARGIN))} (inkl. ${MARGIN * 100} % tillegg)`);
+  for (const c of cables)
+    materials.push(`Kabel – ${WIRE_KIND_TEXT[c.kind].toLowerCase()}: ${metres(c.length * (1 + MARGIN))} (inkl. ${MARGIN * 100} % tillegg)`);
   for (const p of pipes) materials.push(`${PIPE_KIND_TEXT[p.kind]}: ${metres(p.length * (1 + MARGIN))} rør`);
   const boxes = circuits.reduce((s, c) => s + c.outlets + c.switches + c.other, 0);
   if (boxes > 0) materials.push(`Veggbokser: ${boxes} stk`);
@@ -89,7 +99,28 @@ export function summarize(model: ApartmentModel, include: { existing: boolean } 
     if (n) materials.push(`${FIXTURE_TEXT[t]}: ${n} stk`);
   }
 
-  return { circuits, pipes, water, materials, hints: planHints(model) };
+  return { circuits, pipes, cables, water, materials, hints: planHints(model) };
+}
+
+/** Minste fall for avløp som veiledning (1:60). */
+export const DRAIN_FALL = 1 / 60;
+
+/**
+ * Om et rør faller minst `ratio` på hvert vannrette strekk, i retning mot den
+ * laveste enden. Loddrette strekk (stigninger) teller ikke.
+ */
+export function hasFall(points: readonly (readonly [number, number, number])[], ratio: number): boolean {
+  const first = points[0]!;
+  const last = points[points.length - 1]!;
+  const dir = first[1] >= last[1] ? 1 : -1; // 1 = renner fra første mot siste punkt
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1]!;
+    const b = points[i]!;
+    const horiz = Math.hypot(b[0] - a[0], b[2] - a[2]);
+    if (horiz < 300) continue;
+    if ((a[1] - b[1]) * dir < horiz * ratio) return false;
+  }
+  return true;
 }
 
 /** Veiledende sjekker (ikke regler). */
@@ -109,18 +140,11 @@ export function planHints(model: ApartmentModel): string[] {
       }
     }
   }
-  // Avløp skal ha fall.
+  // Avløp skal ha fall mot den laveste enden (uansett hvilken vei det ble tegnet).
   for (const r of d.pipes ?? []) {
-    if (r.kind !== 'drain') continue;
-    for (let i = 1; i < r.points.length; i++) {
-      const a = r.points[i - 1]!;
-      const b = r.points[i]!;
-      const horiz = Math.hypot(b[0] - a[0], b[2] - a[2]);
-      if (horiz > 300 && a[1] - b[1] < horiz / 100) {
-        hints.push(`Avløp «${r.name ?? r.id}» har for lite fall (ofte minst 1:60 – sjekk med rørlegger).`);
-        break;
-      }
-    }
+    if (r.kind !== 'drain' || r.points.length < 2) continue;
+    if (!hasFall(r.points, DRAIN_FALL))
+      hints.push(`Avløp «${r.name ?? r.id}» har for lite fall (ofte minst 1:60 – sjekk med rørlegger).`);
   }
   // Stikkontakter i oppholdsrom: omtrent 2 per påbegynte 4 m² (sjekk gjeldende norm).
   for (const info of model.rooms.values()) {
@@ -149,6 +173,7 @@ export function summaryText(s: PlanSummary): string {
     lines.push(
       `${c.name}${c.fuse ? ` (${c.fuse} A)` : ''}: kabel ${metres(c.length)}, ${c.outlets} stikkontakter, ${c.switches} brytere, ${c.lights} lamper`,
     );
+  for (const c of s.cables) lines.push(`Kabel – ${WIRE_KIND_TEXT[c.kind].toLowerCase()}: ${metres(c.length)}`);
   for (const p of s.pipes) lines.push(`${PIPE_KIND_TEXT[p.kind]}: ${metres(p.length)}`);
   if (s.materials.length) lines.push('', 'Materialliste (planlagt):', ...s.materials.map((m) => `- ${m}`));
   if (s.hints.length) lines.push('', 'Hint:', ...s.hints.map((h) => `- ${h}`));

@@ -179,7 +179,24 @@ describe('oversikt', () => {
     const cold = s.pipes.find((p) => p.kind === 'cold')!;
     expect(cold.length).toBeGreaterThan(cold.planned);
     expect(s.water.tap).toBe(2);
-    expect(summarize(model).materials.some((m) => m.startsWith('Kabel'))).toBe(true);
+    expect(summarize(model).materials.some((m) => m.startsWith('Kabel – '))).toBe(true);
+    const all = summarize(model, { existing: true });
+    const total = all.cables.reduce((t, c) => t + c.length, 0);
+    expect(total).toBeCloseTo(all.circuits.reduce((t, c) => t + c.length, 0), 6);
+  });
+
+  it('avløpsfall: 1:60 mot den laveste enden, uansett tegneretning', async () => {
+    const { hasFall, DRAIN_FALL } = await import('../../src/plan/summary');
+    // 3 m vannrett med 60 mm fall = 1:50: nok.
+    expect(hasFall([[0, 400, 0], [3000, 340, 0]], DRAIN_FALL)).toBe(true);
+    expect(hasFall([[3000, 340, 0], [0, 400, 0]], DRAIN_FALL)).toBe(true); // tegnet motsatt vei
+    // 3 m med 30 mm fall = 1:100: for lite (sjekket mot 1:60, som teksten sier).
+    expect(hasFall([[0, 400, 0], [3000, 370, 0]], DRAIN_FALL)).toBe(false);
+    expect(hasFall([[0, 400, 0], [3000, 400, 0]], DRAIN_FALL)).toBe(false);
+    // Stigning først, så fall: stigningen teller ikke.
+    expect(hasFall([[0, 900, 0], [0, 400, 0], [3000, 340, 0]], DRAIN_FALL)).toBe(true);
+    // Feil vei på ett strekk.
+    expect(hasFall([[0, 400, 0], [1500, 420, 0], [3000, 300, 0]], DRAIN_FALL)).toBe(false);
   });
 
   it('hint: skrå kabel i vegg', () => {

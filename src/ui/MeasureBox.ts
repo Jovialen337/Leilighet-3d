@@ -11,7 +11,12 @@ export interface MeasureActions {
   download(): void;
   copy(): Promise<boolean>;
   uploadUrl(): string;
+  /** Forkaster de lokale målingene (tegningene beholdes). */
   discard(): void;
+  /** Forkaster de tegnede endringene (målingene beholdes). */
+  discardPlan(): void;
+  /** Forkaster bare de gamle målingene (laget mot en eldre fil). */
+  discardStale(): void;
   adoptStale(): void;
   /** Forkast tegnede endringer som ikke passer med modellen nå. */
   discardPlanStale?(): void;
@@ -46,6 +51,8 @@ export class MeasureBox {
   private readonly planStaleText: HTMLElement;
   private readonly upload: HTMLAnchorElement;
   private readonly copyButton: HTMLButtonElement;
+  private readonly discardMeasure: HTMLButtonElement;
+  private readonly discardPlan: HTMLButtonElement;
   private measuring = false;
 
   constructor(private readonly actions: MeasureActions) {
@@ -69,9 +76,13 @@ export class MeasureBox {
         setTimeout(() => (this.copyButton.textContent = 'Kopier'), 2000);
       });
     });
-    const discard = h('button', { class: 'link danger', 'data-testid': 'draft-discard' }, 'Forkast endringene');
-    discard.addEventListener('click', () => {
-      if (confirm('Slette alle lokale endringer (målinger og tegninger)? Dette kan ikke angres.')) actions.discard();
+    this.discardMeasure = h('button', { class: 'link danger', 'data-testid': 'draft-discard' }, 'Forkast målingene');
+    this.discardMeasure.addEventListener('click', () => {
+      if (confirm('Slette de lokale målingene? Tegningene beholdes. Dette kan ikke angres.')) actions.discard();
+    });
+    this.discardPlan = h('button', { class: 'link danger', 'data-testid': 'draft-discard-plan' }, 'Forkast tegningene');
+    this.discardPlan.addEventListener('click', () => {
+      if (confirm('Slette alle tegnede endringer (el og vann)? Målingene beholdes. Dette kan ikke angres.')) actions.discardPlan();
     });
     this.draft = h(
       'div',
@@ -84,7 +95,7 @@ export class MeasureBox {
         { class: 'hint' },
         'Slik lagrer du: last ned fila, trykk «Last opp til GitHub», velg fila og trykk «Commit changes». Siden oppdateres etter et par minutter.',
       ),
-      discard,
+      h('div', { class: 'actions' }, this.discardMeasure, this.discardPlan),
     );
 
     this.staleText = h('p', {});
@@ -92,7 +103,7 @@ export class MeasureBox {
     adopt.addEventListener('click', () => actions.adoptStale());
     const dropStale = h('button', { class: 'link danger', 'data-testid': 'stale-discard' }, 'Forkast');
     dropStale.addEventListener('click', () => {
-      if (confirm('Slette de gamle målingene?')) actions.discard();
+      if (confirm('Slette de gamle målingene? Dagens målinger og tegningene beholdes.')) actions.discardStale();
     });
     this.stale = h('div', { class: 'draft stale', 'data-testid': 'draft-stale', hidden: '' }, this.staleText, h('div', { class: 'actions' }, adopt, dropStale));
     this.planStaleText = h('p', {});
@@ -146,6 +157,8 @@ export class MeasureBox {
       this.draftStatus.textContent = `Lokale endringer – ${parts.join(' · ')}. De er lagret i denne nettleseren, ikke i fila ennå.`;
       this.upload.href = this.actions.uploadUrl();
     }
+    this.discardMeasure.hidden = !measured;
+    this.discardPlan.hidden = plan === 0;
     this.draftError.hidden = !ms?.error;
     this.draftError.textContent = ms?.error ? `Siste måling ga en feil i modellen: ${ms.error}` : '';
 

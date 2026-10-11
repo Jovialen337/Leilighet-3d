@@ -23,10 +23,11 @@ import { MeasureMode, type MeasureDebugState } from './MeasureMode';
 import { TeleportArc } from './teleport';
 import { WristPanel } from './WristPanel';
 import { WristMenu } from './WristMenu';
-import { DRAW_ITEMS, type MenuTab } from './menuLayout';
+import { DRAW_ITEMS, buildMenu, type MenuTab } from './menuLayout';
 import type { PlanController } from '../plan/PlanController';
 import { FIXTURE_TEXT, PIPE_KIND_TEXT, WIRE_KIND_TEXT, type DrawOptions } from '../plan/draw';
 import { QUALITIES, type Quality, type TurnMode, type XRRate } from '../state/ViewState';
+import { WATER_FIXTURES } from '../schema/types';
 import { LAYER_GROUPS, LAYER_PRESETS, applyPreset, groupState, setGroup } from '../state/layerGroups';
 import { followFloor, placeAtSpawn, snapTurn, teleportTo } from './rig';
 
@@ -89,6 +90,8 @@ export class XRManager {
   private triggerEdge = false;
   /** Aktivt tegneverktøy i VR (id fra DRAW_ITEMS), eller null. */
   private drawTool: string | null = null;
+  /** Om denne VR-økten startet med «Høy» (høyere oppløsning kan bare settes før økten starter). */
+  private sessionHigh = false;
   private aWasPressed = false;
   private lastHelp = 0;
   private bWasPressed = false;
@@ -202,7 +205,8 @@ export class XRManager {
     this.requestedMode = 'walk';
     try {
       // «Høy» grafikk: litt høyere oppløsning i VR (må settes før økten starter).
-      this.renderer.xr.setFramebufferScaleFactor(this.view.quality.value === 'high' ? 1.2 : 1);
+      this.sessionHigh = this.view.quality.value === 'high';
+      this.renderer.xr.setFramebufferScaleFactor(this.sessionHigh ? 1.2 : 1);
       const session = await navigator.xr.requestSession('immersive-vr', {
         optionalFeatures: ['local-floor', 'bounded-floor'],
       });
@@ -447,7 +451,13 @@ export class XRManager {
       presets: LAYER_PRESETS.map((p) => ({ id: p.id, name: p.name })),
       drawTool: this.drawTool,
       drawPlanned: (this.plan?.options.value.status ?? 'planned') === 'planned',
-      circuitFiltered: this.view.circuit.value !== null,
+      circuits: model ? (model.data.circuits ?? []).map((c) => ({ id: c.id, name: c.name })) : [],
+      drawCircuit: this.plan?.options.value.circuit ?? null,
+      filterCircuit: this.view.circuit.value,
+      qualityNote:
+        this.mode === 'walk' && this.presenting && (this.view.quality.value === 'high') !== this.sessionHigh
+          ? 'Skarpheten endres neste gang du går inn i VR.'
+          : null,
     };
   }
 
@@ -497,7 +507,13 @@ export class XRManager {
         this.drawAction(id);
         break;
       case 'circuit':
-        v.circuit.set(null);
+        v.circuit.set(arg === 'next' ? this.nextCircuit(v.circuit.value) : null);
+        break;
+      case 'drawcircuit':
+        if (this.plan) {
+          this.plan.set({ circuit: this.nextCircuit(this.plan.options.value.circuit ?? null) });
+          this.updateWristHelp();
+        }
         break;
     }
     this.menuDirty = true;
@@ -602,6 +618,11 @@ export class XRManager {
     }
   }
 
+  /** Overskrifter og beskjeder i menyen slik den ser ut nå (for tester). */
+  menuLabels(): { text: string }[] {
+    return buildMenu(this.menuState()).labels;
+  }
+
   /** Midtpunktet av en menyknapp i verden (for tester). */
   menuItemWorld(id: string): { x: number; y: number; z: number } | null {
     const p = this.menu.itemWorld(id);
@@ -676,6 +697,14 @@ export class XRManager {
     return this.measure?.debugState() ?? null;
   }
 
+  /** Neste kurs i fila etter `id` (null = ingen/alle; etter siste kommer null igjen). */
+  private nextCircuit(id: string | null): string | null {
+    const ids = (this.getModel()?.data.circuits ?? []).map((c) => c.id);
+    if (!ids.length) return null;
+    const i = id ? ids.indexOf(id) : -1;
+    return i + 1 < ids.length ? ids[i + 1]! : null;
+  }
+
   private updateWristHelp(): void {
     const p = this.plan;
     if (p && this.drawTool) {
@@ -689,8 +718,11 @@ export class XRManager {
               ? (FIXTURE_TEXT[o.fixtureType] ?? 'Punkt')
               : 'Velg og slett';
       const len = p.drawing ? ` · ${(p.liveLength() / 1000).toFixed(1).replace('.', ',')} m` : '';
+      const electric = o.tool === 'wire' || (o.tool === 'fixture' && !WATER_FIXTURES.includes(o.fixtureType));
+      const circuit = electric ? (this.getModel()?.data.circuits?.find((c) => c.id === o.circuit)?.name ?? 'ingen kurs') : null;
       this.wrist.setLines([
         `Tegner: ${what}${len}`,
+        ...(circuit ? [`Kurs: ${circuit}`] : []),
         o.tool === 'select' ? 'Avtrekker: velg · A: slett' : o.tool === 'fixture' ? 'Avtrekker: sett inn' : 'Avtrekker: punkt · A: ferdig',
         'B: angre · X: meny',
       ]);

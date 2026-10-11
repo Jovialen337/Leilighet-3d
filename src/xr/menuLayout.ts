@@ -65,8 +65,14 @@ export interface MenuState {
   /** Aktivt tegneverktøy i VR (id fra DRAW_ITEMS), eller null. */
   drawTool: string | null;
   drawPlanned: boolean;
-  /** Bare én kurs vises (filter på). */
-  circuitFiltered: boolean;
+  /** Kursene i fila (for kursvalg i «Tegn» og kursfilter i «Lag»). */
+  circuits: readonly { id: string; name: string }[];
+  /** Kursen nye kabler og el-punkter får, eller null. */
+  drawCircuit: string | null;
+  /** Kursfilteret (bare denne kursen vises), eller null = alle. */
+  filterCircuit: string | null;
+  /** Beskjed under grafikkvalget (f.eks. at «Høy» gjelder fra neste VR-økt), eller null. */
+  qualityNote: string | null;
 }
 
 /** Overskrifter i lerretet (tegnes, men kan ikke trykkes på). */
@@ -122,7 +128,9 @@ export function buildMenu(s: MenuState): { items: MenuItem[]; labels: MenuLabel[
       const row = Math.floor(i / 2);
       items.push({ id: o.id, kind: o.kind, label: o.label, active: o.active, x: PAD + col * (w + GAP), y: y + row * (rowH + 10), w, h: rowH });
     });
+    y += rows * (rowH + 10);
   };
+  const circuitName = (id: string | null): string | null => (id ? (s.circuits.find((c) => c.id === id)?.name ?? id) : null);
 
   switch (s.tab) {
     case 'visning':
@@ -137,6 +145,7 @@ export function buildMenu(s: MenuState): { items: MenuItem[]; labels: MenuLabel[
         { id: 'quality:medium', label: 'Standard', active: s.quality === 'medium' },
         { id: 'quality:high', label: 'Høy', active: s.quality === 'high' },
       ]);
+      if (s.qualityNote) labels.push({ text: s.qualityNote, x: PAD, y: y + 30 });
       break;
     case 'lag': {
       labels.push({ text: 'Vis', x: PAD, y: y + 34 });
@@ -151,7 +160,10 @@ export function buildMenu(s: MenuState): { items: MenuItem[]; labels: MenuLabel[
         { id: 'toggle:existing', label: 'Eksisterende', on: s.showExisting, kind: 'toggle' as const },
         { id: 'toggle:planned', label: 'Planlagt', on: s.showPlanned, kind: 'toggle' as const },
         { id: 'toggle:xray', label: 'Røntgen', on: s.xray, kind: 'toggle' as const },
-        ...(s.circuitFiltered ? [{ id: 'circuit:all', label: 'Alle kurser', on: false, kind: 'action' as const }] : []),
+        // Kursfilter: hvert trykk viser neste kurs, og til slutt alle igjen.
+        ...(s.circuits.length || s.filterCircuit
+          ? [{ id: 'circuit:next', label: circuitName(s.filterCircuit) ?? 'Alle kurser', on: s.filterCircuit !== null, kind: 'action' as const }]
+          : []),
       ];
       const tw = (full - (t3.length - 1) * GAP) / t3.length;
       t3.forEach((t, i) => items.push({ id: t.id, kind: t.kind, label: t.label, active: t.on, x: PAD + i * (tw + GAP), y, w: tw, h: ROW_H }));
@@ -179,6 +191,11 @@ export function buildMenu(s: MenuState): { items: MenuItem[]; labels: MenuLabel[
         { id: 'draw:status', label: s.drawPlanned ? 'Nytt: planlagt' : 'Nytt: eksisterende', active: s.drawPlanned, kind: 'toggle' as const },
         { id: 'draw:off', label: 'Slutt å tegne', active: false, kind: 'action' as const },
       ]);
+      if (s.circuits.length) {
+        // Hvert trykk velger neste kurs for nye kabler og el-punkter (og til slutt ingen).
+        y += 4;
+        items.push({ id: 'drawcircuit:next', kind: 'action', label: `Kurs for nye: ${circuitName(s.drawCircuit) ?? 'ingen'}`, active: s.drawCircuit !== null, x: PAD, y, w: full, h: 62 });
+      }
       break;
     }
     case 'ga':

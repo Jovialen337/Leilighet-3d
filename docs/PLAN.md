@@ -89,8 +89,9 @@ Every capture gives a short vibration. Moving around is by walking only: telepor
 - `src/xr/InfoPanel.ts`: the instruction panel follows the left hand and always turns to face you.
 - `src/ui/MeasureBox.ts`: the «Oppmåling» section in the page panel.
   - «Mål opp leiligheten» / «Fortsett oppmålingen», with local progress.
-  - «Last ned apartment.json», «Last opp til GitHub» (opens the upload page for `public/`), «Kopier», «Forkast målingene».
-  - Notices for stale or published measurements.
+  - «Last ned apartment.json», «Last opp til GitHub» (opens the upload page for `public/`), «Kopier».
+  - «Forkast målingene» and «Forkast tegningene» are separate buttons, each with its own confirmation. Each one keeps the other kind of change.
+  - Notices for stale or published measurements. «Forkast» on old measurements (made against an earlier file) deletes only those; today's measurements and all drawings are kept.
 - **Tests no longer depend on the published file.** Unit and browser tests use a frozen copy of the placeholder (`tests/fixtures/placeholder.json`). The published `public/apartment.json` is only checked to be valid and to load without errors, so uploading real measurements cannot break the deploy.
 
 ### Known limitation: the layout must roughly match
@@ -141,17 +142,18 @@ The fastest fix is to correct the layout *before* measuring, using a floor plan 
   - X → «Tegn», then choose a cable, a pipe kind or a point type.
   - Aim with the right controller at a wall, floor or ceiling. Trigger places a point, A finishes (or deletes in «Velg og slett»), B undoes.
   - The height is taken from where the ray hits, held level within 6 cm of the previous point.
+  - «Kurs for nye» in the «Tegn» tab picks the circuit for new cables and electrical points: each press selects the next circuit, then none. The wrist panel shows «Kurs: …».
 - **Summary:**
   - Cable length per circuit, with counts of outlets, switches and lights.
-  - Pipe length per kind.
+  - Cable length per kind (strøm, lys, data) and pipe length per kind.
   - A materials list for planned work (plus 10 % margin), with «Kopier».
-  - Guidance hints: sloping concealed cables, drain fall, outlets per m². They are marked as guidance, not design.
+  - Guidance hints: sloping concealed cables, outlets per m², and drain fall. Drain fall is checked at 1:60 toward the lower end, whichever way the pipe was drawn. All hints are marked as guidance, not design.
 
 ### Layers and filters
 
 - Layers are grouped as Bygg, Elektrisk, Vann og avløp, Ventilasjon, Interiør, and Ute og annet. Each group has a tri-state master switch, and each layer has «Bare» (show only this layer plus the building).
 - Presets: «Alt», «Elplan», «Rørplan», «Bare bygg». «Vis alle» / «Skjul alle».
-- Filters: existing / planned, a single circuit, and **røntgen** (see-through walls and ceilings, so cables and pipes in walls show).
+- Filters: existing / planned, a single circuit, and **røntgen** (see-through walls and ceilings, so cables and pipes in walls show). In VR, the circuit button in «Lag» shows the next circuit on each press, then all circuits again.
 - In the 2D plan, cables, pipes and electrical/water points are never cut and are drawn on top, so the whole plan always shows.
 - The same presets, filters and groups are in the VR menu («Lag»). Everything is saved per device.
 

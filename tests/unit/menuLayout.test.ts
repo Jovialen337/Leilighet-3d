@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildMenu, MENU_H, MENU_W, type MenuState, type MenuTab } from '../../src/xr/menuLayout';
 
-const state = (tab: MenuTab, layerCount: number, circuitFiltered = false): MenuState => ({
+const state = (tab: MenuTab, layerCount: number, filterCircuit: string | null = null): MenuState => ({
   tab,
   ceilings: true,
   highlight: false,
@@ -22,7 +22,13 @@ const state = (tab: MenuTab, layerCount: number, circuitFiltered = false): MenuS
   ],
   drawTool: null,
   drawPlanned: true,
-  circuitFiltered,
+  circuits: [
+    { id: 'kurs-1', name: 'Kurs 1 – gang og stue' },
+    { id: 'kurs-2', name: 'Kurs 2 – planterom' },
+  ],
+  drawCircuit: null,
+  filterCircuit,
+  qualityNote: null,
 });
 
 describe('VR-menyen', () => {
@@ -36,10 +42,23 @@ describe('VR-menyen', () => {
     }
   });
 
-  it('«Alle kurser» vises bare når et kursfilter er på, og alle sider får plass', () => {
-    expect(buildMenu(state('lag', 13)).items.some((i) => i.id === 'circuit:all')).toBe(false);
-    expect(buildMenu(state('lag', 13, true)).items.some((i) => i.id === 'circuit:all')).toBe(true);
+  it('kursvalg i «Lag» (filter) og «Tegn» (nye kabler), og alle sider får plass', () => {
+    const lag = (f: string | null) => buildMenu(state('lag', 13, f)).items.find((i) => i.id === 'circuit:next');
+    expect(lag(null)).toMatchObject({ label: 'Alle kurser', active: false });
+    expect(lag('kurs-2')).toMatchObject({ label: 'Kurs 2 – planterom', active: true });
+    const tegn = buildMenu({ ...state('tegn', 13), drawCircuit: 'kurs-1' }).items.find((i) => i.id === 'drawcircuit:next');
+    expect(tegn).toMatchObject({ label: 'Kurs for nye: Kurs 1 – gang og stue', active: true });
+    expect(buildMenu({ ...state('tegn', 13), circuits: [] }).items.some((i) => i.id === 'drawcircuit:next')).toBe(false);
     for (const tab of ['visning', 'lag', 'lagliste', 'tegn', 'ga', 'komfort'] as const)
-      for (const it of buildMenu(state(tab, 13, true)).items) expect(it.y + it.h).toBeLessThanOrEqual(MENU_H);
+      for (const it of buildMenu({ ...state(tab, 13, 'kurs-1'), qualityNote: 'x' }).items) {
+        expect(it.y + it.h).toBeLessThanOrEqual(MENU_H);
+        expect(it.x + it.w).toBeLessThanOrEqual(MENU_W);
+      }
+  });
+
+  it('beskjed om skarphet vises under grafikkvalget', () => {
+    expect(buildMenu({ ...state('visning', 13), qualityNote: 'Skarpheten endres neste gang du går inn i VR.' }).labels.map((l) => l.text)).toContain(
+      'Skarpheten endres neste gang du går inn i VR.',
+    );
   });
 });

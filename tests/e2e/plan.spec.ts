@@ -3,7 +3,7 @@
  * (emulert Quest 3, strålen fra høyre kontroller).
  */
 import { expect, type Page } from '@playwright/test';
-import { aimAt, collectErrors, enterVR, menuPress, press, test, waitForModel, xrState } from './helpers';
+import { aimAt, collectErrors, enterVR, menuPress, placeholder, press, test, waitForModel, xrState } from './helpers';
 
 const scr = (page: Page, x: number, y: number, z: number) =>
   page.evaluate(([a, b, c]) => (window as any).leilighet.desktop.screenOf(a, b, c), [x, y, z] as const);
@@ -357,14 +357,39 @@ test('VR: avslutt økten midt i en tegning – verktøy og utkast nullstilles, r
   expect(errors).toEqual([]);
 });
 
-test('VR: «Alle kurser» i Lag-fanen slår av kursfilteret', async ({ page }) => {
+test('VR: kursfilter og kurs for nye kabler velges i menyen, og «Høy» sier at den gjelder neste økt', async ({ page }) => {
   await enterVR(page);
-  await page.evaluate(() => (window as any).leilighet.view.circuit.set('kurs-1'));
+  const a = (expr: string) => page.evaluate((e) => new Function('a', `return ${e}`)((window as any).leilighet), expr);
+  const ids: string[] = await a('a.store.model.data.circuits.map((c) => c.id)');
+  expect(ids.length).toBeGreaterThan(1);
   await press(page, 'left', 'x-button');
   await menuPress(page, 'tab:lag');
-  await menuPress(page, 'circuit:all');
-  expect(await page.evaluate(() => (window as any).leilighet.view.circuit.value)).toBeNull();
-  expect(await page.evaluate(() => (window as any).leilighet.apartment.ranges.has('kabel-planterom'))).toBe(true);
+  // Hvert trykk: neste kurs, og til slutt alle igjen.
+  for (const id of ids) {
+    await menuPress(page, 'circuit:next');
+    expect(await a('a.view.circuit.value')).toBe(id);
+  }
+  expect(await a("a.apartment.ranges.has('kabel-planterom')")).toBe(ids.at(-1) === 'kurs-2');
+  await menuPress(page, 'circuit:next');
+  expect(await a('a.view.circuit.value')).toBeNull();
+  expect(await a("a.apartment.ranges.has('kabel-planterom')")).toBe(true);
+
+  // Kurs for nye kabler, og den står på håndleddet.
+  await menuPress(page, 'tab:tegn');
+  await menuPress(page, 'draw:wire:power');
+  await press(page, 'left', 'x-button');
+  await menuPress(page, 'tab:tegn');
+  const before = await a('a.planCtrl.options.value.circuit');
+  await menuPress(page, 'drawcircuit:next');
+  const after = await a('a.planCtrl.options.value.circuit');
+  expect(after).toBe(ids[(before ? ids.indexOf(before) : -1) + 1] ?? null);
+  const name = await a(`a.store.model.data.circuits.find((c) => c.id === ${JSON.stringify(after)})?.name ?? 'ingen kurs'`);
+  expect(await a('a.xr.wrist.lines')).toContain(`Kurs: ${name}`);
+
+  // «Høy» i VR: beskjed om at skarpheten gjelder neste økt.
+  await menuPress(page, 'tab:visning');
+  await menuPress(page, 'quality:high');
+  expect(await a('a.xr.menuLabels().map((l) => l.text)')).toContain('Skarpheten endres neste gang du går inn i VR.');
 });
 
 test('PC: skarphet ved skjermskala 1 (Rask/Standard/Høy)', async ({ browser }) => {
@@ -379,4 +404,54 @@ test('PC: skarphet ved skjermskala 1 (Rask/Standard/Høy)', async ({ browser }) 
   await page.getByTestId('setting-quality').selectOption({ label: 'Høy' });
   expect(await ratio()).toBe(1.5);
   await ctx.close();
+});
+
+test('«Forkast» på gamle målinger beholder tegningene, og målinger og tegninger forkastes hver for seg', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('./');
+  await waitForModel(page);
+  // To målinger og én tegnet kabel.
+  await page.evaluate(() => {
+    const a = (window as any).leilighet;
+    for (let i = 0; i < 2; i++) {
+      const t = a.measure.current();
+      a.measure.record({ x: t.target.x + 10, y: t.target.y, z: t.target.z }, t);
+    }
+    a.plan.put('wiring', { id: 'k-behold', layer: 'wiring', status: 'planned', kind: 'power', points: [[3000, 300, 1000], [4000, 300, 1000]] });
+  });
+  // Fila endres (f.eks. rettet planløsning): målingene blir «gamle».
+  const changed = placeholder();
+  changed.meta.name = 'Rettet planløsning';
+  await page.route('**/apartment.json', (route) => route.fulfill({ json: changed }));
+  await page.reload();
+  await waitForModel(page);
+  await expect(page.getByTestId('draft-stale')).toBeVisible();
+  const state = () =>
+    page.evaluate(() => {
+      const a = (window as any).leilighet;
+      return { ops: a.plan.size, wire: a.store.model.data.wiring.some((w: any) => w.id === 'k-behold'), stale: !!a.measure.stale };
+    });
+  expect(await state()).toEqual({ ops: 1, wire: true, stale: true });
+  page.once('dialog', (d) => void d.accept());
+  await page.getByTestId('stale-discard').click();
+  await expect(page.getByTestId('draft-stale')).toBeHidden();
+  expect(await state()).toEqual({ ops: 1, wire: true, stale: false });
+
+  // Ny måling, så forkastes målingene og tegningene hver for seg.
+  await page.evaluate(() => {
+    const a = (window as any).leilighet;
+    const t = a.measure.current();
+    a.measure.record({ x: t.target.x + 10, y: t.target.y, z: t.target.z }, t);
+  });
+  await expect(page.getByTestId('draft-discard')).toBeVisible();
+  page.once('dialog', (d) => void d.accept());
+  await page.getByTestId('draft-discard').click();
+  expect(await page.evaluate(() => (window as any).leilighet.measure.hasMeasurements)).toBe(false);
+  expect((await state()).ops).toBe(1);
+  await expect(page.getByTestId('draft-discard')).toBeHidden();
+  page.once('dialog', (d) => void d.accept());
+  await page.getByTestId('draft-discard-plan').click();
+  expect(await state()).toEqual({ ops: 0, wire: false, stale: false });
+  await expect(page.getByTestId('draft')).toBeHidden();
+  expect(errors).toEqual([]);
 });
