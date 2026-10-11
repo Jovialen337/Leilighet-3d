@@ -4,7 +4,7 @@
  * merge.ts, og brukes også som usynlige treffflater for teleport/valg.
  */
 import * as THREE from 'three';
-import type { MeasureState, Opening } from '../schema/types';
+import { ELECTRICAL_FIXTURES, WATER_FIXTURES, type MeasureState, type Opening } from '../schema/types';
 import {
   fixtureSize,
   frameAt,
@@ -14,6 +14,7 @@ import {
 import { add, centroid, p2, scale, type P2 } from '../geometry/math2d';
 import { planeY } from '../geometry/plane';
 import { buildWallGeometry } from './buildWall';
+import { roomEdges } from './roomEdges';
 import {
   GeoBuilder,
   UP,
@@ -40,10 +41,12 @@ export type PartKind =
   | 'outdoor'
   | 'zone'
   | 'wire'
-  | 'note';
+  | 'note'
+  | 'trim'
+  | 'pipe';
 
 /** Materialgruppe. Én mesh per lag og gruppe. */
-export type Bucket = 'solid' | 'ceiling' | 'glass' | 'overlay';
+export type Bucket = 'solid' | 'wall' | 'ceiling' | 'glass' | 'overlay' | 'lines';
 
 /** Rolle ved teleport: gulv man kan lande på, hindring, eller ingen. */
 export type PickRole = 'floor' | 'blocker' | 'none';
@@ -57,7 +60,13 @@ export interface Part {
   geometry: THREE.BufferGeometry;
   color: THREE.Color;
   measure: MeasureState;
+  /** For filtre: eksisterende/planlagt og elektrisk kurs. */
+  status?: 'existing' | 'planned';
+  circuit?: string;
 }
+
+/** Fotlist og gerikter (mm). Bare presentasjon; plasseringen kommer fra fila. */
+export const TRIM = { skirtingHeight: 70, skirtingDepth: 12, casingWidth: 60, casingDepth: 12 } as const;
 
 export const COLORS = {
   floor: '#b5a48f',
@@ -83,6 +92,20 @@ const FIXTURE_COLOR: Record<string, string> = {
   pipe: '#a0a0a0',
   vent: '#d9d9d9',
   hatch: '#5f5f5f',
+  light: '#fff6d6',
+  junction: '#e6e6e6',
+  panel: '#d8d8d8',
+  tap: '#c9ced3',
+  drain: '#9aa0a6',
+  valve: '#c0392b',
+  waterheater: '#f2f2f2',
+};
+
+export const PIPE_COLOR: Record<string, string> = {
+  cold: '#2f7de1',
+  hot: '#e0452f',
+  drain: '#6f747a',
+  other: '#9a8f80',
 };
 
 const OUTDOOR_COLOR: Record<string, string> = {
@@ -114,11 +137,21 @@ export function buildParts(model: ApartmentModel): Part[] {
     const n = new THREE.Vector3(info.plane.a, -1, info.plane.b).normalize();
     polygonSurface(ceil, info.polygon, (p) => planeY(info.plane, p.x, p.z), n);
     push({ id: room.id, kind: 'ceiling', layer, bucket: 'ceiling', pick: 'blocker', geometry: ceil.build(), color: col(room.ceiling.color ?? COLORS.ceiling) });
+
+    // Fotlist langs veggene, avbrutt ved dører og åpninger.
+    const skirt = new GeoBuilder();
+    for (const e of roomEdges(model, info, true)) {
+      const l = Math.hypot(e.b.x - e.a.x, e.b.z - e.a.z);
+      const c = add(scale(add(e.a, e.b), 0.5), scale(e.inward, TRIM.skirtingDepth / 2));
+      const yaw = Math.atan2(-e.dir.z, e.dir.x);
+      skirt.addGeometry(boxGeo(l, TRIM.skirtingHeight, TRIM.skirtingDepth), placeMatrix(c.x, room.floorLevel + TRIM.skirtingHeight / 2, c.z, yaw));
+    }
+    push({ id: room.id, kind: 'trim', layer, bucket: 'solid', pick: 'none', geometry: skirt.build(), color: col(COLORS.frame) });
   }
 
   /* Vegger */
   for (const f of model.walls.values()) {
-    push({ id: f.wall.id, kind: 'wall', layer: f.wall.layer ?? 'structure', bucket: 'solid', pick: 'blocker', geometry: buildWallGeometry(model, f), color: col(f.wall.color) });
+    push({ id: f.wall.id, kind: 'wall', layer: f.wall.layer ?? 'structure', bucket: 'wall', pick: 'blocker', geometry: buildWallGeometry(model, f), color: col(f.wall.color) });
   }
 
   /* Åpninger */
@@ -139,7 +172,8 @@ export function buildParts(model: ApartmentModel): Part[] {
     const g = new GeoBuilder();
     g.addGeometry(geo, placeMatrix(pl.x, pl.y, pl.z, pl.yaw));
     const color = fx.color ?? (fx.status === 'planned' ? COLORS.planned : FIXTURE_COLOR[fx.type]!);
-    push({ id: fx.id, kind: 'fixture', layer: fx.layer, bucket: 'solid', pick: 'none', geometry: g.build(), color: col(color) });
+    const isInstall = ELECTRICAL_FIXTURES.includes(fx.type) || WATER_FIXTURES.includes(fx.type);
+    push({ id: fx.id, kind: 'fixture', layer: fx.layer, bucket: isInstall ? 'lines' : 'solid', pick: 'none', geometry: g.build(), color: col(color), status: fx.status, ...(fx.circuit ? { circuit: fx.circuit } : {}) });
   }
 
   /* Møbler */
@@ -185,7 +219,17 @@ export function buildParts(model: ApartmentModel): Part[] {
     const pts = wr.points.map(([x, h, z]) => w3(p2(x, z), model.floorOrDefault(p2(x, z)) + h));
     const g = new GeoBuilder();
     for (let i = 0; i + 1 < pts.length; i++) beam(g, pts[i]!, pts[i + 1]!, 20);
-    push({ id: wr.id, kind: 'wire', layer: wr.layer, bucket: 'solid', pick: 'none', geometry: g.build(), color: col(wr.color ?? (wr.status === 'planned' ? COLORS.wirePlanned : COLORS.wireExisting)) });
+    const circuitColor = wr.circuit ? d.circuits?.find((k) => k.id === wr.circuit)?.color : undefined;
+    push({ id: wr.id, kind: 'wire', layer: wr.layer, bucket: 'lines', pick: 'none', geometry: g.build(), color: col(wr.color ?? circuitColor ?? (wr.status === 'planned' ? COLORS.wirePlanned : COLORS.wireExisting)), status: wr.status, ...(wr.circuit ? { circuit: wr.circuit } : {}) });
+  }
+
+  /* Rør (vann og avløp) */
+  for (const pr of d.pipes ?? []) {
+    const pts = pr.points.map(([x, h, z]) => w3(p2(x, z), model.floorOrDefault(p2(x, z)) + h));
+    const g = new GeoBuilder();
+    const dia = pr.diameter ?? (pr.kind === 'drain' ? 50 : 22);
+    for (let i = 0; i + 1 < pts.length; i++) beam(g, pts[i]!, pts[i + 1]!, dia);
+    push({ id: pr.id, kind: 'pipe', layer: pr.layer, bucket: 'lines', pick: 'none', geometry: g.build(), color: col(pr.color ?? PIPE_COLOR[pr.kind]!), status: pr.status });
   }
 
   /* Notater: en liten svevende lapp (teksten vises i 2D-planen) */
@@ -239,6 +283,7 @@ function buildOpening(model: ApartmentModel, o: Opening, push: Push): void {
     wallBox(frame, f, span.u1 - jamb / 2, span.bottom + height / 2, midN, jamb, height, thick + 20);
     wallBox(frame, f, midU, span.top - jamb / 2, midN, width, jamb, thick + 20);
     push({ id: o.id, kind: 'door', layer, bucket: 'solid', pick: 'none', geometry: frame.build(), color: col(COLORS.frame) });
+    push({ id: o.id, kind: 'trim', layer, bucket: 'solid', pick: 'none', geometry: casing(f, span, [f.nMin, f.nMax]), color: col(COLORS.frame) });
 
     const dg = model.doorGeometry(o);
     if (!dg) return;
@@ -281,6 +326,9 @@ function buildOpening(model: ApartmentModel, o: Opening, push: Push): void {
     wallBox(frame, f, span.u1 - fw / 2, span.bottom + height / 2, midN, fw, height - 2 * fw, depth);
     wallBox(frame, f, midU, span.bottom + height / 2, midN, fw / 2, height - 2 * fw, depth - 20);
     push({ id: o.id, kind: 'window', layer, bucket: 'solid', pick: 'none', geometry: frame.build(), color: col(o.frameColor ?? COLORS.frame) });
+    const roomSide = o.room ? model.sideOfRoom(f, o.room, midU) : null;
+    if (roomSide)
+      push({ id: o.id, kind: 'trim', layer, bucket: 'solid', pick: 'none', geometry: casing(f, span, [roomSide === 'left' ? f.nMax : f.nMin]), color: col(o.frameColor ?? COLORS.frame) });
 
     const glass = new GeoBuilder();
     wallBox(glass, f, midU, span.bottom + height / 2, midN, width - 2 * fw, height - 2 * fw, 8);
@@ -297,6 +345,22 @@ function buildOpening(model: ApartmentModel, o: Opening, push: Push): void {
       push({ id: o.id, kind: 'window', layer, bucket: 'solid', pick: 'none', geometry: sill.build(), color: col(COLORS.sill) });
     }
   }
+}
+
+/** Gerikt rundt en åpning på de gitte veggflatene: to sider og topp (under vinduer er det vinduskarmen). */
+function casing(f: WallFrame, span: { u0: number; u1: number; bottom: number; top: number }, faces: number[]): THREE.BufferGeometry {
+  const g = new GeoBuilder();
+  const w = TRIM.casingWidth;
+  const t = TRIM.casingDepth;
+  const h = span.top - span.bottom;
+  for (const face of faces) {
+    const out = face === f.nMax ? 1 : -1;
+    const n = face + (out * t) / 2;
+    wallBox(g, f, span.u0 - w / 2, span.bottom + (h + w) / 2, n, w, h + w, t);
+    wallBox(g, f, span.u1 + w / 2, span.bottom + (h + w) / 2, n, w, h + w, t);
+    wallBox(g, f, (span.u0 + span.u1) / 2, span.top + w / 2, n, span.u1 - span.u0, w, t);
+  }
+  return g.build();
 }
 
 /** Hjelper for tester: finn deler for et objekt. */

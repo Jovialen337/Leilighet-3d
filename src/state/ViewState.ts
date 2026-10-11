@@ -78,4 +78,11 @@ export class ViewState {
   readonly sectionHeight = new Observable<number | null>(null);
   /** Dukkehus: 3D-visningen kuttes i snitthøyden så man ser inn i rommene. */
   readonly dollhouse = new Observable(false);
+  /* ---- filtre for el og vann ---- */
+  readonly showExisting = new Observable(true);
+  readonly showPlanned = new Observable(true);
+  /** Vis bare denne elektriske kursen (null = alle). */
+  readonly circuit = new Observable<string | null>(null);
+  /** Røntgen: gjennomsiktige vegger og tak. */
+  readonly xray = new Observable(false);
 }

@@ -129,7 +129,7 @@ test('målingene lagres lokalt, vises i modellen og kan lastes ned eller forkast
 
   // Utkastet vises i modellen og i panelet.
   await expect(page.getByTestId('draft')).toBeVisible();
-  await expect(page.getByTestId('draft-status')).toContainText('Lokale målinger: 2 av');
+  await expect(page.getByTestId('draft-status')).toContainText('målinger: 2 av');
   expect(await page.evaluate(() => (window as any).leilighet.apartment.root.visible)).toBe(true);
   const shown = await page.evaluate(() => (window as any).leilighet.store.doc.rooms[0].polygon[1][0]);
   expect(shown).toEqual({ value: 2340, measured: true });
@@ -137,7 +137,7 @@ test('målingene lagres lokalt, vises i modellen og kan lastes ned eller forkast
   // Overlever omlasting (lagret i nettleseren).
   await page.reload();
   await waitForModel(page);
-  await expect(page.getByTestId('draft-status')).toContainText('Lokale målinger: 2 av');
+  await expect(page.getByTestId('draft-status')).toContainText('målinger: 2 av');
   await expect(page.getByTestId('measure-button')).toHaveText('Fortsett oppmålingen');
   expect(await page.evaluate(() => (window as any).leilighet.store.doc.rooms[0].polygon[1][0])).toEqual({
     value: 2340,

@@ -12,6 +12,7 @@ import * as THREE from 'three';
 import type { ApartmentModel } from '../model/ApartmentModel';
 import type { MeasureState } from '../schema/types';
 import { buildParts, type Bucket, type Part, type PartKind, type PickRole } from './buildParts';
+import { buildContactShade, buildRoomShade } from './shade';
 import { Materials } from './materials';
 
 export interface ProxyData {
@@ -28,6 +29,23 @@ export interface MergedMesh {
   baseColors: Float32Array;
   measureColors: Float32Array;
 }
+
+/** Filter for installasjoner (kabler, rør, el- og vannpunkter). */
+export interface PartFilter {
+  existing: boolean;
+  planned: boolean;
+  /** Vis bare denne kursen (null = alle). */
+  circuit: string | null;
+}
+
+export const NO_FILTER: PartFilter = { existing: true, planned: true, circuit: null };
+
+export const passes = (p: { status?: string; circuit?: string; kind: string }, f: PartFilter): boolean => {
+  if (p.status === 'existing' && !f.existing) return false;
+  if (p.status === 'planned' && !f.planned) return false;
+  if (f.circuit && (p.kind === 'wire' || p.circuit !== undefined) && p.circuit !== f.circuit) return false;
+  return true;
+};
 
 export interface Range {
   mesh: MergedMesh;
@@ -48,8 +66,13 @@ export class ApartmentScene {
   readonly merged: MergedMesh[] = [];
   readonly proxies: THREE.Mesh[] = [];
   readonly ranges = new Map<string, Range[]>();
+  /** Myke skygger (gulv/tak/hjørner og under møbler); av i «Rask». */
+  readonly shades: THREE.Mesh[] = [];
+  private shadeOn = true;
+  private ceilingsOn = true;
   private parts: Part[] = [];
   private measureOn = false;
+  private filter: PartFilter = NO_FILTER;
   /** Treffflatene i synlige lag; bygges på nytt bare når lag/tak endres (ikke hver ramme). */
   private visibleCache: THREE.Mesh[] | null = null;
 
@@ -70,17 +93,20 @@ export class ApartmentScene {
       this.root.add(g);
     }
 
-    // Grupper per lag + materiale.
-    const buckets = new Map<string, Part[]>();
-    for (const p of this.parts) {
-      const key = `${p.layer}|${p.bucket}`;
-      const list = buckets.get(key) ?? [];
-      list.push(p);
-      buckets.set(key, list);
-    }
-    for (const [key, list] of buckets) {
-      const [layer, bucket] = key.split('|') as [string, Bucket];
-      this.mergeBucket(layer, bucket, list);
+    this.merge();
+
+    for (const [kind, geos] of [['vegg', buildRoomShade(model)], ['møbel', buildContactShade(model)]] as const) {
+      for (const [key, geo] of geos) {
+        const [layer = key, part] = key.split('|');
+        const mesh = new THREE.Mesh(geo, this.materials.shade);
+        mesh.name = `skygge:${kind}:${key}`;
+        mesh.userData.ceiling = part === 'tak';
+        mesh.matrixAutoUpdate = false;
+        mesh.renderOrder = 1;
+        mesh.visible = this.shadeOn && (!mesh.userData.ceiling || this.ceilingsOn);
+        this.shades.push(mesh);
+        this.layerGroups.get(layer)?.add(mesh);
+      }
     }
 
     for (const p of this.parts) {
@@ -91,6 +117,38 @@ export class ApartmentScene {
       proxy.updateMatrixWorld(true);
       this.proxies.push(proxy);
     }
+    if (this.measureOn) this.setMeasureHighlight(true);
+  }
+
+  /** Slår sammen delene (som passerer filteret) til én mesh per lag og materiale. */
+  private merge(): void {
+    for (const m of this.merged) {
+      m.mesh.removeFromParent();
+      m.mesh.geometry.dispose();
+    }
+    this.merged.length = 0;
+    this.ranges.clear();
+    const buckets = new Map<string, Part[]>();
+    for (const p of this.parts) {
+      if (!passes(p, this.filter)) continue;
+      const key = `${p.layer}|${p.bucket}`;
+      const list = buckets.get(key) ?? [];
+      list.push(p);
+      buckets.set(key, list);
+    }
+    for (const [key, list] of buckets) {
+      const [layer, bucket] = key.split('|') as [string, Bucket];
+      this.mergeBucket(layer, bucket, list);
+    }
+  }
+
+  /** Endrer filteret for installasjoner; slår sammen på nytt uten å bygge geometrien igjen. */
+  setFilter(f: PartFilter): void {
+    if (f.existing === this.filter.existing && f.planned === this.filter.planned && f.circuit === this.filter.circuit) return;
+    this.filter = { ...f };
+    if (!this.parts.length) return;
+    this.merge();
+    this.setCeilingsVisible(this.ceilingsOn);
     if (this.measureOn) this.setMeasureHighlight(true);
   }
 
@@ -145,6 +203,8 @@ export class ApartmentScene {
     mesh.matrixAutoUpdate = false;
     mesh.updateMatrix();
     if (bucket === 'glass' || bucket === 'overlay') mesh.renderOrder = 2;
+    // Installasjoner tegnes etter bygningen (oppå i 2D-planen).
+    if (bucket === 'lines') mesh.renderOrder = 3;
     this.merged.push(merged);
     this.layerGroups.get(layer)?.add(mesh);
   }
@@ -159,8 +219,15 @@ export class ApartmentScene {
     return this.layerGroups.get(layer)?.visible ?? false;
   }
 
+  setShadesVisible(visible: boolean): void {
+    this.shadeOn = visible;
+    for (const m of this.shades) m.visible = visible && (!m.userData.ceiling || this.ceilingsOn);
+  }
+
   setCeilingsVisible(visible: boolean): void {
     for (const m of this.merged) if (m.bucket === 'ceiling') m.mesh.visible = visible;
+    this.ceilingsOn = visible;
+    for (const m of this.shades) if (m.userData.ceiling) m.visible = visible && this.shadeOn;
     this.visibleCache = null;
   }
 
@@ -189,11 +256,14 @@ export class ApartmentScene {
   stats(): { meshes: number; triangles: number; proxies: number } {
     let triangles = 0;
     for (const m of this.merged) triangles += m.mesh.geometry.getAttribute('position').count / 3;
-    return { meshes: this.merged.length, triangles, proxies: this.proxies.length };
+    for (const m of this.shades) triangles += m.geometry.getAttribute('position').count / 3;
+    return { meshes: this.merged.length + this.shades.length, triangles, proxies: this.proxies.length };
   }
 
   clear(): void {
     for (const m of this.merged) m.mesh.geometry.dispose();
+    for (const m of this.shades) m.geometry.dispose();
+    this.shades.length = 0;
     for (const p of this.parts) p.geometry.dispose();
     this.merged.length = 0;
     this.proxies.length = 0;

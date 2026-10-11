@@ -75,7 +75,7 @@ describe('oppmålingsøkt', () => {
     expect(measureCurrent(s, 20, 0, -10)).toEqual({ ok: true });
     expect(s.current()!.key).toBe('hjorne:gang:1');
     expect(s.progress()).toMatchObject({ done: 1, skipped: 0, total });
-    expect(s.progress().groups[0]).toEqual({ group: 'Gang', done: 1, total: 13 });
+    expect(s.progress().groups[0]).toEqual({ group: 'Gang', done: 1, total: s.tasks.filter((t) => t.group === 'Gang').length });
     const gang = s.draft.rooms.find((r) => r.id === 'gang')!;
     expect(gang.polygon[0]).toEqual([
       { value: 20, measured: true },
@@ -210,6 +210,27 @@ describe('lagring lokalt', () => {
     expect(b.stale).toBeNull();
     expect(b.progress().done).toBe(2);
     expect(new MeasureSession(changed, kv).progress().done).toBe(2);
+  });
+
+  it('«Forkast» på gamle målinger sletter bare dem – dagens målinger beholdes', () => {
+    const kv = new MemoryKV();
+    const a = new MeasureSession(base, kv);
+    measureCurrent(a, 10);
+    measureCurrent(a, 10);
+    const changed = loadDoc();
+    changed.meta.name = 'Endret';
+    const b = new MeasureSession(changed, kv);
+    measureCurrent(b, 10);
+    expect(b.stale).toMatchObject({ count: 2 });
+    let calls = 0;
+    b.subscribe(() => calls++);
+    b.discardStale();
+    expect(calls).toBe(1);
+    expect(b.stale).toBeNull();
+    expect(b.progress().done).toBe(1);
+    const c = new MeasureSession(changed, kv);
+    expect(c.stale).toBeNull();
+    expect(c.progress().done).toBe(1);
   });
 
   it('når den eksporterte fila er lastet opp, ryddes de lokale målingene', () => {

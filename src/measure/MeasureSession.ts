@@ -273,6 +273,18 @@ export class MeasureSession {
     this.notify();
   }
 
+  /** Forkaster bare de gamle målingene (laget mot en eldre fil); dagens beholdes. */
+  discardStale(): void {
+    if (!this.stale) return;
+    this.stale = null;
+    try {
+      this.storage?.removeItem(this.staleKey);
+    } catch {
+      /* lagring utilgjengelig */
+    }
+    this.notify();
+  }
+
   /** Bruker målinger som ble laget mot en eldre versjon av fila. */
   adoptStale(): boolean {
     const saved = this.read(this.staleKey);
@@ -292,9 +304,13 @@ export class MeasureSession {
     return true;
   }
 
-  /** Utkastet som apartment.json-tekst (med dagens dato). Husker fingeravtrykket. */
-  exportText(now = new Date()): string {
-    const doc = structuredClone(this.draft);
+  /**
+   * Utkastet som apartment.json-tekst (med dagens dato). Husker fingeravtrykket.
+   * `transform` legger til andre lokale endringer (f.eks. planlagt el og vann)
+   * før fila skrives, så den publiserte fila gjenkjennes som «vår».
+   */
+  exportText(now = new Date(), transform: (doc: ApartmentDoc) => ApartmentDoc = (d) => d): string {
+    const doc = transform(structuredClone(this.draft));
     doc.meta.updated = today(now);
     const text = formatJson(doc);
     this.exportedHash = hashDoc(JSON.parse(text) as ApartmentDoc);

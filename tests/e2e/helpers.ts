@@ -92,6 +92,7 @@ export interface XRState {
   turns: number;
   floorUnderHead: number | null;
   menu: { open: boolean; tab: string; hovered: string | null };
+  draw: { tool: string | null; points: number; hover: { x: number; h: number; z: number } | null };
 }
 
 export const xrState = (page: Page): Promise<XRState> =>

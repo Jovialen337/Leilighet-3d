@@ -36,14 +36,14 @@ export class WristMenu {
     this.texture.anisotropy = 4;
     this.mesh = new THREE.Mesh(
       new THREE.PlaneGeometry(WIDTH_M, HEIGHT_M),
-      new THREE.MeshBasicMaterial({ map: this.texture, transparent: true, depthTest: false, depthWrite: false }),
+      new THREE.MeshBasicMaterial({ toneMapped: false, map: this.texture, transparent: true, depthTest: false, depthWrite: false }),
     );
     this.mesh.name = 'vr-meny';
     this.mesh.renderOrder = 50;
     this.mesh.visible = false;
     this.cursor = new THREE.Mesh(
       new THREE.SphereGeometry(0.004, 10, 8),
-      new THREE.MeshBasicMaterial({ color: '#18d4ff', depthTest: false }),
+      new THREE.MeshBasicMaterial({ toneMapped: false, color: '#18d4ff', depthTest: false }),
     );
     this.cursor.renderOrder = 51;
     this.cursor.visible = false;
@@ -162,18 +162,21 @@ export class WristMenu {
       }
       const cy = it.y + it.h / 2;
       c.fillStyle = '#ffffff';
-      c.font = `${it.kind === 'tab' ? 700 : 500} ${it.h < 70 ? 32 : 36}px system-ui, sans-serif`;
+      // Lange lister får lavere knapper (se menuLayout): tekst og bryter krymper med.
+      const size = it.h >= 70 ? 36 : it.h >= 56 ? 32 : Math.max(18, Math.round(it.h * 0.55));
+      c.font = it.kind === 'tab' ? '700 32px system-ui, sans-serif' : `500 ${size}px system-ui, sans-serif`;
       if (it.kind === 'toggle') {
         // Bryter til høyre.
-        const sw = 76;
+        const sh = Math.min(40, it.h - 12);
+        const sw = Math.round(sh * 1.9);
         const sx = it.x + it.w - sw - 18;
         c.fillStyle = on ? '#39d98a' : 'rgba(255,255,255,0.25)';
         c.beginPath();
-        c.roundRect(sx, cy - 20, sw, 40, 20);
+        c.roundRect(sx, cy - sh / 2, sw, sh, sh / 2);
         c.fill();
         c.fillStyle = '#ffffff';
         c.beginPath();
-        c.arc(on ? sx + sw - 20 : sx + 20, cy, 15, 0, Math.PI * 2);
+        c.arc(on ? sx + sw - sh / 2 : sx + sh / 2, cy, sh * 0.375, 0, Math.PI * 2);
         c.fill();
         c.textAlign = 'left';
         c.fillText(this.fit(it.label, it.w - sw - 56), it.x + 22, cy + 1);

@@ -106,12 +106,12 @@ export class MeasureOverlay {
     this.root.name = 'oppmåling';
     this.frame = new THREE.Mesh(
       new THREE.BufferGeometry(),
-      new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.85, depthWrite: false }),
+      new THREE.MeshBasicMaterial({ toneMapped: false, vertexColors: true, transparent: true, opacity: 0.85, depthWrite: false }),
     );
     this.frame.renderOrder = 10;
 
     const glow = (opacity: number): THREE.MeshBasicMaterial =>
-      new THREE.MeshBasicMaterial({ color: COLOR.target, transparent: true, opacity, depthWrite: false });
+      new THREE.MeshBasicMaterial({ toneMapped: false, color: COLOR.target, transparent: true, opacity, depthWrite: false });
     this.beam = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 1, 10, 1, true), glow(0.45));
     this.orb = new THREE.Mesh(new THREE.SphereGeometry(0.035, 20, 12), glow(0.95));
     this.ring = new THREE.Mesh(new THREE.RingGeometry(0.16, 0.2, 40).rotateX(-Math.PI / 2), glow(0.8));
@@ -121,7 +121,7 @@ export class MeasureOverlay {
     this.labelTexture = new THREE.CanvasTexture(this.labelCanvas);
     this.labelTexture.colorSpace = THREE.SRGBColorSpace;
     this.label = new THREE.Sprite(
-      new THREE.SpriteMaterial({ map: this.labelTexture, transparent: true, depthTest: false, depthWrite: false }),
+      new THREE.SpriteMaterial({ toneMapped: false, map: this.labelTexture, transparent: true, depthTest: false, depthWrite: false }),
     );
     this.label.scale.set(LABEL_W, LABEL_H, 1);
     this.label.renderOrder = 25;

@@ -10,6 +10,8 @@
 import {
   COLLECTIONS,
   FIXTURE_TYPES,
+  OPTIONAL_COLLECTIONS,
+  PIPE_KINDS,
   STANDARD_LAYER_IDS,
   type ApartmentDoc,
   type CollectionKey,
@@ -108,6 +110,13 @@ const FIXTURE_NAME: Record<string, string> = {
   pipe: 'Rør',
   vent: 'Ventil',
   hatch: 'Luke',
+  light: 'Lampepunkt',
+  junction: 'Koblingsboks',
+  panel: 'Sikringsskap',
+  tap: 'Kran',
+  drain: 'Sluk',
+  valve: 'Stoppekran',
+  waterheater: 'Varmtvannsbereder',
 };
 
 const COLLECTION_NAME: Record<CollectionKey, string> = {
@@ -119,6 +128,8 @@ const COLLECTION_NAME: Record<CollectionKey, string> = {
   outdoor: 'Uteområde',
   zones: 'Sone',
   wiring: 'Kabel',
+  pipes: 'Rør',
+  circuits: 'Kurs',
   scans: 'Skann',
   notes: 'Notat',
 };
@@ -574,6 +585,26 @@ function checkWire(s: Scope): void {
   }
 }
 
+function checkPipe(s: Scope): void {
+  s.str('name', false);
+  checkLayerRef(s, true);
+  s.enumOf('status', ['existing', 'planned'] as const);
+  s.enumOf('kind', PIPE_KINDS);
+  s.optNum('diameter', { gt: 0 });
+  s.color('color');
+  const pts = s.list('points');
+  if (pts) {
+    if (pts.length < 2) s.c.error(`${s.path}.points`, s.subject, `et rør trenger minst 2 punkter (fant ${pts.length}).`);
+    pts.forEach((p, i) => s.vecAt(p, `${s.path}.points[${i}]`, `punkt ${i + 1}`, 3));
+  }
+}
+
+function checkCircuit(s: Scope): void {
+  s.str('name');
+  s.optNum('fuse', { gt: 0 });
+  s.color('color');
+}
+
 function checkScan(s: Scope): void {
   s.str('name');
   checkLayerRef(s, true);
@@ -603,6 +634,8 @@ const CHECKERS: Record<CollectionKey, (s: Scope) => void> = {
   outdoor: checkOutdoor,
   zones: checkZone,
   wiring: checkWire,
+  pipes: checkPipe,
+  circuits: checkCircuit,
   scans: checkScan,
   notes: checkNote,
 };
@@ -675,7 +708,7 @@ export function validateApartment(raw: unknown): ValidationResult {
   const seenIds = new Map<string, string>();
   const layerRefs: { path: string; subject: string; layer: string }[] = [];
   for (const key of COLLECTIONS) {
-    const list = root.list(key);
+    const list = root.list(key, !OPTIONAL_COLLECTIONS.includes(key));
     if (!list) continue;
     list.forEach((item, i) => {
       const path = `${key}[${i}]`;
@@ -693,7 +726,7 @@ export function validateApartment(raw: unknown): ValidationResult {
         else seenIds.set(id, subject);
       }
       CHECKERS[key](s);
-      const layer = typeof item.layer === 'string' ? item.layer : DEFAULT_LAYER[key];
+      const layer = typeof item.layer === 'string' ? item.layer : key === 'circuits' ? undefined : DEFAULT_LAYER[key];
       if (layer) layerRefs.push({ path: `${path}.layer`, subject, layer });
     });
   }
@@ -722,6 +755,13 @@ export function validateApartment(raw: unknown): ValidationResult {
 
 function checkReferences(c: Checker, m: ApartmentModel): void {
   const d = m.data;
+  const circuits = new Set((d.circuits ?? []).map((k) => k.id));
+  const circuitRef = (path: string, subject: string, id: string | undefined): void => {
+    if (id !== undefined && !circuits.has(id))
+      c.error(path, subject, `«circuit» viser til kursen «${id}», som ikke finnes i «circuits».`);
+  };
+  d.wiring.forEach((w, i) => circuitRef(`wiring[${i}].circuit`, subjectFor('wiring', w as unknown as Obj, i), w.circuit));
+  d.fixtures.forEach((f, i) => circuitRef(`fixtures[${i}].circuit`, subjectFor('fixtures', f as unknown as Obj, i), f.circuit));
   const roomRef = (path: string, subject: string, key: string, id: string | undefined): void => {
     if (id !== undefined && !m.rooms.has(id))
       c.error(path, subject, `${field(key)} viser til rommet «${id}», som ikke finnes.`);

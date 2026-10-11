@@ -69,7 +69,7 @@ test('«Gå til rom» flytter kameraet til rommet', async ({ page }) => {
 test('dukkehus og snitthøyde kutter modellen', async ({ page }) => {
   await page.goto('./');
   await waitForModel(page);
-  const clip = () => page.evaluate(() => (window as any).leilighet.renderer.clippingPlanes.map((p: any) => p.constant));
+  const clip = () => page.evaluate(() => (window as any).leilighet.materials.solid.clippingPlanes.map((p: any) => p.constant));
   expect(await clip()).toEqual([]);
   await page.keyboard.press('k');
   expect(await clip()).toEqual([1.5]);
@@ -111,11 +111,18 @@ test('VR-menyen (X): pek og trykk for å skru av taket og gå til et rom', async
   expect(s.menu.tab).toBe('visning');
   await menuPress(page, 'toggle:ceilings');
   expect(await page.evaluate(() => (window as any).leilighet.view.ceilings.value)).toBe(false);
-  // Lag-fanen: skjul møbler.
+  // Lag-fanen → «Alle lag …»: skjul bare møblene.
   await menuPress(page, 'tab:lag');
   expect((await xrState(page)).menu.tab).toBe('lag');
+  await menuPress(page, 'tab:lagliste');
+  expect((await xrState(page)).menu.tab).toBe('lagliste');
   await menuPress(page, 'layer:furniture');
   expect(await page.evaluate(() => (window as any).leilighet.view.layers.isVisible('furniture'))).toBe(false);
+  expect(await page.evaluate(() => (window as any).leilighet.view.layers.isVisible('workshop-zone'))).toBe(true);
+  // Gruppebryteren skjuler hele gruppen («Interiør»).
+  await menuPress(page, 'tab:lag');
+  await menuPress(page, 'group:interior');
+  expect(await page.evaluate(() => (window as any).leilighet.view.layers.isVisible('workshop-zone'))).toBe(false);
   // Gå til stua: opp trinnet, og menyen lukkes.
   await menuPress(page, 'tab:ga');
   await menuPress(page, 'room:stue');

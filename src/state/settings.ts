@@ -30,6 +30,10 @@ export class SettingsBinding {
     s.bind('snitthoyde', view.sectionHeight, isSection);
     s.bind('dukkehus', view.dollhouse, isBool);
     s.bind('visning', view.cameraMode, oneOf(['orbit', 'top'] as const));
+    s.bind('eksisterende', view.showExisting, isBool);
+    s.bind('planlagt', view.showPlanned, isBool);
+    s.bind('rontgen', view.xray, isBool);
+    s.bind('kurs', view.circuit, (v: unknown): v is string | null => v === null || typeof v === 'string');
     // Lag: valgene brukeren har gjort lagres per lag-id (lag som ikke finnes, ignoreres).
     view.layers.saved = { ...(s.get('lag', isLayerMap) ?? {}) };
     view.layers.onUserChange = (id, visible) => {
@@ -48,6 +52,10 @@ export class SettingsBinding {
     v.turn.set(30);
     v.sectionHeight.set(null);
     v.dollhouse.set(false);
+    v.showExisting.set(true);
+    v.showPlanned.set(true);
+    v.circuit.set(null);
+    v.xray.set(false);
     for (const l of defaults.layers) v.layers.set(l.id, l.visible);
     this.store.clear();
     v.layers.saved = {};

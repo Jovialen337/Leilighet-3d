@@ -54,11 +54,17 @@ test('lagbrytere skjuler og viser lag', async ({ page }) => {
   expect(await page.evaluate(() => (window as any).leilighet.apartment.isLayerVisible('furniture'))).toBe(true);
   await expect.poll(rendered).toBe(before);
 
-  // Alle lag av → ingenting tegnes.
-  const ids = await page.evaluate(() => (window as any).leilighet.view.layers.layers.map((l: any) => l.id));
-  for (const id of ids) await page.getByTestId(`layer-${id}`).uncheck();
-  await expect.poll(rendered).toBe(0);
-  for (const id of ids) await page.getByTestId(`layer-${id}`).check();
+  // Alle lag av → ingenting av leiligheten tegnes (bare himmel og mark rundt).
+  const sky = await page.evaluate(() => {
+    let n = 0;
+    (window as any).leilighet.sky.traverse((o: any) => {
+      if (o.isMesh && o.visible) n += (o.geometry.index?.count ?? o.geometry.attributes.position.count) / 3;
+    });
+    return n;
+  });
+  await page.getByTestId('layers-none').click();
+  await expect.poll(rendered).toBe(sky);
+  await page.getByTestId('layers-all').click();
 });
 
 test('ovenfra-visningen er i riktig målestokk', async ({ page }) => {

@@ -41,6 +41,8 @@ export const STANDARD_LAYER_IDS = [
   'electrical-planned',
   'ventilation',
   'wiring',
+  'plumbing-existing',
+  'plumbing-planned',
   'workshop-zone',
   'outdoor',
   'scan-reference',
@@ -204,7 +206,26 @@ export type Opening<N = number> = Door<N> | WindowOpening<N> | Passage<N>;
 /* Installasjoner                                                     */
 /* ------------------------------------------------------------------ */
 
-export const FIXTURE_TYPES = ['outlet', 'switch', 'radiator', 'pipe', 'vent', 'hatch'] as const;
+export const FIXTURE_TYPES = [
+  'outlet',
+  'switch',
+  'radiator',
+  'pipe',
+  'vent',
+  'hatch',
+  // Elektrisk
+  'light',
+  'junction',
+  'panel',
+  // Vann
+  'tap',
+  'drain',
+  'valve',
+  'waterheater',
+] as const;
+/** Installasjoner som hører til vann (resten er el, varme og annet). */
+export const WATER_FIXTURES: readonly FixtureType[] = ['tap', 'drain', 'valve', 'waterheater'];
+export const ELECTRICAL_FIXTURES: readonly FixtureType[] = ['outlet', 'switch', 'light', 'junction', 'panel'];
 export type FixtureType = (typeof FIXTURE_TYPES)[number];
 export type Status = 'existing' | 'planned';
 
@@ -239,6 +260,8 @@ export interface Fixture<N = number> extends BaseObject {
   color?: Color;
   /** Kort etikett, f.eks. "Feiluke/rør – ikke rør". */
   label?: string;
+  /** Elektrisk kurs (id i «circuits»). */
+  circuit?: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -302,12 +325,39 @@ export interface Zone<N = number> extends BaseObject {
 }
 
 export type WireKind = 'power' | 'light' | 'data' | 'other';
+export const WIRE_KINDS: readonly WireKind[] = ['power', 'light', 'data', 'other'];
 
 export interface WireRun<N = number> extends BaseObject {
   name?: string;
   layer: LayerId;
   status: Status;
   kind?: WireKind;
+  /** Elektrisk kurs (id i «circuits»). */
+  circuit?: string;
+  /** Punkter [x, høyde over gulv, z]. */
+  points: Vec3<N>[];
+  color?: Color;
+}
+
+/** Elektrisk kurs (sikring) som kabler og punkter hører til. */
+export interface Circuit<N = number> extends BaseObject {
+  name: string;
+  /** Sikringsstørrelse i ampere. */
+  fuse?: N;
+  color?: Color;
+}
+
+export type PipeKind = 'cold' | 'hot' | 'drain' | 'other';
+export const PIPE_KINDS: readonly PipeKind[] = ['cold', 'hot', 'drain', 'other'];
+
+/** Rørstrekk for vann/avløp. */
+export interface PipeRun<N = number> extends BaseObject {
+  name?: string;
+  layer: LayerId;
+  status: Status;
+  kind: PipeKind;
+  /** Utvendig diameter (mm). Standard: 22 for vann, 50 for avløp. */
+  diameter?: N;
   /** Punkter [x, høyde over gulv, z]. */
   points: Vec3<N>[];
   color?: Color;
@@ -350,6 +400,10 @@ export interface Apartment<N = number> {
   outdoor: OutdoorArea<N>[];
   zones: Zone<N>[];
   wiring: WireRun<N>[];
+  /** Valgfri (eldre filer har den ikke). */
+  pipes?: PipeRun<N>[];
+  /** Valgfri (eldre filer har den ikke). */
+  circuits?: Circuit<N>[];
   scans: ScanReference<N>[];
   notes: Note<N>[];
 }
@@ -367,9 +421,13 @@ export const COLLECTIONS = [
   'outdoor',
   'zones',
   'wiring',
+  'pipes',
+  'circuits',
   'scans',
   'notes',
 ] as const;
+/** Samlinger som kan mangle i fila (kom til senere). */
+export const OPTIONAL_COLLECTIONS: readonly string[] = ['pipes', 'circuits'];
 export type CollectionKey = (typeof COLLECTIONS)[number];
 
 /** Målestatus for et objekt: alle verdier målt, noen, eller ingen. */

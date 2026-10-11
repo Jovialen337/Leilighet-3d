@@ -23,8 +23,12 @@ import { MeasureMode, type MeasureDebugState } from './MeasureMode';
 import { TeleportArc } from './teleport';
 import { WristPanel } from './WristPanel';
 import { WristMenu } from './WristMenu';
-import type { MenuTab } from './menuLayout';
+import { DRAW_ITEMS, buildMenu, type MenuTab } from './menuLayout';
+import type { PlanController } from '../plan/PlanController';
+import { FIXTURE_TEXT, PIPE_KIND_TEXT, WIRE_KIND_TEXT, type DrawOptions } from '../plan/draw';
 import { QUALITIES, type Quality, type TurnMode, type XRRate } from '../state/ViewState';
+import { WATER_FIXTURES } from '../schema/types';
+import { LAYER_GROUPS, LAYER_PRESETS, applyPreset, groupState, setGroup } from '../state/layerGroups';
 import { followFloor, placeAtSpawn, snapTurn, teleportTo } from './rig';
 
 export type XRSupport = 'checking' | 'supported' | 'unsupported' | 'insecure' | 'no-webxr';
@@ -57,6 +61,7 @@ export interface XRDebugState {
   turns: number;
   floorUnderHead: number | null;
   menu: { open: boolean; tab: MenuTab; hovered: string | null };
+  draw: { tool: string | null; points: number; hover: { x: number; h: number; z: number } | null };
 }
 
 export class XRManager {
@@ -81,6 +86,21 @@ export class XRManager {
   private menuDirty = true;
   private xWasPressed = false;
   private triggerWasPressed = false;
+  /** Avtrekkeren ble trykket ned denne rammen (og er ikke brukt av menyen ennå). */
+  private triggerEdge = false;
+  /** Aktivt tegneverktøy i VR (id fra DRAW_ITEMS), eller null. */
+  private drawTool: string | null = null;
+  /** Om denne VR-økten startet med «Høy» (høyere oppløsning kan bare settes før økten starter). */
+  private sessionHigh = false;
+  private aWasPressed = false;
+  private lastHelp = 0;
+  private bWasPressed = false;
+  private readonly drawRay = new THREE.Raycaster();
+  private readonly drawHits: THREE.Intersection[] = [];
+  private readonly drawO = new THREE.Vector3();
+  private readonly drawD = new THREE.Vector3();
+  /** Gjenbrukt resultat fra strålen (ingen nye objekter per ramme). */
+  private readonly drawTargetObj = { p: { x: 0, z: 0 }, h: 0 };
   private aiming = false;
   private turnArmed = true;
   private smoothTurning = false;
@@ -104,6 +124,7 @@ export class XRManager {
     private readonly getModel: () => ApartmentModel | null,
     private readonly fps: FpsMeter,
     private readonly getMeasureSession: () => MeasureSession | null = () => null,
+    private readonly plan: PlanController | null = null,
   ) {
     renderer.xr.enabled = true;
     renderer.xr.setReferenceSpaceType('local-floor');
@@ -136,7 +157,7 @@ export class XRManager {
     // Teleport-bue og landingsmarkør (i verdensrommet).
     const arcGeo = new THREE.BufferGeometry();
     arcGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(this.arc.points.length * 3), 3));
-    this.arcLine = new THREE.Line(arcGeo, new THREE.LineBasicMaterial({ color: '#39d98a' }));
+    this.arcLine = new THREE.Line(arcGeo, new THREE.LineBasicMaterial({ toneMapped: false, color: '#39d98a' }));
     this.arcLine.frustumCulled = false;
     this.arcLine.visible = false;
     this.marker = teleportMarker();
@@ -148,7 +169,7 @@ export class XRManager {
     const dirty = (): void => {
       this.menuDirty = true;
     };
-    for (const o of [view.ceilings, view.measureHighlight, view.fps, view.quality, view.turn, view.xrRate] as const)
+    for (const o of [view.ceilings, view.measureHighlight, view.fps, view.quality, view.turn, view.xrRate, view.showExisting, view.showPlanned, view.xray, view.circuit] as const)
       (o as { subscribe: (l: () => void) => void }).subscribe(dirty);
     view.xrRate.subscribe(() => void this.applyFrameRate());
     view.fps.subscribe(() => this.updateWristFps(), true);
@@ -183,6 +204,9 @@ export class XRManager {
     this.error.set(null);
     this.requestedMode = 'walk';
     try {
+      // «Høy» grafikk: litt høyere oppløsning i VR (må settes før økten starter).
+      this.sessionHigh = this.view.quality.value === 'high';
+      this.renderer.xr.setFramebufferScaleFactor(this.sessionHigh ? 1.2 : 1);
       const session = await navigator.xr.requestSession('immersive-vr', {
         optionalFeatures: ['local-floor', 'bounded-floor'],
       });
@@ -236,6 +260,7 @@ export class XRManager {
     if (!ms) return;
     this.requestedMode = 'measure';
     try {
+      this.renderer.xr.setFramebufferScaleFactor(1);
       const session = await navigator.xr.requestSession('immersive-ar', {
         requiredFeatures: ['local-floor'],
         optionalFeatures: ['hit-test'],
@@ -279,6 +304,12 @@ export class XRManager {
   private onSessionEnd(): void {
     this.aiming = false;
     this.setMenuOpen(false);
+    // Tegning i VR avsluttes sammen med økten: et halvferdig strekk forkastes og
+    // verktøyet går tilbake til «Velg» (et verktøy valgt på PC beholdes).
+    if (this.drawTool && this.plan) this.plan.set({ tool: 'select' });
+    this.drawTool = null;
+    if (this.plan) this.plan.hover = null;
+    this.updateWristHelp();
     this.arcLine.visible = false;
     this.marker.visible = false;
     if (this.mode === 'measure') {
@@ -336,6 +367,7 @@ export class XRManager {
     const right = this.gamepad('right');
 
     this.updateMenu(left, right);
+    this.updateDraw(right);
 
     // Teleport med venstre stikke.
     const ly = left?.axes[3] ?? 0;
@@ -379,7 +411,9 @@ export class XRManager {
     const trigger = (right?.buttons[0]?.value ?? 0) > 0.6;
     const pressed = trigger && !this.triggerWasPressed;
     this.triggerWasPressed = trigger;
+    this.triggerEdge = pressed;
     if (!this.menu.open) return;
+    this.triggerEdge = false; // menyen bruker avtrekkeren
 
     const leftSlot = this.slot('left');
     const rightSlot = this.slot('right');
@@ -409,6 +443,21 @@ export class XRManager {
       rate: this.view.xrRate.value,
       layers: this.view.layers.layers.map((l) => ({ id: l.id, name: l.name, visible: this.view.layers.isVisible(l.id) })),
       rooms: model ? [...model.rooms.values()].map((r) => ({ id: r.room.id, name: r.room.name })) : [],
+      showExisting: this.view.showExisting.value,
+      showPlanned: this.view.showPlanned.value,
+      xray: this.view.xray.value,
+      groups: LAYER_GROUPS.map((g) => ({ id: g.id, name: g.name, state: groupState(this.view.layers, g.id) }))
+        .filter((g): g is { id: string; name: string; state: 'on' | 'off' | 'mixed' } => g.state !== 'empty'),
+      presets: LAYER_PRESETS.map((p) => ({ id: p.id, name: p.name })),
+      drawTool: this.drawTool,
+      drawPlanned: (this.plan?.options.value.status ?? 'planned') === 'planned',
+      circuits: model ? (model.data.circuits ?? []).map((c) => ({ id: c.id, name: c.name })) : [],
+      drawCircuit: this.plan?.options.value.circuit ?? null,
+      filterCircuit: this.view.circuit.value,
+      qualityNote:
+        this.mode === 'walk' && this.presenting && (this.view.quality.value === 'high') !== this.sessionHigh
+          ? 'Skarpheten endres neste gang du går inn i VR.'
+          : null,
     };
   }
 
@@ -424,6 +473,15 @@ export class XRManager {
         if (arg === 'ceilings') v.ceilings.set(!v.ceilings.value);
         else if (arg === 'highlight') v.measureHighlight.set(!v.measureHighlight.value);
         else if (arg === 'fps') v.fps.set(!v.fps.value);
+        else if (arg === 'existing') v.showExisting.set(!v.showExisting.value);
+        else if (arg === 'planned') v.showPlanned.set(!v.showPlanned.value);
+        else if (arg === 'xray') v.xray.set(!v.xray.value);
+        break;
+      case 'preset':
+        applyPreset(v.layers, arg);
+        break;
+      case 'group':
+        setGroup(v.layers, arg, groupState(v.layers, arg) === 'off');
         break;
       case 'quality':
         if ((QUALITIES as readonly string[]).includes(arg)) v.quality.set(arg as Quality);
@@ -445,8 +503,110 @@ export class XRManager {
         this.goToStart();
         this.setMenuOpen(false);
         break;
+      case 'draw':
+        this.drawAction(id);
+        break;
+      case 'circuit':
+        v.circuit.set(arg === 'next' ? this.nextCircuit(v.circuit.value) : null);
+        break;
+      case 'drawcircuit':
+        if (this.plan) {
+          this.plan.set({ circuit: this.nextCircuit(this.plan.options.value.circuit ?? null) });
+          this.updateWristHelp();
+        }
+        break;
     }
     this.menuDirty = true;
+  }
+
+  /* ---------------- Tegning i VR ---------------- */
+
+  private drawAction(id: string): void {
+    const p = this.plan;
+    if (!p) return;
+    const [, what = '', arg = ''] = id.split(':');
+    if (what === 'status') {
+      p.set({ status: p.options.value.status === 'planned' ? 'existing' : 'planned' });
+      return;
+    }
+    if (what === 'off') {
+      p.set({ tool: 'select' });
+      this.drawTool = null;
+      this.updateWristHelp();
+      this.setMenuOpen(false);
+      return;
+    }
+    const patch: Partial<DrawOptions> =
+      what === 'wire'
+        ? { tool: 'wire', wireKind: arg as DrawOptions['wireKind'], height: 300 }
+        : what === 'pipe'
+          ? { tool: 'pipe', pipeKind: arg as DrawOptions['pipeKind'], height: 300 }
+          : what === 'fixture'
+            ? { tool: 'fixture', fixtureType: arg as DrawOptions['fixtureType'] }
+            : { tool: 'select' };
+    p.set(patch);
+    this.drawTool = DRAW_ITEMS.some((d) => d.id === id) ? id : null;
+    this.updateWristHelp();
+    this.setMenuOpen(false);
+  }
+
+  /** Strålen fra høyre kontroller treffer vegg/gulv/tak: punktet (mm) og høyden over gulvet. */
+  private drawTarget(): { p: { x: number; z: number }; h: number } | null {
+    const slot = this.slot('right');
+    const model = this.getModel();
+    if (!slot || !model) return null;
+    slot.controller.getWorldPosition(this.drawO);
+    this.drawD.set(0, 0, -1).transformDirection(slot.controller.matrixWorld);
+    this.drawRay.set(this.drawO, this.drawD);
+    this.drawRay.far = 8;
+    this.drawHits.length = 0;
+    const hit = this.drawRay.intersectObjects(this.apartment.visibleProxies(), false, this.drawHits)[0];
+    if (!hit) return null;
+    const t = this.drawTargetObj;
+    t.p.x = hit.point.x / MM;
+    t.p.z = hit.point.z / MM;
+    t.h = Math.max(0, Math.round(hit.point.y / MM - model.floorOrDefault(t.p)));
+    return t;
+  }
+
+  private updateDraw(right: Gamepad | null): void {
+    const p = this.plan;
+    const edge = this.triggerEdge;
+    this.triggerEdge = false;
+    if (!p || !this.drawTool || this.menu.open) {
+      if (p && !this.drawTool) p.hover = null;
+      return;
+    }
+    const a = right?.buttons[4]?.pressed ?? false;
+    const b = right?.buttons[5]?.pressed ?? false;
+    const aEdge = a && !this.aWasPressed;
+    const bEdge = b && !this.bWasPressed;
+    this.aWasPressed = a;
+    this.bWasPressed = b;
+
+    const t = this.drawTarget();
+    // I VR festes det innen 6 cm; høyden festes til forrige punkt (vannrett strekk).
+    let h = t?.h;
+    const last = p.draft.last;
+    if (t && last && h !== undefined && Math.abs(h - last[1]) < 60) h = last[1];
+    p.hoverAt(t?.p ?? null, 60, h);
+    const slot = this.slot('right');
+    if (edge && t) {
+      const before = p.edits.size + p.draft.points.length;
+      p.click(p.hover?.p ?? t.p, p.tool === 'select' ? 200 : 60, p.hover?.h ?? h);
+      if (slot) this.pulse(slot, p.edits.size + p.draft.points.length !== before || p.tool === 'select' ? 0.6 : 0.2, 40);
+    }
+    if (aEdge) {
+      const ok = p.tool === 'select' ? p.deleteSelected() : p.finish();
+      if (slot) this.pulse(slot, ok ? 0.8 : 0.3, ok ? 80 : 30);
+    }
+    if (bEdge) p.undo();
+    // Hjelpeteksten (med lengde) tegnes høyst 4 ganger i sekundet, og bare når teksten er endret.
+    const now = performance.now();
+    if (edge || aEdge || bEdge || now - this.lastHelp > 250) {
+      this.lastHelp = now;
+      this.updateWristHelp();
+    }
   }
 
   private pulse(slot: Slot, intensity: number, ms: number): void {
@@ -456,6 +616,11 @@ export class XRManager {
     } catch {
       /* ingen vibrasjon */
     }
+  }
+
+  /** Overskrifter og beskjeder i menyen slik den ser ut nå (for tester). */
+  menuLabels(): { text: string }[] {
+    return buildMenu(this.menuState()).labels;
   }
 
   /** Midtpunktet av en menyknapp i verden (for tester). */
@@ -532,13 +697,43 @@ export class XRManager {
     return this.measure?.debugState() ?? null;
   }
 
+  /** Neste kurs i fila etter `id` (null = ingen/alle; etter siste kommer null igjen). */
+  private nextCircuit(id: string | null): string | null {
+    const ids = (this.getModel()?.data.circuits ?? []).map((c) => c.id);
+    if (!ids.length) return null;
+    const i = id ? ids.indexOf(id) : -1;
+    return i + 1 < ids.length ? ids[i + 1]! : null;
+  }
+
   private updateWristHelp(): void {
+    const p = this.plan;
+    if (p && this.drawTool) {
+      const o = p.options.value;
+      const what =
+        o.tool === 'wire'
+          ? `Kabel – ${WIRE_KIND_TEXT[o.wireKind].toLowerCase()}`
+          : o.tool === 'pipe'
+            ? PIPE_KIND_TEXT[o.pipeKind]
+            : o.tool === 'fixture'
+              ? (FIXTURE_TEXT[o.fixtureType] ?? 'Punkt')
+              : 'Velg og slett';
+      const len = p.drawing ? ` · ${(p.liveLength() / 1000).toFixed(1).replace('.', ',')} m` : '';
+      const electric = o.tool === 'wire' || (o.tool === 'fixture' && !WATER_FIXTURES.includes(o.fixtureType));
+      const circuit = electric ? (this.getModel()?.data.circuits?.find((c) => c.id === o.circuit)?.name ?? 'ingen kurs') : null;
+      this.wrist.setLines([
+        `Tegner: ${what}${len}`,
+        ...(circuit ? [`Kurs: ${circuit}`] : []),
+        o.tool === 'select' ? 'Avtrekker: velg · A: slett' : o.tool === 'fixture' ? 'Avtrekker: sett inn' : 'Avtrekker: punkt · A: ferdig',
+        'B: angre · X: meny',
+      ]);
+      return;
+    }
     const t = this.view.turn.value;
     this.wrist.setLines([
       'Venstre stikke: teleport',
       t === 'smooth' ? 'Høyre stikke: snu (myk)' : `Høyre stikke: snu ${t}°`,
-      'Høyre stikke bakover: snu 180°',
-      'X: meny  ·  Y: bildefrekvens',
+      'Høyre stikke bak: snu 180°',
+      'X: meny · Y: bildefrekvens',
     ]);
   }
 
@@ -560,6 +755,11 @@ export class XRManager {
       turns: this.turns,
       floorUnderHead: this.floorUnderHead,
       menu: { open: this.menu.open, tab: this.menuTab, hovered: this.menu.hovered?.id ?? null },
+      draw: {
+        tool: this.drawTool,
+        points: this.plan?.draft.points.length ?? 0,
+        hover: this.plan?.hover ? { x: this.plan.hover.p.x, h: this.plan.hover.h, z: this.plan.hover.p.z } : null,
+      },
     };
   }
 }
@@ -583,7 +783,7 @@ function controllerBody(): THREE.Object3D {
 
 function pointerLine(): THREE.Line {
   const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -0.35)]);
-  const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.5 }));
+  const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ toneMapped: false, color: '#ffffff', transparent: true, opacity: 0.5 }));
   line.name = 'peker';
   return line;
 }
@@ -592,11 +792,11 @@ function teleportMarker(): THREE.Group {
   const g = new THREE.Group();
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(0.16, 0.22, 40).rotateX(-Math.PI / 2),
-    new THREE.MeshBasicMaterial({ color: '#39d98a', transparent: true, opacity: 0.9, depthWrite: false }),
+    new THREE.MeshBasicMaterial({ toneMapped: false, color: '#39d98a', transparent: true, opacity: 0.9, depthWrite: false }),
   );
   const dot = new THREE.Mesh(
     new THREE.CircleGeometry(0.05, 20).rotateX(-Math.PI / 2),
-    new THREE.MeshBasicMaterial({ color: '#39d98a', transparent: true, opacity: 0.9, depthWrite: false }),
+    new THREE.MeshBasicMaterial({ toneMapped: false, color: '#39d98a', transparent: true, opacity: 0.9, depthWrite: false }),
   );
   g.add(ring, dot);
   g.renderOrder = 5;

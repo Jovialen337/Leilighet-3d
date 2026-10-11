@@ -17,6 +17,7 @@ All UI text is Norwegian (bokmål). All geometry comes from one data file, `publ
 |---|---|---|
 | 1 | Data model + validation, rendering, VR walking (teleport, snap turn, room-scale), laptop orbit/top-down, layer toggles, FPS, GitHub Pages deploy | **live** – see [QA.md](QA.md) |
 | 2 | **Guided measuring** in passthrough on the Quest: align the model to the real apartment, then touch or point at corners, floors, ceilings, openings and fixtures, step by step. The model updates as you go. | **built**, awaiting Quest test |
+| 2b | **Graphics, options and planning** (improvement rounds scored per [SCORING.md](SCORING.md)): new lighting and quality presets; saved settings; VR menu (X); go to room; dollhouse; **electrical and water planning** with drawing on PC and in VR; layer groups, presets and filters with x-ray | **built**, being scored |
 | 3 | **Editing** in VR: grab, move, turn, add and delete furniture and fixtures; edit walls, doors and windows with snapping and live dimensions; wrist menu; undo | planned |
 | 4+ | *(proposal)* Planning: electrical and wiring routes, ventilation, workshop zone, GLB furniture import, notes in VR | – |
 
@@ -88,8 +89,9 @@ Every capture gives a short vibration. Moving around is by walking only: telepor
 - `src/xr/InfoPanel.ts`: the instruction panel follows the left hand and always turns to face you.
 - `src/ui/MeasureBox.ts`: the «Oppmåling» section in the page panel.
   - «Mål opp leiligheten» / «Fortsett oppmålingen», with local progress.
-  - «Last ned apartment.json», «Last opp til GitHub» (opens the upload page for `public/`), «Kopier», «Forkast målingene».
-  - Notices for stale or published measurements.
+  - «Last ned apartment.json», «Last opp til GitHub» (opens the upload page for `public/`), «Kopier».
+  - «Forkast målingene» and «Forkast tegningene» are separate buttons, each with its own confirmation. Each one keeps the other kind of change.
+  - Notices for stale or published measurements. «Forkast» on old measurements (made against an earlier file) deletes only those; today's measurements and all drawings are kept.
 - **Tests no longer depend on the published file.** Unit and browser tests use a frozen copy of the placeholder (`tests/fixtures/placeholder.json`). The published `public/apartment.json` is only checked to be valid and to load without errors, so uploading real measurements cannot break the deploy.
 
 ### Known limitation: the layout must roughly match
@@ -97,6 +99,63 @@ Every capture gives a short vibration. Moving around is by walking only: telepor
 Guided measuring *moves and resizes* what is in the model: rooms, corners, walls, openings and fixtures. It cannot yet add or remove rooms, corners, doors or windows. The first Quest test showed the placeholder layout is quite different from the real apartment.
 
 The fastest fix is to correct the layout *before* measuring, using a floor plan or a sketch with the rooms, corners, doors and windows; rough dimensions are enough. Measuring then makes it exact. Adding and removing corners, rooms and openings in VR belongs to phase 3.
+
+## Phase 2b – graphics, options, electrical and water planning
+
+### Graphics (all presets keep the Quest 3 budget)
+
+- **Lighting:** hemisphere + key light from east-south-east + fill light, with Neutral tone mapping (keeps the JSON colours). Walls facing different directions now differ by about 20 % in brightness; the ceiling is no longer dark.
+- **Trim:** skirting boards along every room edge (broken at doors and passages), and door/window casings.
+- **Soft shading without shadow maps:** gradients along floor and ceiling edges and in inner corners, plus contact shadows under furniture. One extra draw call per layer; hidden with ceilings/layers.
+- **Sky dome and ground**, drawn last so only visible pixels cost anything; hidden in 2D, in passthrough and on «Rask».
+- **Cut faces:** in the 2D plan and the dollhouse, the inside of cut walls is dark, like an architectural drawing.
+- **«Grafikk» setting:**
+  - «Rask»: model only.
+  - «Standard» (default): + soft shading and sky.
+  - «Høy»: + higher resolution (on the laptop now; in VR the next time you enter it).
+- **Dropped-frame counter** in the FPS read-out («… · N tapt»).
+
+### Electrical and water planning
+
+- **Data:**
+  - `pipes`: cold, hot, drain or other water pipes, with a diameter.
+  - `circuits`: «kurs», with a fuse size and colour. Cables and points can belong to a circuit.
+  - New point types: lampepunkt, koblingsboks, sikringsskap, kran, sluk, stoppekran, varmtvannsbereder.
+  - New layers «Vann – eksisterende» and «Vann – planlagt».
+  - Older files without these are still valid.
+- **Local plan changes** (`src/plan/PlanEdits.ts`): additions and deletions on top of the file.
+  - Undo works, and changes are saved per device.
+  - They are exported in the same `apartment.json` as measurements.
+  - They clear themselves once the published file contains them.
+  - A new drawing is checked before it is saved. If it would make the model invalid, it is refused with the reason («Kan ikke legges inn: …»).
+  - A drawing that stops fitting is hidden, not deleted (for example after a measurement shortens the wall an outlet hangs on, or after a new file renames a wall). The panel says how many are hidden.
+  - Hidden drawings come back by themselves when they fit again (for example when the measurement is undone), and the panel says so. «Forkast dem» deletes them, after a confirmation. «Angre» skips hidden drawings, so it never deletes something you cannot see.
+  - Download and copy include only the drawings that fit.
+- **Drawing on the PC** (panel «Tegn el og vann»):
+  - Tools «Velg» (S), «Kabel» (E), «Rør» (V) and «Punkt» (P).
+  - Click to place points, in 2D on the plan or in 3D on walls and floors. A drag still pans or rotates the view.
+  - Snapping, in order: existing points and room corners, wall faces, right angles, then a 50 mm grid. Hold Ctrl to place freely.
+  - Changing height between points inserts a vertical riser, so runs stay horizontal or vertical.
+  - Keys: Enter, double-click or right-click finishes; Backspace removes the last point; Esc cancels; Delete deletes; Ctrl+Z undoes.
+  - Large panel buttons do the same, so it works with the laser pointer in Quest Browser.
+- **Drawing in VR:**
+  - X → «Tegn», then choose a cable, a pipe kind or a point type.
+  - Aim with the right controller at a wall, floor or ceiling. Trigger places a point, A finishes (or deletes in «Velg og slett»), B undoes.
+  - The height is taken from where the ray hits, held level within 6 cm of the previous point.
+  - «Kurs for nye» in the «Tegn» tab picks the circuit for new cables and electrical points: each press selects the next circuit, then none. The wrist panel shows «Kurs: …».
+- **Summary:**
+  - Cable length per circuit, with counts of outlets, switches and lights.
+  - Cable length per kind (strøm, lys, data) and pipe length per kind.
+  - A materials list for planned work (plus 10 % margin), with «Kopier».
+  - Guidance hints: sloping concealed cables, outlets per m², and drain fall. Drain fall is checked at 1:60 toward the lower end, whichever way the pipe was drawn. All hints are marked as guidance, not design.
+
+### Layers and filters
+
+- Layers are grouped as Bygg, Elektrisk, Vann og avløp, Ventilasjon, Interiør, and Ute og annet. Each group has a tri-state master switch, and each layer has «Bare» (show only this layer plus the building).
+- Presets: «Alt», «Elplan», «Rørplan», «Bare bygg». «Vis alle» / «Skjul alle».
+- Filters: existing / planned, a single circuit, and **røntgen** (see-through walls and ceilings, so cables and pipes in walls show). In VR, the circuit button in «Lag» shows the next circuit on each press, then all circuits again.
+- In the 2D plan, cables, pipes and electrical/water points are never cut and are drawn on top, so the whole plan always shows.
+- The same presets, filters and groups are in the VR menu («Lag»). Everything is saved per device.
 
 ## Phase 3 – editing in VR (design principles)
 
@@ -228,6 +287,8 @@ src/
 - **Laptop, Ovenfra (2D):** drag to pan, scroll to zoom. The plan is cut at `settings.planCutHeight` like an architectural drawing, with a 1 m grid, scale bar and cursor coordinates in mm. F toggles FPS.
 - **Quest:** left stick forward = aim the teleport arc, release = jump. Right stick left/right = snap turn 30°. Y = show/hide FPS. You start standing just inside the entrance door, facing in.
 - **Quest, measuring:** see the controls table in phase 2.
+- **Quest, menu (X):** point with the right controller and pull the trigger. Tabs: Visning, Lag, Tegn, Gå til, Komfort. Right stick back turns 180°.
+- **Laptop, keys:** 1/2 (3D/2D), T (ceilings), U (placeholders), K (dollhouse), R (reset view), F (FPS), H (help), S/E/V/P (draw tools), Enter/Backspace/Esc/Delete/Ctrl+Z while drawing.
 
 ## Known limitations
 
