@@ -23,8 +23,11 @@ import { MeasureMode, type MeasureDebugState } from './MeasureMode';
 import { TeleportArc } from './teleport';
 import { WristPanel } from './WristPanel';
 import { WristMenu } from './WristMenu';
-import type { MenuTab } from './menuLayout';
+import { DRAW_ITEMS, type MenuTab } from './menuLayout';
+import type { PlanController } from '../plan/PlanController';
+import { FIXTURE_TEXT, PIPE_KIND_TEXT, WIRE_KIND_TEXT, type DrawOptions } from '../plan/draw';
 import { QUALITIES, type Quality, type TurnMode, type XRRate } from '../state/ViewState';
+import { LAYER_GROUPS, LAYER_PRESETS, applyPreset, groupState, setGroup } from '../state/layerGroups';
 import { followFloor, placeAtSpawn, snapTurn, teleportTo } from './rig';
 
 export type XRSupport = 'checking' | 'supported' | 'unsupported' | 'insecure' | 'no-webxr';
@@ -57,6 +60,7 @@ export interface XRDebugState {
   turns: number;
   floorUnderHead: number | null;
   menu: { open: boolean; tab: MenuTab; hovered: string | null };
+  draw: { tool: string | null; points: number; hover: { x: number; h: number; z: number } | null };
 }
 
 export class XRManager {
@@ -81,6 +85,17 @@ export class XRManager {
   private menuDirty = true;
   private xWasPressed = false;
   private triggerWasPressed = false;
+  /** Avtrekkeren ble trykket ned denne rammen (og er ikke brukt av menyen ennå). */
+  private triggerEdge = false;
+  /** Aktivt tegneverktøy i VR (id fra DRAW_ITEMS), eller null. */
+  private drawTool: string | null = null;
+  private aWasPressed = false;
+  private lastHelp = 0;
+  private bWasPressed = false;
+  private readonly drawRay = new THREE.Raycaster();
+  private readonly drawHits: THREE.Intersection[] = [];
+  private readonly drawO = new THREE.Vector3();
+  private readonly drawD = new THREE.Vector3();
   private aiming = false;
   private turnArmed = true;
   private smoothTurning = false;
@@ -104,6 +119,7 @@ export class XRManager {
     private readonly getModel: () => ApartmentModel | null,
     private readonly fps: FpsMeter,
     private readonly getMeasureSession: () => MeasureSession | null = () => null,
+    private readonly plan: PlanController | null = null,
   ) {
     renderer.xr.enabled = true;
     renderer.xr.setReferenceSpaceType('local-floor');
@@ -148,7 +164,7 @@ export class XRManager {
     const dirty = (): void => {
       this.menuDirty = true;
     };
-    for (const o of [view.ceilings, view.measureHighlight, view.fps, view.quality, view.turn, view.xrRate] as const)
+    for (const o of [view.ceilings, view.measureHighlight, view.fps, view.quality, view.turn, view.xrRate, view.showExisting, view.showPlanned, view.xray] as const)
       (o as { subscribe: (l: () => void) => void }).subscribe(dirty);
     view.xrRate.subscribe(() => void this.applyFrameRate());
     view.fps.subscribe(() => this.updateWristFps(), true);
@@ -339,6 +355,7 @@ export class XRManager {
     const right = this.gamepad('right');
 
     this.updateMenu(left, right);
+    this.updateDraw(right);
 
     // Teleport med venstre stikke.
     const ly = left?.axes[3] ?? 0;
@@ -382,7 +399,9 @@ export class XRManager {
     const trigger = (right?.buttons[0]?.value ?? 0) > 0.6;
     const pressed = trigger && !this.triggerWasPressed;
     this.triggerWasPressed = trigger;
+    this.triggerEdge = pressed;
     if (!this.menu.open) return;
+    this.triggerEdge = false; // menyen bruker avtrekkeren
 
     const leftSlot = this.slot('left');
     const rightSlot = this.slot('right');
@@ -412,6 +431,14 @@ export class XRManager {
       rate: this.view.xrRate.value,
       layers: this.view.layers.layers.map((l) => ({ id: l.id, name: l.name, visible: this.view.layers.isVisible(l.id) })),
       rooms: model ? [...model.rooms.values()].map((r) => ({ id: r.room.id, name: r.room.name })) : [],
+      showExisting: this.view.showExisting.value,
+      showPlanned: this.view.showPlanned.value,
+      xray: this.view.xray.value,
+      groups: LAYER_GROUPS.map((g) => ({ id: g.id, name: g.name, state: groupState(this.view.layers, g.id) }))
+        .filter((g): g is { id: string; name: string; state: 'on' | 'off' | 'mixed' } => g.state !== 'empty'),
+      presets: LAYER_PRESETS.map((p) => ({ id: p.id, name: p.name })),
+      drawTool: this.drawTool,
+      drawPlanned: (this.plan?.options.value.status ?? 'planned') === 'planned',
     };
   }
 
@@ -427,6 +454,15 @@ export class XRManager {
         if (arg === 'ceilings') v.ceilings.set(!v.ceilings.value);
         else if (arg === 'highlight') v.measureHighlight.set(!v.measureHighlight.value);
         else if (arg === 'fps') v.fps.set(!v.fps.value);
+        else if (arg === 'existing') v.showExisting.set(!v.showExisting.value);
+        else if (arg === 'planned') v.showPlanned.set(!v.showPlanned.value);
+        else if (arg === 'xray') v.xray.set(!v.xray.value);
+        break;
+      case 'preset':
+        applyPreset(v.layers, arg);
+        break;
+      case 'group':
+        setGroup(v.layers, arg, groupState(v.layers, arg) === 'off');
         break;
       case 'quality':
         if ((QUALITIES as readonly string[]).includes(arg)) v.quality.set(arg as Quality);
@@ -448,8 +484,98 @@ export class XRManager {
         this.goToStart();
         this.setMenuOpen(false);
         break;
+      case 'draw':
+        this.drawAction(id);
+        break;
     }
     this.menuDirty = true;
+  }
+
+  /* ---------------- Tegning i VR ---------------- */
+
+  private drawAction(id: string): void {
+    const p = this.plan;
+    if (!p) return;
+    const [, what = '', arg = ''] = id.split(':');
+    if (what === 'status') {
+      p.set({ status: p.options.value.status === 'planned' ? 'existing' : 'planned' });
+      return;
+    }
+    if (what === 'off') {
+      p.set({ tool: 'select' });
+      this.drawTool = null;
+      this.updateWristHelp();
+      this.setMenuOpen(false);
+      return;
+    }
+    const patch: Partial<DrawOptions> =
+      what === 'wire'
+        ? { tool: 'wire', wireKind: arg as DrawOptions['wireKind'], height: 300 }
+        : what === 'pipe'
+          ? { tool: 'pipe', pipeKind: arg as DrawOptions['pipeKind'], height: 300 }
+          : what === 'fixture'
+            ? { tool: 'fixture', fixtureType: arg as DrawOptions['fixtureType'] }
+            : { tool: 'select' };
+    p.set(patch);
+    this.drawTool = DRAW_ITEMS.some((d) => d.id === id) ? id : null;
+    this.updateWristHelp();
+    this.setMenuOpen(false);
+  }
+
+  /** Strålen fra høyre kontroller treffer vegg/gulv/tak: punktet (mm) og høyden over gulvet. */
+  private drawTarget(): { p: { x: number; z: number }; h: number } | null {
+    const slot = this.slot('right');
+    const model = this.getModel();
+    if (!slot || !model) return null;
+    slot.controller.getWorldPosition(this.drawO);
+    this.drawD.set(0, 0, -1).transformDirection(slot.controller.matrixWorld);
+    this.drawRay.set(this.drawO, this.drawD);
+    this.drawRay.far = 8;
+    this.drawHits.length = 0;
+    const hit = this.drawRay.intersectObjects(this.apartment.visibleProxies(), false, this.drawHits)[0];
+    if (!hit) return null;
+    const p = { x: hit.point.x / MM, z: hit.point.z / MM };
+    return { p, h: Math.max(0, Math.round(hit.point.y / MM - model.floorOrDefault(p))) };
+  }
+
+  private updateDraw(right: Gamepad | null): void {
+    const p = this.plan;
+    const edge = this.triggerEdge;
+    this.triggerEdge = false;
+    if (!p || !this.drawTool || this.menu.open) {
+      if (p && !this.drawTool) p.hover = null;
+      return;
+    }
+    const a = right?.buttons[4]?.pressed ?? false;
+    const b = right?.buttons[5]?.pressed ?? false;
+    const aEdge = a && !this.aWasPressed;
+    const bEdge = b && !this.bWasPressed;
+    this.aWasPressed = a;
+    this.bWasPressed = b;
+
+    const t = this.drawTarget();
+    // I VR festes det innen 6 cm; høyden festes til forrige punkt (vannrett strekk).
+    let h = t?.h;
+    const last = p.draft.last;
+    if (t && last && h !== undefined && Math.abs(h - last[1]) < 60) h = last[1];
+    p.hoverAt(t?.p ?? null, 60, h);
+    const slot = this.slot('right');
+    if (edge && t) {
+      const before = p.edits.size + p.draft.points.length;
+      p.click(p.hover?.p ?? t.p, p.tool === 'select' ? 200 : 60, p.hover?.h ?? h);
+      if (slot) this.pulse(slot, p.edits.size + p.draft.points.length !== before || p.tool === 'select' ? 0.6 : 0.2, 40);
+    }
+    if (aEdge) {
+      const ok = p.tool === 'select' ? p.deleteSelected() : p.finish();
+      if (slot) this.pulse(slot, ok ? 0.8 : 0.3, ok ? 80 : 30);
+    }
+    if (bEdge) p.undo();
+    // Hjelpeteksten (med lengde) tegnes høyst ca. 6 ganger i sekundet.
+    const now = performance.now();
+    if (edge || aEdge || bEdge || now - this.lastHelp > 160) {
+      this.lastHelp = now;
+      this.updateWristHelp();
+    }
   }
 
   private pulse(slot: Slot, intensity: number, ms: number): void {
@@ -536,6 +662,25 @@ export class XRManager {
   }
 
   private updateWristHelp(): void {
+    const p = this.plan;
+    if (p && this.drawTool) {
+      const o = p.options.value;
+      const what =
+        o.tool === 'wire'
+          ? `Kabel – ${WIRE_KIND_TEXT[o.wireKind].toLowerCase()}`
+          : o.tool === 'pipe'
+            ? PIPE_KIND_TEXT[o.pipeKind]
+            : o.tool === 'fixture'
+              ? (FIXTURE_TEXT[o.fixtureType] ?? 'Punkt')
+              : 'Velg og slett';
+      const len = p.drawing ? ` · ${(p.liveLength() / 1000).toFixed(1).replace('.', ',')} m` : '';
+      this.wrist.setLines([
+        `Tegner: ${what}${len}`,
+        o.tool === 'select' ? 'Avtrekker: velg · A: slett' : o.tool === 'fixture' ? 'Avtrekker: sett inn' : 'Avtrekker: punkt · A: ferdig',
+        'B: angre · X: meny',
+      ]);
+      return;
+    }
     const t = this.view.turn.value;
     this.wrist.setLines([
       'Venstre stikke: teleport',
@@ -563,6 +708,11 @@ export class XRManager {
       turns: this.turns,
       floorUnderHead: this.floorUnderHead,
       menu: { open: this.menu.open, tab: this.menuTab, hovered: this.menu.hovered?.id ?? null },
+      draw: {
+        tool: this.drawTool,
+        points: this.plan?.draft.points.length ?? 0,
+        hover: this.plan?.hover ? { x: this.plan.hover.p.x, h: this.plan.hover.h, z: this.plan.hover.p.z } : null,
+      },
     };
   }
 }

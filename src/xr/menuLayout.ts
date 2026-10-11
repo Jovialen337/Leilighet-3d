@@ -8,12 +8,28 @@ import type { Quality, TurnMode, XRRate } from '../state/ViewState';
 export const MENU_W = 1024;
 export const MENU_H = 768;
 
-export type MenuTab = 'visning' | 'lag' | 'ga' | 'komfort';
+export type MenuTab = 'visning' | 'lag' | 'tegn' | 'ga' | 'komfort';
 export const TABS: readonly { id: MenuTab; label: string }[] = [
   { id: 'visning', label: 'Visning' },
   { id: 'lag', label: 'Lag' },
+  { id: 'tegn', label: 'Tegn' },
   { id: 'ga', label: 'Gå til' },
   { id: 'komfort', label: 'Komfort' },
+];
+
+/** Tegneverktøy i VR-menyen: id (draw:…) og navn. */
+export const DRAW_ITEMS: readonly { id: string; label: string }[] = [
+  { id: 'draw:wire:power', label: 'Kabel – strøm' },
+  { id: 'draw:wire:light', label: 'Kabel – lys' },
+  { id: 'draw:pipe:cold', label: 'Kaldtvann' },
+  { id: 'draw:pipe:hot', label: 'Varmtvann' },
+  { id: 'draw:pipe:drain', label: 'Avløp' },
+  { id: 'draw:fixture:outlet', label: 'Stikkontakt' },
+  { id: 'draw:fixture:switch', label: 'Bryter' },
+  { id: 'draw:fixture:light', label: 'Lampepunkt' },
+  { id: 'draw:fixture:tap', label: 'Kran' },
+  { id: 'draw:fixture:drain', label: 'Sluk' },
+  { id: 'draw:select', label: 'Velg og slett' },
 ];
 
 export type ItemKind = 'tab' | 'toggle' | 'choice' | 'action';
@@ -40,6 +56,14 @@ export interface MenuState {
   rate: XRRate;
   layers: readonly { id: string; name: string; visible: boolean }[];
   rooms: readonly { id: string; name: string }[];
+  showExisting: boolean;
+  showPlanned: boolean;
+  xray: boolean;
+  groups: readonly { id: string; name: string; state: 'on' | 'off' | 'mixed' }[];
+  presets: readonly { id: string; name: string }[];
+  /** Aktivt tegneverktøy i VR (id fra DRAW_ITEMS), eller null. */
+  drawTool: string | null;
+  drawPlanned: boolean;
 }
 
 /** Overskrifter i lerretet (tegnes, men kan ikke trykkes på). */
@@ -99,9 +123,42 @@ export function buildMenu(s: MenuState): { items: MenuItem[]; labels: MenuLabel[
         { id: 'quality:high', label: 'Høy', active: s.quality === 'high' },
       ]);
       break;
-    case 'lag':
-      grid(s.layers.map((l) => ({ id: `layer:${l.id}`, label: l.name, active: l.visible, kind: 'toggle' as const })));
+    case 'lag': {
+      labels.push({ text: 'Vis', x: PAD, y: y + 34 });
+      y += 52;
+      const pw = (full - (s.presets.length - 1) * GAP) / s.presets.length;
+      s.presets.forEach((p, i) =>
+        items.push({ id: `preset:${p.id}`, kind: 'action', label: p.name, active: false, x: PAD + i * (pw + GAP), y, w: pw, h: ROW_H }),
+      );
+      y += ROW_H + GAP + 8;
+      const tw = (full - 2 * GAP) / 3;
+      const t3 = [
+        { id: 'toggle:existing', label: 'Eksisterende', on: s.showExisting },
+        { id: 'toggle:planned', label: 'Planlagt', on: s.showPlanned },
+        { id: 'toggle:xray', label: 'Røntgen', on: s.xray },
+      ];
+      t3.forEach((t, i) => items.push({ id: t.id, kind: 'toggle', label: t.label, active: t.on, x: PAD + i * (tw + GAP), y, w: tw, h: ROW_H }));
+      y += ROW_H + GAP + 8;
+      labels.push({ text: 'Laggrupper', x: PAD, y: y + 34 });
+      y += 52;
+      grid(
+        s.groups.map((g) => ({
+          id: `group:${g.id}`,
+          label: g.state === 'mixed' ? `${g.name} (delvis)` : g.name,
+          active: g.state !== 'off',
+          kind: 'toggle' as const,
+        })),
+      );
       break;
+    }
+    case 'tegn': {
+      grid([
+        ...DRAW_ITEMS.map((d) => ({ id: d.id, label: d.label, active: s.drawTool === d.id, kind: 'choice' as const })),
+        { id: 'draw:status', label: s.drawPlanned ? 'Nytt: planlagt' : 'Nytt: eksisterende', active: s.drawPlanned, kind: 'toggle' as const },
+        { id: 'draw:off', label: 'Slutt å tegne', active: false, kind: 'action' as const },
+      ]);
+      break;
+    }
     case 'ga':
       grid([
         { id: 'start', label: 'Til start (døra)', active: false, kind: 'action' as const },

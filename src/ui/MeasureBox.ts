@@ -21,6 +21,9 @@ export interface MeasureUiState {
   /** VR eller AR pågår. */
   presenting: boolean;
   session: MeasureSession | null;
+  /** Antall objekter endret med tegneverktøyet (el og vann), og om de er publisert. */
+  planChanges?: number;
+  planPublished?: boolean;
 }
 
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
@@ -60,9 +63,9 @@ export class MeasureBox {
         setTimeout(() => (this.copyButton.textContent = 'Kopier'), 2000);
       });
     });
-    const discard = h('button', { class: 'link danger', 'data-testid': 'draft-discard' }, 'Forkast målingene');
+    const discard = h('button', { class: 'link danger', 'data-testid': 'draft-discard' }, 'Forkast endringene');
     discard.addEventListener('click', () => {
-      if (confirm('Slette alle lokale målinger? Dette kan ikke angres.')) actions.discard();
+      if (confirm('Slette alle lokale endringer (målinger og tegninger)? Dette kan ikke angres.')) actions.discard();
     });
     this.draft = h(
       'div',
@@ -89,7 +92,7 @@ export class MeasureBox {
     this.published = h(
       'p',
       { class: 'draft-ok', 'data-testid': 'draft-published', hidden: '' },
-      'Målingene dine er nå med i apartment.json.',
+      'Endringene dine er nå med i apartment.json.',
     );
 
     this.root = h(
@@ -122,10 +125,14 @@ export class MeasureBox {
           : '';
 
     const p = ms?.progress();
-    this.draft.hidden = !ms || !ms.hasMeasurements;
-    if (ms && p && ms.hasMeasurements) {
-      const skipped = p.skipped ? ` (${p.skipped} hoppet over)` : '';
-      this.draftStatus.textContent = `Lokale målinger: ${p.done} av ${p.total} punkter${skipped}. De er lagret i denne nettleseren, ikke i fila ennå.`;
+    const plan = s.planChanges ?? 0;
+    const measured = !!ms?.hasMeasurements;
+    this.draft.hidden = !measured && plan === 0;
+    if (!this.draft.hidden) {
+      const parts: string[] = [];
+      if (ms && p && measured) parts.push(`målinger: ${p.done} av ${p.total} punkter${p.skipped ? ` (${p.skipped} hoppet over)` : ''}`);
+      if (plan) parts.push(`tegnet el og vann: ${plural(plan, 'endring', 'endringer')}`);
+      this.draftStatus.textContent = `Lokale endringer – ${parts.join(' · ')}. De er lagret i denne nettleseren, ikke i fila ennå.`;
       this.upload.href = this.actions.uploadUrl();
     }
     this.draftError.hidden = !ms?.error;
@@ -134,6 +141,6 @@ export class MeasureBox {
     this.stale.hidden = !ms?.stale;
     if (ms?.stale)
       this.staleText.textContent = `Det finnes ${plural(ms.stale.count, 'måling', 'målinger')} laget mot en eldre versjon av apartment.json.`;
-    this.published.hidden = !ms?.published;
+    this.published.hidden = !ms?.published && !s.planPublished;
   }
 }

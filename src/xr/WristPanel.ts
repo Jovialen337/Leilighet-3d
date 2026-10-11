@@ -33,6 +33,7 @@ export class WristPanel {
   }
 
   setLines(lines: string[]): void {
+    if (lines.length === this.lines.length && lines.every((l, i) => l === this.lines[i])) return;
     this.lines = lines;
     this.draw();
   }

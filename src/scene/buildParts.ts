@@ -4,7 +4,7 @@
  * merge.ts, og brukes også som usynlige treffflater for teleport/valg.
  */
 import * as THREE from 'three';
-import type { MeasureState, Opening } from '../schema/types';
+import { ELECTRICAL_FIXTURES, WATER_FIXTURES, type MeasureState, type Opening } from '../schema/types';
 import {
   fixtureSize,
   frameAt,
@@ -42,10 +42,11 @@ export type PartKind =
   | 'zone'
   | 'wire'
   | 'note'
-  | 'trim';
+  | 'trim'
+  | 'pipe';
 
 /** Materialgruppe. Én mesh per lag og gruppe. */
-export type Bucket = 'solid' | 'ceiling' | 'glass' | 'overlay';
+export type Bucket = 'solid' | 'wall' | 'ceiling' | 'glass' | 'overlay' | 'lines';
 
 /** Rolle ved teleport: gulv man kan lande på, hindring, eller ingen. */
 export type PickRole = 'floor' | 'blocker' | 'none';
@@ -59,6 +60,9 @@ export interface Part {
   geometry: THREE.BufferGeometry;
   color: THREE.Color;
   measure: MeasureState;
+  /** For filtre: eksisterende/planlagt og elektrisk kurs. */
+  status?: 'existing' | 'planned';
+  circuit?: string;
 }
 
 /** Fotlist og gerikter (mm). Bare presentasjon; plasseringen kommer fra fila. */
@@ -88,6 +92,20 @@ const FIXTURE_COLOR: Record<string, string> = {
   pipe: '#a0a0a0',
   vent: '#d9d9d9',
   hatch: '#5f5f5f',
+  light: '#fff6d6',
+  junction: '#e6e6e6',
+  panel: '#d8d8d8',
+  tap: '#c9ced3',
+  drain: '#9aa0a6',
+  valve: '#c0392b',
+  waterheater: '#f2f2f2',
+};
+
+export const PIPE_COLOR: Record<string, string> = {
+  cold: '#2f7de1',
+  hot: '#e0452f',
+  drain: '#6f747a',
+  other: '#9a8f80',
 };
 
 const OUTDOOR_COLOR: Record<string, string> = {
@@ -133,7 +151,7 @@ export function buildParts(model: ApartmentModel): Part[] {
 
   /* Vegger */
   for (const f of model.walls.values()) {
-    push({ id: f.wall.id, kind: 'wall', layer: f.wall.layer ?? 'structure', bucket: 'solid', pick: 'blocker', geometry: buildWallGeometry(model, f), color: col(f.wall.color) });
+    push({ id: f.wall.id, kind: 'wall', layer: f.wall.layer ?? 'structure', bucket: 'wall', pick: 'blocker', geometry: buildWallGeometry(model, f), color: col(f.wall.color) });
   }
 
   /* Åpninger */
@@ -154,7 +172,8 @@ export function buildParts(model: ApartmentModel): Part[] {
     const g = new GeoBuilder();
     g.addGeometry(geo, placeMatrix(pl.x, pl.y, pl.z, pl.yaw));
     const color = fx.color ?? (fx.status === 'planned' ? COLORS.planned : FIXTURE_COLOR[fx.type]!);
-    push({ id: fx.id, kind: 'fixture', layer: fx.layer, bucket: 'solid', pick: 'none', geometry: g.build(), color: col(color) });
+    const isInstall = ELECTRICAL_FIXTURES.includes(fx.type) || WATER_FIXTURES.includes(fx.type);
+    push({ id: fx.id, kind: 'fixture', layer: fx.layer, bucket: isInstall ? 'lines' : 'solid', pick: 'none', geometry: g.build(), color: col(color), status: fx.status, ...(fx.circuit ? { circuit: fx.circuit } : {}) });
   }
 
   /* Møbler */
@@ -200,7 +219,17 @@ export function buildParts(model: ApartmentModel): Part[] {
     const pts = wr.points.map(([x, h, z]) => w3(p2(x, z), model.floorOrDefault(p2(x, z)) + h));
     const g = new GeoBuilder();
     for (let i = 0; i + 1 < pts.length; i++) beam(g, pts[i]!, pts[i + 1]!, 20);
-    push({ id: wr.id, kind: 'wire', layer: wr.layer, bucket: 'solid', pick: 'none', geometry: g.build(), color: col(wr.color ?? (wr.status === 'planned' ? COLORS.wirePlanned : COLORS.wireExisting)) });
+    const circuitColor = wr.circuit ? d.circuits?.find((k) => k.id === wr.circuit)?.color : undefined;
+    push({ id: wr.id, kind: 'wire', layer: wr.layer, bucket: 'lines', pick: 'none', geometry: g.build(), color: col(wr.color ?? circuitColor ?? (wr.status === 'planned' ? COLORS.wirePlanned : COLORS.wireExisting)), status: wr.status, ...(wr.circuit ? { circuit: wr.circuit } : {}) });
+  }
+
+  /* Rør (vann og avløp) */
+  for (const pr of d.pipes ?? []) {
+    const pts = pr.points.map(([x, h, z]) => w3(p2(x, z), model.floorOrDefault(p2(x, z)) + h));
+    const g = new GeoBuilder();
+    const dia = pr.diameter ?? (pr.kind === 'drain' ? 50 : 22);
+    for (let i = 0; i + 1 < pts.length; i++) beam(g, pts[i]!, pts[i + 1]!, dia);
+    push({ id: pr.id, kind: 'pipe', layer: pr.layer, bucket: 'lines', pick: 'none', geometry: g.build(), color: col(pr.color ?? PIPE_COLOR[pr.kind]!), status: pr.status });
   }
 
   /* Notater: en liten svevende lapp (teksten vises i 2D-planen) */

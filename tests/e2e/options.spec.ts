@@ -69,7 +69,7 @@ test('«Gå til rom» flytter kameraet til rommet', async ({ page }) => {
 test('dukkehus og snitthøyde kutter modellen', async ({ page }) => {
   await page.goto('./');
   await waitForModel(page);
-  const clip = () => page.evaluate(() => (window as any).leilighet.renderer.clippingPlanes.map((p: any) => p.constant));
+  const clip = () => page.evaluate(() => (window as any).leilighet.materials.solid.clippingPlanes.map((p: any) => p.constant));
   expect(await clip()).toEqual([]);
   await page.keyboard.press('k');
   expect(await clip()).toEqual([1.5]);
@@ -111,10 +111,10 @@ test('VR-menyen (X): pek og trykk for å skru av taket og gå til et rom', async
   expect(s.menu.tab).toBe('visning');
   await menuPress(page, 'toggle:ceilings');
   expect(await page.evaluate(() => (window as any).leilighet.view.ceilings.value)).toBe(false);
-  // Lag-fanen: skjul møbler.
+  // Lag-fanen: skjul gruppen «Interiør» (møbler).
   await menuPress(page, 'tab:lag');
   expect((await xrState(page)).menu.tab).toBe('lag');
-  await menuPress(page, 'layer:furniture');
+  await menuPress(page, 'group:interior');
   expect(await page.evaluate(() => (window as any).leilighet.view.layers.isVisible('furniture'))).toBe(false);
   // Gå til stua: opp trinnet, og menyen lukkes.
   await menuPress(page, 'tab:ga');

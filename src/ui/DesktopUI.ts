@@ -14,6 +14,7 @@ import type { XRManager, XRSupport } from '../xr/XRManager';
 import type { MeasureSession } from '../measure/MeasureSession';
 import { h } from './dom';
 import { MeasureBox, type MeasureActions } from './MeasureBox';
+import { LayerPanel } from './LayerPanel';
 import { boundCheckbox, boundRange, boundSelect } from './controls';
 import { ACTION_TEXT, SHORTCUTS, isTypingTarget, shortcutFor } from './shortcuts';
 import { QUALITIES, TURN_MODES, XR_RATES, type Quality, type TurnMode, type XRRate } from '../state/ViewState';
@@ -26,6 +27,8 @@ export interface DesktopActions {
   resetSettings: () => void;
   /** Standard snitthøyde fra fila (mm over laveste gulv). */
   defaultSectionHeight: () => number;
+  /** «Tegn el og vann»-seksjonen. */
+  planBox?: HTMLElement;
 }
 
 const QUALITY_TEXT: Record<Quality, string> = { low: 'Rask', medium: 'Standard', high: 'Høy' };
@@ -52,7 +55,7 @@ export class DesktopUI {
   readonly panel: HTMLElement;
   private readonly vrButton: HTMLButtonElement;
   private readonly vrHint: HTMLElement;
-  private readonly layerList: HTMLElement;
+  readonly layerPanel: LayerPanel;
   private readonly status: HTMLElement;
   private readonly measureInfo: HTMLElement;
   private readonly legend: HTMLElement;
@@ -67,6 +70,8 @@ export class DesktopUI {
   private measureSession: MeasureSession | null = null;
   private readonly roomList: HTMLElement;
   private readonly helpDialog: HTMLElement;
+  private readonly tooltip: HTMLElement;
+  private planState: { planChanges: number; planPublished: boolean } = { planChanges: 0, planPublished: false };
 
   constructor(
     root: HTMLElement,
@@ -132,7 +137,7 @@ export class DesktopUI {
     );
     view.measureHighlight.subscribe((v) => (this.legend.hidden = !v));
 
-    this.layerList = h('div', { class: 'layers', 'data-testid': 'layers' });
+    this.layerPanel = new LayerPanel(view);
     this.status = h('p', { class: 'status', 'data-testid': 'status' }, 'Laster leilighet …');
     this.measureInfo = h('p', { class: 'status', 'data-testid': 'measure-info' });
     this.warnings = h('details', { class: 'warnings', 'data-testid': 'warnings', hidden: '' });
@@ -164,7 +169,8 @@ export class DesktopUI {
           h('div', { class: 'row' }, resetView, fullscreen, shortcutsButton),
         ),
         h('div', { class: 'group' }, h('h2', {}, 'Gå til rom'), this.roomList),
-        h('div', { class: 'group' }, h('h2', {}, 'Lag'), this.layerList),
+        ...(actions.planBox ? [actions.planBox] : []),
+        this.layerPanel.root,
         settings,
         h('div', { class: 'group' }, this.status, this.measureInfo, this.warnings, reload),
         this.help,
@@ -179,7 +185,8 @@ export class DesktopUI {
     this.fpsBox = h('div', { class: 'fps', 'data-testid': 'fps', hidden: '' });
 
     this.helpDialog = this.buildHelp();
-    root.append(this.panel, this.overlay, this.scaleBar, this.coords, this.fpsBox, this.helpDialog);
+    this.tooltip = h('div', { class: 'plan-tooltip', 'data-testid': 'plan-tooltip', hidden: '' });
+    root.append(this.panel, this.overlay, this.scaleBar, this.coords, this.fpsBox, this.helpDialog, this.tooltip);
     // Snitthøyden er bare i bruk ovenfra eller i dukkehus.
     const showSection = (): void => {
       section.hidden = view.cameraMode.value !== 'top' && !view.dollhouse.value;
@@ -253,12 +260,27 @@ export class DesktopUI {
     const rows = SHORTCUTS.map((s) => h('tr', {}, h('td', {}, h('kbd', {}, s.label)), h('td', {}, ACTION_TEXT[s.action] ?? s.action)));
     const close = h('button', { 'data-testid': 'help-close' }, 'Lukk');
     close.addEventListener('click', () => this.toggleHelp(false));
+    const plan = h(
+      'table',
+      {},
+      ...[
+        ['S / E / V / P', 'Velg / Kabel / Rør / Punkt'],
+        ['Klikk', 'Sett punkt (dra = flytt visningen som før)'],
+        ['Enter, dobbeltklikk, høyreklikk', 'Ferdig med kabelen/røret'],
+        ['Backspace', 'Fjern siste punkt'],
+        ['Esc', 'Avbryt / tilbake til «Velg»'],
+        ['Delete', 'Slett valgt'],
+        ['Ctrl+Z', 'Angre'],
+        ['Hold Ctrl', 'Ikke fest (fri plassering)'],
+      ].map(([k, t]) => h('tr', {}, h('td', {}, h('kbd', {}, k!)), h('td', {}, t!))),
+    );
     const vr = h(
       'ul',
       {},
       h('li', {}, 'Venstre stikke fremover: sikt og slipp for å teleportere'),
       h('li', {}, 'Høyre stikke til siden: snu · bakover: snu 180°'),
-      h('li', {}, 'X: meny (lag, tak, gå til rom, innstillinger) · Y: bildefrekvens'),
+      h('li', {}, 'X: meny (lag, tak, tegn, gå til rom, innstillinger) · Y: bildefrekvens'),
+      h('li', {}, 'Tegn (velg i menyen): avtrekker = punkt, A = ferdig, B = angre'),
     );
     const dialog = h(
       'div',
@@ -267,6 +289,8 @@ export class DesktopUI {
         h('h2', {}, 'Hurtigtaster'),
         h('table', {}, ...rows),
         h('p', { class: 'hint' }, '3D: dra for å rotere, rull for å zoome, høyreklikk-dra for å panorere. 2D: dra for å flytte.'),
+        h('h2', {}, 'Tegn el og vann'),
+        plan,
         h('h2', {}, 'I VR (Quest 3)'),
         vr,
         close,
@@ -293,15 +317,30 @@ export class DesktopUI {
     );
   }
 
-  /** Oppdaterer oppmålingsboksen (kalles når målingene endres). */
-  updateMeasure(session: MeasureSession | null = this.measureSession): void {
+  /** Oppdaterer oppmålingsboksen (kalles når målinger eller tegninger endres). */
+  updateMeasure(
+    session: MeasureSession | null = this.measureSession,
+    plan: { planChanges: number; planPublished: boolean } = this.planState,
+  ): void {
     this.measureSession = session;
+    this.planState = plan;
     this.measureBox.update({
       arSupport: this.xr.arSupport.value,
       measuring: this.xr.measuring.value,
       presenting: this.view.inXR.value,
       session,
+      ...plan,
     });
+  }
+
+  /** Liten lapp ved musepekeren mens man tegner (lengde, høyde, hva den festet til). */
+  planTooltip(text: string | null, x = 0, y = 0): void {
+    this.tooltip.hidden = !text;
+    if (!text) return;
+    this.tooltip.textContent = text;
+    const r = this.panel.parentElement!.getBoundingClientRect();
+    this.tooltip.style.left = `${x - r.left + 14}px`;
+    this.tooltip.style.top = `${y - r.top + 14}px`;
   }
 
   private updateVrButton(): void {
@@ -354,7 +393,7 @@ export class DesktopUI {
     const partial = states.filter((s) => s === 'partial').length;
     this.measureInfo.textContent = `Målt: ${measured} av ${states.length} objekter (${partial} delvis). Resten er plassholdere.`;
     this.setWarnings(warnings);
-    this.buildLayerList();
+    this.layerPanel.build(model);
     this.buildRoomList(model);
   }
 
@@ -364,18 +403,6 @@ export class DesktopUI {
       h('summary', {}, `Advarsler (${warnings.length})`),
       h('ul', {}, ...warnings.map((w) => h('li', {}, w.message))),
     );
-  }
-
-  private buildLayerList(): void {
-    this.layerList.replaceChildren();
-    for (const layer of this.view.layers.layers) {
-      const state = this.view.layers.get(layer.id);
-      const input = h('input', { type: 'checkbox', 'data-testid': `layer-${layer.id}` });
-      input.checked = state.value;
-      input.addEventListener('change', () => state.set(input.checked));
-      state.subscribe((v) => (input.checked = v));
-      this.layerList.append(h('label', { class: 'check' }, input, layer.name));
-    }
   }
 
   /** Målestokk: velger en rund lengde som blir 60–160 px. */

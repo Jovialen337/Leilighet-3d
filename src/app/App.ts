@@ -24,6 +24,13 @@ import { repoFromLocation, uploadUrl } from '../ui/github';
 import { Labels } from '../ui/Labels';
 import { DesktopView } from '../views/DesktopView';
 import { XRManager } from '../xr/XRManager';
+import { PlanEdits } from '../plan/PlanEdits';
+import { PlanController } from '../plan/PlanController';
+import { PlanOverlay } from '../plan/PlanOverlay';
+import { PlanBox } from '../ui/PlanBox';
+import { isTypingTarget } from '../ui/shortcuts';
+import type { ApartmentDoc } from '../schema/types';
+import type { DrawTool } from '../plan/draw';
 
 export class App {
   readonly renderer: THREE.WebGLRenderer;
@@ -40,6 +47,14 @@ export class App {
   readonly sky = createSky();
   measure: MeasureSession | null = null;
   readonly settings: SettingsBinding;
+  /** Tegnede endringer (el og vann) oppå fila, lagret lokalt. */
+  readonly plan: PlanEdits;
+  readonly planCtrl: PlanController;
+  readonly planOverlay: PlanOverlay;
+  readonly planBox: PlanBox;
+  private readonly raycaster = new THREE.Raycaster();
+  private readonly pointer = new THREE.Vector2();
+  private readonly rayHits: THREE.Intersection[] = [];
   private lastTime = -1;
   private loaded = false;
   /** Utkastet er endret under oppmåling og tegnes når AR-økten er over. */
@@ -49,10 +64,17 @@ export class App {
     this.store = new ApartmentStore(`${import.meta.env.BASE_URL}apartment.json`);
     // Lagrede valg hentes før UI-et bygges, så kontrollene starter riktig.
     this.settings = new SettingsBinding(this.view, localStore());
+    this.plan = new PlanEdits(null, localStore());
+    this.planCtrl = new PlanController(this.plan, () => this.store.model, () => this.baseDoc());
+    this.planOverlay = new PlanOverlay(this.planCtrl, () => this.store.model);
+    this.planBox = new PlanBox(this.planCtrl);
+    this.plan.subscribe(() => this.onPlanChanged());
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     configureRenderer(this.renderer);
+    // Kutt per materiale: installasjoner kuttes ikke (se Materials.setCut).
+    this.renderer.localClippingEnabled = true;
     this.renderer.domElement.className = 'viewport';
     this.renderer.domElement.dataset.testid = 'viewport';
     root.appendChild(this.renderer.domElement);
@@ -60,6 +82,7 @@ export class App {
     this.scene.add(this.apartment.root);
     addLights(this.scene);
     this.scene.add(this.sky);
+    this.scene.add(this.planOverlay.root);
 
     this.labels = new Labels(root);
     this.scene.add(this.labels.root);
@@ -75,6 +98,7 @@ export class App {
       () => this.store.model,
       this.fps,
       () => this.measure,
+      this.planCtrl,
     );
     this.ui = new DesktopUI(root, this.view, this.xr, {
       reload: () => void this.load(),
@@ -82,13 +106,17 @@ export class App {
       resetView: () => this.desktop.resetView(),
       resetSettings: () => this.settings.reset({ layers: this.store.model?.data.layers ?? [] }),
       defaultSectionHeight: () => this.store.model?.settings.planCutHeight ?? 1500,
+      planBox: this.planBox.root,
       measure: {
         start: () => void this.xr.enterMeasure(),
         stop: () => void this.xr.exit(),
         download: () => this.downloadDraft(),
         copy: () => this.copyDraft(),
         uploadUrl: () => uploadUrl(repoFromLocation()),
-        discard: () => this.measure?.discard(),
+        discard: () => {
+          this.measure?.discard();
+          this.plan.clear();
+        },
         adoptStale: () => this.measure?.adoptStale(),
       },
     });
@@ -96,9 +124,11 @@ export class App {
 
     this.bindState();
     window.addEventListener('resize', () => this.resize());
-    this.renderer.domElement.addEventListener('pointermove', (e) =>
-      this.ui.updateCoords(this.desktop.planPointAt(e.clientX, e.clientY)),
-    );
+    this.renderer.domElement.addEventListener('pointermove', (e) => {
+      this.ui.updateCoords(this.desktop.planPointAt(e.clientX, e.clientY));
+      this.planHover(e);
+    });
+    this.bindPlanInput();
     this.desktop.onChange(() => this.ui.updateScale(this.desktop.pixelsPerMeter()));
     this.fps.onUpdate(() => this.ui.updateFps(this.fps.label()));
     this.resize();
@@ -120,12 +150,28 @@ export class App {
       return;
     }
     this.measure = this.createMeasureSession();
-    if (this.measure?.hasMeasurements) this.showDraft();
+    if (this.store.fileDoc) this.plan.rebase(this.store.fileDoc);
+    if (this.measure?.hasMeasurements || this.plan.size) this.showDraft(true);
     else {
       this.applyModel(result.model);
       this.ui.showModel(result.model, result.warnings);
     }
-    this.ui.updateMeasure(this.measure);
+    this.updateMeasureUi();
+  }
+
+  /** Grunnlaget for tegning: oppmålingsutkastet eller fila (uten planendringene). */
+  private baseDoc(): ApartmentDoc | null {
+    return this.measure?.hasMeasurements ? this.measure.draft : this.store.fileDoc;
+  }
+
+  private updateMeasureUi(): void {
+    this.ui.updateMeasure(this.measure, { planChanges: this.plan.changedObjects, planPublished: this.plan.published });
+  }
+
+  private onPlanChanged(): void {
+    this.updateMeasureUi();
+    if (this.xr.measuring.value) this.draftDirty = true;
+    else this.showDraft();
   }
 
   private createMeasureSession(): MeasureSession | null {
@@ -142,28 +188,38 @@ export class App {
 
   private onDraftChanged(s: MeasureSession): void {
     if (s !== this.measure) return;
-    this.ui.updateMeasure(s);
+    this.updateMeasureUi();
     if (this.xr.measuring.value) this.draftDirty = true;
     else this.showDraft();
   }
 
-  /** Tegner utkastet fra oppmålingen (eller fila, hvis det ikke finnes målinger). */
-  private showDraft(): void {
+  /** Tegner utkastet: oppmåling (eller fila) med de tegnede endringene oppå. */
+  private showDraft(force = false): void {
     this.draftDirty = false;
-    const doc = this.measure?.hasMeasurements ? this.measure.draft : this.store.fileDoc;
-    if (!doc || doc === this.store.doc) return;
+    const base = this.baseDoc();
+    if (!base) return;
+    const doc = this.plan.apply(base);
+    if (!force && doc === this.store.doc) return;
     const r = this.store.setDoc(doc);
     if (!r.ok) {
-      console.error('Utkastet er ugyldig', r.errors);
+      console.warn('Utkastet er ugyldig', r.errors);
+      this.planCtrl.message.set(`Endringen ga en feil i modellen: ${r.errors[0]?.message ?? ''} Trykk «Angre».`);
       return;
     }
     this.applyModel(r.model);
     this.ui.showModel(r.model, r.warnings);
   }
 
+  /** Hele utkastet som tekst (målinger + tegninger), for nedlasting og kopiering. */
+  private exportText(): string | null {
+    if (!this.measure) return null;
+    return this.measure.exportText(new Date(), (d) => this.plan.apply(d));
+  }
+
   private downloadDraft(): void {
-    if (!this.measure) return;
-    const blob = new Blob([this.measure.exportText()], { type: 'application/json' });
+    const text = this.exportText();
+    if (!text) return;
+    const blob = new Blob([text], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = 'apartment.json';
@@ -174,9 +230,10 @@ export class App {
   }
 
   private async copyDraft(): Promise<boolean> {
-    if (!this.measure) return false;
+    const text = this.exportText();
+    if (!text) return false;
     try {
-      await navigator.clipboard.writeText(this.measure.exportText());
+      await navigator.clipboard.writeText(text);
       return true;
     } catch {
       return false;
@@ -185,6 +242,10 @@ export class App {
 
   private applyModel(model: ApartmentModel): void {
     this.view.layers.reset(model.data.layers);
+    this.planBox.setModel(model);
+    const sel = this.planCtrl.selected.value;
+    if (sel && !(model.data[sel.c] ?? []).some((o: { id: string }) => o.id === sel.id)) this.planCtrl.selected.set(null);
+    else this.planOverlay.rebuildHighlight();
     this.apartment.build(model);
     this.labels.build(model);
     for (const l of model.data.layers) this.applyLayer(l.id, this.view.layers.isVisible(l.id));
@@ -217,6 +278,13 @@ export class App {
     this.view.cameraMode.subscribe(() => this.applyCameraMode());
     this.view.dollhouse.subscribe(() => this.applyCameraMode());
     this.view.quality.subscribe(() => this.applyQuality());
+    const filter = (): void =>
+      this.apartment.setFilter({ existing: this.view.showExisting.value, planned: this.view.showPlanned.value, circuit: this.view.circuit.value });
+    this.view.showExisting.subscribe(filter);
+    this.view.showPlanned.subscribe(filter);
+    this.view.circuit.subscribe(filter);
+    filter();
+    this.view.xray.subscribe((on) => this.materials.setXray(on), true);
     this.view.sectionHeight.subscribe((mm) => this.desktop.setSectionHeight(mm));
     this.view.ceilings.subscribe((v) => this.apartment.setCeilingsVisible(v));
     this.view.measureHighlight.subscribe((v) => this.apartment.setMeasureHighlight(v));
@@ -240,8 +308,7 @@ export class App {
     const top = v.cameraMode.value === 'top' && !v.inXR.value;
     const cut = (top || v.dollhouse.value) && !v.inXR.value;
     this.desktop.setMode(v.cameraMode.value);
-    this.renderer.clippingPlanes = cut ? [this.desktop.cutPlane] : [];
-    this.materials.setPlanMode(cut);
+    this.materials.setCut(cut ? this.desktop.cutPlane : null, top);
     this.labels.setVisible(top);
     this.applyQuality();
   }
@@ -259,6 +326,102 @@ export class App {
       this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, q === 'high' ? 3 : q === 'low' ? 1.25 : 2));
       this.resize();
     }
+  }
+
+  /* ---------------- Tegning med mus og tastatur (PC) ---------------- */
+
+  /** Punkt i planet (mm) og høyde over gulv under musepekeren. 2D: planpunktet; 3D: der strålen treffer. */
+  private planPointFromEvent(e: { clientX: number; clientY: number }): { p: { x: number; z: number }; h?: number; tol: number } | null {
+    const model = this.store.model;
+    if (!model) return null;
+    if (this.view.cameraMode.value === 'top') {
+      const p = this.desktop.planPointAt(e.clientX, e.clientY);
+      if (!p) return null;
+      return { p, tol: (12 / Math.max(1, this.desktop.pixelsPerMeter())) * 1000 };
+    }
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+    this.raycaster.setFromCamera(this.pointer, this.desktop.camera);
+    this.rayHits.length = 0;
+    const cut = this.view.dollhouse.value ? this.desktop.cutPlane.constant : Infinity;
+    const hit = this.raycaster
+      .intersectObjects(this.apartment.visibleProxies(), false, this.rayHits)
+      .find((h) => h.point.y <= cut + 1e-3);
+    if (!hit) return null;
+    const p = { x: hit.point.x / MM, z: hit.point.z / MM };
+    const floor = model.floorOrDefault(p);
+    return { p, h: Math.max(0, Math.round(hit.point.y / MM - floor)), tol: 80 };
+  }
+
+  private planHover(e: PointerEvent): void {
+    if (this.planCtrl.tool === 'select' || this.renderer.xr.isPresenting) {
+      this.planCtrl.hover = null;
+      this.ui.planTooltip(null);
+      return;
+    }
+    const hit = this.planPointFromEvent(e);
+    this.planCtrl.hoverAt(hit?.p ?? null, hit?.tol ?? 0, hit?.h, e.ctrlKey);
+    const hv = this.planCtrl.hover;
+    if (!hv) {
+      this.ui.planTooltip(null);
+      return;
+    }
+    const total = this.planCtrl.drawing ? ` · totalt ${(this.planCtrl.liveLength() / 1000).toFixed(2).replace('.', ',')} m` : '';
+    this.ui.planTooltip(`${hv.snap === 'fri' ? '' : `${hv.snap} · `}h ${hv.h} mm${total}`, e.clientX, e.clientY);
+  }
+
+  private bindPlanInput(): void {
+    const el = this.renderer.domElement;
+    let down: { x: number; y: number; button: number } | null = null;
+    el.addEventListener('pointerdown', (e) => (down = { x: e.clientX, y: e.clientY, button: e.button }));
+    el.addEventListener('pointerup', (e) => {
+      const d = down;
+      down = null;
+      if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5 || this.renderer.xr.isPresenting) return;
+      if (d.button === 2) {
+        if (this.planCtrl.drawing) this.planCtrl.finish();
+        return;
+      }
+      if (d.button !== 0) return;
+      const hit = this.planPointFromEvent(e);
+      if (!hit) return;
+      this.planCtrl.click(hit.p, hit.tol, hit.h, e.ctrlKey);
+    });
+    el.addEventListener('pointerleave', () => {
+      this.planCtrl.hover = null;
+      this.ui.planTooltip(null);
+    });
+    this.view.cameraMode.subscribe(() => this.ui.planTooltip(null));
+    this.planCtrl.options.subscribe(() => this.ui.planTooltip(null));
+    el.addEventListener('dblclick', () => {
+      if (this.planCtrl.drawing) this.planCtrl.finish();
+    });
+    el.addEventListener('contextmenu', (e) => {
+      if (this.planCtrl.tool !== 'select') e.preventDefault();
+    });
+    const tools: Record<string, DrawTool> = { s: 'select', e: 'wire', v: 'pipe', p: 'fixture' };
+    window.addEventListener('keydown', (e) => {
+      if (isTypingTarget(e.target) || e.altKey || e.metaKey) return;
+      const k = e.key;
+      if (e.ctrlKey) {
+        if (k === 'z' || k === 'Z') {
+          e.preventDefault();
+          this.planCtrl.undo();
+        }
+        return;
+      }
+      if (e.repeat) return;
+      const tool = tools[k.toLowerCase()];
+      if (tool && !e.shiftKey) this.planCtrl.set({ tool });
+      else if (k === 'Enter') this.planCtrl.finish();
+      else if (k === 'Backspace' && this.planCtrl.drawing) {
+        e.preventDefault();
+        this.planCtrl.undoPoint();
+      } else if (k === 'Escape') {
+        if (this.planCtrl.drawing) this.planCtrl.cancel();
+        else if (this.planCtrl.tool !== 'select') this.planCtrl.set({ tool: 'select' });
+      } else if (k === 'Delete') this.planCtrl.deleteSelected();
+    });
   }
 
   /** «Gå til rom»: i VR flyttes du dit, på laptopen flyttes kameraet. */
@@ -290,10 +453,14 @@ export class App {
     this.fps.tick(time);
     if (this.renderer.xr.isPresenting) {
       this.xr.update(dt, frame, time);
+      this.planOverlay.scale = 0.025;
+      this.planOverlay.update();
       this.renderer.render(this.scene, this.xr.camera);
       return;
     }
     this.desktop.update(dt);
+    this.planOverlay.scale = this.view.cameraMode.value === 'top' ? 0.05 : 0.025;
+    this.planOverlay.update();
     this.renderer.render(this.scene, this.desktop.camera);
     if (this.view.cameraMode.value === 'top') this.labels.render(this.scene, this.desktop.camera);
   }

@@ -83,6 +83,13 @@ const FIXTURE_NOUN: Record<Fixture['type'], [string, string]> = {
   pipe: ['Rør', 'røret'],
   vent: ['Ventil', 'ventilen'],
   hatch: ['Luke', 'luka'],
+  light: ['Lampepunkt', 'lampepunktet'],
+  junction: ['Koblingsboks', 'koblingsboksen'],
+  panel: ['Sikringsskap', 'sikringsskapet'],
+  tap: ['Kran', 'kranen'],
+  drain: ['Sluk', 'sluket'],
+  valve: ['Stoppekran', 'stoppekranen'],
+  waterheater: ['Varmtvannsbereder', 'varmtvannsberederen'],
 };
 
 const openingNoun = (o: Opening): [string, string] =>

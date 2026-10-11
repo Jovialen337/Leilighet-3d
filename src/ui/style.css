@@ -373,6 +373,119 @@ kbd {
   }
 }
 
+/* Lag og filtre */
+.presets {
+  margin: 0 0 8px;
+}
+
+.filters {
+  margin-bottom: 6px;
+}
+
+.layer-group {
+  border-top: 1px solid var(--line);
+  padding: 2px 0;
+}
+
+.layer-group summary {
+  cursor: pointer;
+  list-style-position: outside;
+  margin-left: 14px;
+}
+
+.group-check {
+  font-weight: 600;
+}
+
+.layer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-left: 22px;
+}
+
+.layer-row .only {
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 6px;
+  font-size: 11px;
+  padding: 2px 6px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.layer-row .only:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+@media (pointer: coarse) {
+  .layer-row .only {
+    padding: 8px 10px;
+  }
+}
+
+/* Tegn el og vann */
+.segmented.tools button {
+  padding: 8px 4px;
+}
+
+.segmented button + button {
+  border-left: none;
+}
+
+.segmented.tools button:not(:first-child):not(:last-child) {
+  border-radius: 0;
+}
+
+button.primary-small {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+
+button.primary-small:disabled,
+button.small:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+button.danger-small {
+  color: var(--danger);
+}
+
+.plan-details summary {
+  cursor: pointer;
+  margin-top: 8px;
+  font-weight: 600;
+}
+
+.plan-summary ul {
+  margin: 4px 0 8px;
+  padding-left: 18px;
+  font-size: 13px;
+}
+
+.plan-summary .hints li {
+  color: var(--warn);
+}
+
+.small-print {
+  font-size: 11px;
+}
+
+.plan-tooltip {
+  position: absolute;
+  pointer-events: none;
+  background: rgba(20, 28, 36, 0.88);
+  color: #fff;
+  font: 600 12px system-ui, sans-serif;
+  padding: 4px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  z-index: 5;
+}
+
 /* Oppmåling */
 .measure-button {
   width: 100%;

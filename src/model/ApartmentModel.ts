@@ -142,6 +142,13 @@ const FIXTURE_DEFAULT_SIZE: Record<Fixture['type'], [number, number, number]> = 
   pipe: [60, 1000, 60],
   vent: [200, 200, 40],
   hatch: [300, 300, 25],
+  light: [220, 70, 220],
+  junction: [90, 90, 45],
+  panel: [450, 550, 130],
+  tap: [60, 160, 160],
+  drain: [160, 12, 160],
+  valve: [70, 70, 90],
+  waterheater: [450, 1000, 450],
 };
 
 export const fixtureSize = (f: Fixture): [number, number, number] =>
@@ -165,7 +172,8 @@ export class ApartmentModel {
   private thresholdCache: Threshold[] | null = null;
 
   constructor(n: Normalized) {
-    this.data = n.apartment;
+    // Eldre filer har ikke rør og kurser: tomme lister.
+    this.data = { ...n.apartment, pipes: n.apartment.pipes ?? [], circuits: n.apartment.circuits ?? [] };
     this.measure = n.measure;
     for (const l of this.data.layers) this.layers.set(l.id, l);
     for (const room of this.data.rooms) {
