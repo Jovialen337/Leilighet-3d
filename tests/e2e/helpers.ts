@@ -91,6 +91,7 @@ export interface XRState {
   teleports: number;
   turns: number;
   floorUnderHead: number | null;
+  menu: { open: boolean; tab: string; hovered: string | null };
 }
 
 export const xrState = (page: Page): Promise<XRState> =>
@@ -243,5 +244,37 @@ export async function align(page: Page): Promise<void> {
 export async function measureCurrent(page: Page, dx = 0, dy = 0, dz = 0): Promise<void> {
   const t = await page.evaluate(() => (window as any).leilighet.measure.current().target);
   await placeTip(page, (t.x + dx) / 1000, (t.y + dy) / 1000, (t.z + dz) / 1000);
+  await press(page, 'right', 'trigger');
+}
+
+/** Retter en kontroller mot et punkt i verden (m). */
+export async function aimAt(page: Page, hand: 'left' | 'right', w: { x: number; y: number; z: number }): Promise<void> {
+  await page.evaluate(
+    ([h, p]) => {
+      const xr = (window as any).leilighet.xr;
+      const c = (window as any).__iwer.controllers[h];
+      const t = xr.rig.position.clone().set(p.x, p.y, p.z);
+      xr.rig.worldToLocal(t);
+      const dx = t.x - c.position.x;
+      const dy = t.y - c.position.y;
+      const dz = t.z - c.position.z;
+      const l = Math.hypot(dx, dy, dz);
+      const bx = dx / l;
+      const by = dy / l;
+      const bz = dz / l;
+      // Rotasjon fra (0, 0, −1) til b.
+      const n = Math.hypot(by, bx, 1 - bz);
+      c.quaternion.set(by / n, -bx / n, 0, (1 - bz) / n);
+    },
+    [hand, w] as const,
+  );
+  await frames(page, 3);
+}
+
+/** Åpner VR-menyen (X) og trykker på en knapp i den med høyre kontroller. */
+export async function menuPress(page: Page, id: string): Promise<void> {
+  const p = await page.evaluate((i) => (window as any).leilighet.xr.menuItemWorld(i), id);
+  if (!p) throw new Error(`fant ikke menyknappen ${id}`);
+  await aimAt(page, 'right', p);
   await press(page, 'right', 'trigger');
 }

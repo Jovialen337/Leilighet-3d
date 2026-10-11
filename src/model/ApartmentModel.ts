@@ -21,6 +21,7 @@ import {
   bounds,
   centroid,
   cross,
+  distToSegment,
   dot,
   leftOf,
   len,
@@ -49,6 +50,8 @@ export const DEFAULTS = {
   wallTopStep: 50,
   /** Hvor langt innenfor inngangsdøra man starter (mm). */
   spawnInset: 700,
+  /** «Gå til rom»: hvor langt inn fra hjørnet man står (mm). */
+  viewpointInset: 700,
 } as const;
 
 export interface RoomInfo {
@@ -471,6 +474,40 @@ export class ApartmentModel {
     return { position, level: this.floorOrDefault(position), facing: p2(0, 1) };
   }
 
+  /**
+   * Godt sted å stå i et rom («Gå til rom»): litt inn fra et hjørne, med
+   * blikket mot midten, der man ser lengst – da får man oversikt over rommet.
+   */
+  roomViewpoint(roomId: string): Spawn | null {
+    const info = this.rooms.get(roomId);
+    if (!info) return null;
+    const poly = info.polygon;
+    const c = centroid(poly);
+    const edgeDist = (p: P2): number => {
+      let d = Infinity;
+      for (let i = 0; i < poly.length; i++) d = Math.min(d, distToSegment(p, poly[i]!, poly[(i + 1) % poly.length]!));
+      return d;
+    };
+    let best: Spawn | null = null;
+    let bestReach = -1;
+    for (const v of poly) {
+      const toC = sub(c, v);
+      const l = len(toC);
+      if (l < 1) continue;
+      const dir = scale(toC, 1 / l);
+      const p = add(v, scale(dir, Math.min(DEFAULTS.viewpointInset, l * 0.5)));
+      if (!pointInPolygon(p, poly) || edgeDist(p) < 250) continue;
+      const reach = rayToPolygon(p, dir, poly);
+      if (reach > bestReach + 1) {
+        bestReach = reach;
+        best = { position: p, level: info.room.floorLevel, facing: dir };
+      }
+    }
+    if (best) return best;
+    const p = pointInPolygon(c, poly) ? c : poly[0]!;
+    return { position: p, level: info.room.floorLevel, facing: p2(0, 1) };
+  }
+
   /** Samlet omriss av alle rom (for kamera). */
   extent(): Bounds2 {
     const pts: P2[] = [];
@@ -530,3 +567,20 @@ function simplifyPolyline(pts: { u: number; y: number }[]): { u: number; y: numb
   return out;
 }
 
+
+/** Avstand fra `o` langs `dir` (enhetsvektor) til nærmeste kant av polygonet. */
+function rayToPolygon(o: P2, dir: P2, poly: readonly P2[]): number {
+  let best = Infinity;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i]!;
+    const b = poly[(i + 1) % poly.length]!;
+    const e = sub(b, a);
+    const den = cross(dir, e);
+    if (Math.abs(den) < 1e-9) continue;
+    const ao = sub(a, o);
+    const t = cross(ao, e) / den;
+    const u = cross(ao, dir) / den;
+    if (t > 1e-6 && u >= 0 && u <= 1) best = Math.min(best, t);
+  }
+  return Number.isFinite(best) ? best : 0;
+}

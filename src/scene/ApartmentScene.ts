@@ -50,6 +50,8 @@ export class ApartmentScene {
   readonly ranges = new Map<string, Range[]>();
   private parts: Part[] = [];
   private measureOn = false;
+  /** Treffflatene i synlige lag; bygges på nytt bare når lag/tak endres (ikke hver ramme). */
+  private visibleCache: THREE.Mesh[] | null = null;
 
   constructor(readonly materials: Materials) {
     this.root.name = 'leilighet';
@@ -57,6 +59,7 @@ export class ApartmentScene {
 
   build(model: ApartmentModel): void {
     this.clear();
+    this.visibleCache = null;
     this.parts = buildParts(model);
 
     for (const layer of model.data.layers) {
@@ -149,6 +152,7 @@ export class ApartmentScene {
   setLayerVisible(layer: string, visible: boolean): void {
     const g = this.layerGroups.get(layer);
     if (g) g.visible = visible;
+    this.visibleCache = null;
   }
 
   isLayerVisible(layer: string): boolean {
@@ -157,6 +161,7 @@ export class ApartmentScene {
 
   setCeilingsVisible(visible: boolean): void {
     for (const m of this.merged) if (m.bucket === 'ceiling') m.mesh.visible = visible;
+    this.visibleCache = null;
   }
 
   /** Farger objekter etter målestatus (oransje = plassholder, gul = delvis, grønn = målt). */
@@ -171,12 +176,14 @@ export class ApartmentScene {
 
   /** Treffflater i synlige lag (for teleport/valg). */
   visibleProxies(): THREE.Mesh[] {
-    return this.proxies.filter((p) => {
+    if (this.visibleCache) return this.visibleCache;
+    const ceilings = this.merged.some((m) => m.bucket === 'ceiling' && m.mesh.visible);
+    this.visibleCache = this.proxies.filter((p) => {
       const d = p.userData as ProxyData;
       if (!this.isLayerVisible(d.layer)) return false;
-      if (d.kind === 'ceiling') return this.merged.some((m) => m.bucket === 'ceiling' && m.mesh.visible);
-      return true;
+      return d.kind !== 'ceiling' || ceilings;
     });
+    return this.visibleCache;
   }
 
   stats(): { meshes: number; triangles: number; proxies: number } {

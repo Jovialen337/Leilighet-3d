@@ -35,6 +35,7 @@ export class TeleportArc {
   private readonly segBox = new THREE.Box3();
   private readonly dir = new THREE.Vector3();
   private readonly candidates: THREE.Mesh[] = [];
+  private readonly hits: THREE.Intersection[] = [];
 
   constructor(readonly options: ArcOptions = DEFAULT_ARC) {
     this.points = Array.from({ length: options.maxSteps + 1 }, () => new THREE.Vector3());
@@ -83,8 +84,8 @@ export class TeleportArc {
     this.raycaster.set(a, this.dir);
     this.raycaster.near = 0;
     this.raycaster.far = len;
-    const hits = this.raycaster.intersectObjects(this.candidates, false);
-    const first = hits[0];
+    this.hits.length = 0;
+    const first = this.raycaster.intersectObjects(this.candidates, false, this.hits)[0];
     if (!first) return null;
     const data = first.object.userData as ProxyData;
     const normal = first.face ? first.face.normal.clone() : new THREE.Vector3(0, 1, 0);

@@ -37,6 +37,18 @@ export class PersistedSettings {
     });
   }
 
+  /** Leser en lagret verdi direkte (undefined hvis den mangler eller er ugyldig). */
+  get<T>(name: string, isValid: (v: unknown) => v is T): T | undefined {
+    const v = this.values[name];
+    return v !== undefined && isValid(v) ? v : undefined;
+  }
+
+  /** Lagrer en verdi direkte. */
+  set(name: string, value: unknown): void {
+    this.values[name] = value;
+    this.save();
+  }
+
   /** Glemmer alle lagrede valg (standardverdiene brukes ved neste lasting). */
   clear(): void {
     this.values = {};

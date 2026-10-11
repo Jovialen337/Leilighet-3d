@@ -22,16 +22,22 @@ import type { FpsMeter } from '../ui/FpsMeter';
 import { MeasureMode, type MeasureDebugState } from './MeasureMode';
 import { TeleportArc } from './teleport';
 import { WristPanel } from './WristPanel';
+import { WristMenu } from './WristMenu';
+import type { MenuTab } from './menuLayout';
+import { QUALITIES, type Quality, type TurnMode, type XRRate } from '../state/ViewState';
 import { followFloor, placeAtSpawn, snapTurn, teleportTo } from './rig';
 
 export type XRSupport = 'checking' | 'supported' | 'unsupported' | 'insecure' | 'no-webxr';
 export type XRMode = 'walk' | 'measure';
 
 export const SNAP_ANGLE = (30 * Math.PI) / 180;
+/** Myk dreiing: grader per sekund ved fullt utslag. */
+export const SMOOTH_TURN_SPEED = (90 * Math.PI) / 180;
 const AIM_START = -0.6;
 const AIM_RELEASE = -0.25;
 const TURN_START = 0.6;
 const TURN_REARM = 0.3;
+const SMOOTH_DEADZONE = 0.2;
 
 interface Slot {
   index: number;
@@ -50,6 +56,7 @@ export interface XRDebugState {
   teleports: number;
   turns: number;
   floorUnderHead: number | null;
+  menu: { open: boolean; tab: MenuTab; hovered: string | null };
 }
 
 export class XRManager {
@@ -69,8 +76,14 @@ export class XRManager {
   private readonly arcLine: THREE.Line;
   private readonly marker: THREE.Group;
   private readonly wrist = new WristPanel();
+  readonly menu = new WristMenu();
+  private menuTab: MenuTab = 'visning';
+  private menuDirty = true;
+  private xWasPressed = false;
+  private triggerWasPressed = false;
   private aiming = false;
   private turnArmed = true;
+  private smoothTurning = false;
   private yWasPressed = false;
   private frames = 0;
   private pendingSpawn = false;
@@ -130,7 +143,14 @@ export class XRManager {
     this.marker.visible = false;
     scene.add(this.arcLine, this.marker);
 
-    this.wrist.setLines(['Venstre stikke: teleport', 'Høyre stikke: snu 30°', 'Y: vis bildefrekvens']);
+    view.turn.subscribe(() => this.updateWristHelp(), true);
+    scene.add(this.menu.mesh, this.menu.cursor);
+    const dirty = (): void => {
+      this.menuDirty = true;
+    };
+    for (const o of [view.ceilings, view.measureHighlight, view.fps, view.quality, view.turn, view.xrRate] as const)
+      (o as { subscribe: (l: () => void) => void }).subscribe(dirty);
+    view.xrRate.subscribe(() => void this.applyFrameRate());
     view.fps.subscribe(() => this.updateWristFps(), true);
     fps.onUpdate(() => this.updateWristFps());
 
@@ -167,11 +187,45 @@ export class XRManager {
         optionalFeatures: ['local-floor', 'bounded-floor'],
       });
       await this.renderer.xr.setSession(session);
-      const hz = Number(new URLSearchParams(location.search).get('hz'));
-      if (hz && session.supportedFrameRates?.includes(hz)) await session.updateTargetFrameRate?.(hz);
+      await this.applyFrameRate(session);
     } catch (e) {
       this.error.set(`Kunne ikke starte VR: ${(e as Error).message}`);
     }
+  }
+
+  /** Bildefrekvens fra innstillingene (eller ?hz= i adressen), hvis hodesettet støtter den. */
+  private async applyFrameRate(session: XRSession | null = this.renderer.xr.getSession()): Promise<void> {
+    if (!session) return;
+    const hz = Number(new URLSearchParams(location.search).get('hz')) || this.view.xrRate.value;
+    try {
+      if (session.supportedFrameRates?.includes(hz) && session.frameRate !== hz) await session.updateTargetFrameRate?.(hz);
+    } catch {
+      /* hodesettet nektet; beholder standard */
+    }
+  }
+
+  /** Flytter brukeren til et godt sted i rommet, med blikket innover («Gå til rom»). */
+  goToRoom(roomId: string): boolean {
+    const vp = this.getModel()?.roomViewpoint(roomId);
+    if (!vp || !this.presenting || this.mode !== 'walk') return false;
+    placeAtSpawn(
+      this.rig,
+      this.camera.position,
+      this.camera.quaternion,
+      new THREE.Vector3(vp.position.x * MM, vp.level * MM, vp.position.z * MM),
+      vp.facing,
+    );
+    this.teleports++;
+    this.camera.getWorldPosition(this.head);
+    return true;
+  }
+
+  /** Tilbake til inngangsdøra. */
+  goToStart(): boolean {
+    if (!this.presenting || this.mode !== 'walk') return false;
+    this.spawn(this.camera.position, this.camera.quaternion);
+    this.camera.getWorldPosition(this.head);
+    return true;
   }
 
   /** Starter oppmåling med gjennomsyn (immersive-ar). */
@@ -224,6 +278,7 @@ export class XRManager {
 
   private onSessionEnd(): void {
     this.aiming = false;
+    this.setMenuOpen(false);
     this.arcLine.visible = false;
     this.marker.visible = false;
     if (this.mode === 'measure') {
@@ -280,6 +335,8 @@ export class XRManager {
     const left = this.gamepad('left');
     const right = this.gamepad('right');
 
+    this.updateMenu(left, right);
+
     // Teleport med venstre stikke.
     const ly = left?.axes[3] ?? 0;
     if (!this.aiming && ly < AIM_START) this.aiming = true;
@@ -299,20 +356,144 @@ export class XRManager {
       }
     }
 
-    // Snu 30° med høyre stikke.
-    const rx = right?.axes[2] ?? 0;
-    if (this.turnArmed && Math.abs(rx) > TURN_START) {
-      snapTurn(this.rig, this.head, -Math.sign(rx) * SNAP_ANGLE);
-      this.turns++;
-      this.turnArmed = false;
-    } else if (Math.abs(rx) < TURN_REARM) {
-      this.turnArmed = true;
-    }
+    this.turn(right, dt);
 
     // Gulvet følger med når man går fysisk opp/ned trinnet.
     const level = model.floorLevelAt({ x: this.head.x / MM, z: this.head.z / MM });
     this.floorUnderHead = level;
     if (level !== null) followFloor(this.rig, level * MM, dt);
+  }
+
+  /* ---------------- VR-meny (X) ---------------- */
+
+  setMenuOpen(open: boolean): void {
+    this.menu.setOpen(open);
+    this.wrist.mesh.visible = !open && this.mode === 'walk';
+    if (open) this.menuDirty = true;
+  }
+
+  private updateMenu(left: Gamepad | null, right: Gamepad | null): void {
+    const x = left?.buttons[4]?.pressed ?? false;
+    if (x && !this.xWasPressed) this.setMenuOpen(!this.menu.open);
+    this.xWasPressed = x;
+    const trigger = (right?.buttons[0]?.value ?? 0) > 0.6;
+    const pressed = trigger && !this.triggerWasPressed;
+    this.triggerWasPressed = trigger;
+    if (!this.menu.open) return;
+
+    const leftSlot = this.slot('left');
+    const rightSlot = this.slot('right');
+    if (leftSlot) this.menu.place(leftSlot.grip, this.head);
+    if (this.menuDirty) {
+      this.menuDirty = false;
+      this.menu.setState(this.menuState());
+    }
+    if (!rightSlot) return;
+    const { changed } = this.menu.point(rightSlot.controller);
+    if (changed) this.pulse(rightSlot, 0.25, 15);
+    if (pressed && this.menu.hovered) {
+      this.menuAction(this.menu.hovered.id);
+      this.pulse(rightSlot, 0.6, 40);
+    }
+  }
+
+  private menuState() {
+    const model = this.getModel();
+    return {
+      tab: this.menuTab,
+      ceilings: this.view.ceilings.value,
+      highlight: this.view.measureHighlight.value,
+      fps: this.view.fps.value,
+      quality: this.view.quality.value,
+      turn: this.view.turn.value,
+      rate: this.view.xrRate.value,
+      layers: this.view.layers.layers.map((l) => ({ id: l.id, name: l.name, visible: this.view.layers.isVisible(l.id) })),
+      rooms: model ? [...model.rooms.values()].map((r) => ({ id: r.room.id, name: r.room.name })) : [],
+    };
+  }
+
+  /** Utfører en menyknapp (id fra menuLayout). */
+  menuAction(id: string): void {
+    const [kind, arg = ''] = id.split(':') as [string, string?];
+    const v = this.view;
+    switch (kind) {
+      case 'tab':
+        this.menuTab = arg as MenuTab;
+        break;
+      case 'toggle':
+        if (arg === 'ceilings') v.ceilings.set(!v.ceilings.value);
+        else if (arg === 'highlight') v.measureHighlight.set(!v.measureHighlight.value);
+        else if (arg === 'fps') v.fps.set(!v.fps.value);
+        break;
+      case 'quality':
+        if ((QUALITIES as readonly string[]).includes(arg)) v.quality.set(arg as Quality);
+        break;
+      case 'layer':
+        v.layers.toggle(arg);
+        break;
+      case 'turn':
+        v.turn.set((arg === 'smooth' ? 'smooth' : Number(arg)) as TurnMode);
+        break;
+      case 'rate':
+        v.xrRate.set(Number(arg) as XRRate);
+        break;
+      case 'room':
+        this.goToRoom(arg);
+        this.setMenuOpen(false);
+        break;
+      case 'start':
+        this.goToStart();
+        this.setMenuOpen(false);
+        break;
+    }
+    this.menuDirty = true;
+  }
+
+  private pulse(slot: Slot, intensity: number, ms: number): void {
+    try {
+      const g = slot.source?.gamepad as (Gamepad & { hapticActuators?: { pulse?: (i: number, d: number) => unknown }[] }) | undefined;
+      void g?.hapticActuators?.[0]?.pulse?.(intensity, ms);
+    } catch {
+      /* ingen vibrasjon */
+    }
+  }
+
+  /** Midtpunktet av en menyknapp i verden (for tester). */
+  menuItemWorld(id: string): { x: number; y: number; z: number } | null {
+    const p = this.menu.itemWorld(id);
+    return p ? { x: p.x, y: p.y, z: p.z } : null;
+  }
+
+  /**
+   * Høyre stikke: til siden = snu (fast vinkel fra innstillingene, eller myk
+   * dreiing); bakover = snu 180°. Bare den dominerende aksen teller.
+   */
+  private turn(pad: Gamepad | null, dt: number): void {
+    const rx = pad?.axes[2] ?? 0;
+    const ry = pad?.axes[3] ?? 0;
+    const mode = this.view.turn.value;
+    const sideways = Math.abs(rx) >= Math.abs(ry);
+    if (mode === 'smooth' && sideways && Math.abs(rx) > SMOOTH_DEADZONE) {
+      const k = (Math.abs(rx) - SMOOTH_DEADZONE) / (1 - SMOOTH_DEADZONE);
+      snapTurn(this.rig, this.head, -Math.sign(rx) * k * SMOOTH_TURN_SPEED * dt);
+      this.smoothTurning = true;
+      return;
+    }
+    if (this.smoothTurning) {
+      this.smoothTurning = false;
+      this.turns++;
+    }
+    if (this.turnArmed && sideways && Math.abs(rx) > TURN_START && mode !== 'smooth') {
+      snapTurn(this.rig, this.head, (-Math.sign(rx) * mode * Math.PI) / 180);
+      this.turns++;
+      this.turnArmed = false;
+    } else if (this.turnArmed && !sideways && ry > TURN_START) {
+      snapTurn(this.rig, this.head, Math.PI);
+      this.turns++;
+      this.turnArmed = false;
+    } else if (Math.abs(rx) < TURN_REARM && Math.abs(ry) < TURN_REARM) {
+      this.turnArmed = true;
+    }
   }
 
   private aim(slot: Slot): void {
@@ -351,6 +532,16 @@ export class XRManager {
     return this.measure?.debugState() ?? null;
   }
 
+  private updateWristHelp(): void {
+    const t = this.view.turn.value;
+    this.wrist.setLines([
+      'Venstre stikke: teleport',
+      t === 'smooth' ? 'Høyre stikke: snu (myk)' : `Høyre stikke: snu ${t}°`,
+      'Høyre stikke bakover: snu 180°',
+      'X: meny  ·  Y: bildefrekvens',
+    ]);
+  }
+
   private updateWristFps(): void {
     this.wrist.setFps(this.view.fps.value ? this.fps.label() : null);
   }
@@ -368,6 +559,7 @@ export class XRManager {
       teleports: this.teleports,
       turns: this.turns,
       floorUnderHead: this.floorUnderHead,
+      menu: { open: this.menu.open, tab: this.menuTab, hovered: this.menu.hovered?.id ?? null },
     };
   }
 }

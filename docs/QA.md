@@ -105,3 +105,16 @@ Do this after the phase 2 pull request is merged and the site has updated (about
 6. Tell me: was it obvious what to do at each step? Was the panel readable? How did corners and ceiling heights compare with reality? What was the frame rate (Y)?
 
 Because the layout differs a lot, measure a few points to try it out, but expect the full survey to work best after the layout is corrected (see PLAN.md, "Known limitation").
+
+## Improvement round 1 (paused) – options and control – 2026-10-11
+
+Built and tested, then merged at the user's request before the gatekeeper/judge pass; the graphics part of the round has not started.
+
+- **Saved settings** (`leilighet:innstillinger:v1`, per device): ceiling, highlight, layers, view mode, section height, dollhouse, VR turning, VR frame rate. «Tilbakestill innstillinger». Broken storage is safe.
+- **VR menu (X):** point with the right controller and pull the trigger. Tabs: Visning (tak, umålte, bildefrekvens), Lag (all layers), Gå til (rooms + start), Komfort (turn 15°/30°/45°/smooth, 72/90/120 Hz).
+- **VR turning:** the angle comes from the settings, or smooth turning; right stick back turns 180°. The frame rate is requested from the settings (default 90 Hz).
+- **«Gå til rom»:** room buttons in the panel (the camera flies there) and in the VR menu (you are moved there, facing into the room).
+- **Dukkehus** (cut the 3D model) and a **section-height slider**.
+- **Hurtigtaster** (1/2/T/U/K/R/F/H) with a help window. Fixed: F stopped working after a checkbox was clicked. Added «Tilbakestill visning» and «Fullskjerm».
+- Less per-frame work while aiming the teleport arc.
+- Tests: 94 unit tests and 30 Playwright tests, all green; 7 of the Playwright tests are new and cover these features.

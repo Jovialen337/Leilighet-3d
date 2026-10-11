@@ -14,6 +14,7 @@ import { ApartmentScene } from '../scene/ApartmentScene';
 import { Materials } from '../scene/materials';
 import { MM } from '../scene/geom';
 import { localStore } from '../state/persist';
+import { SettingsBinding } from '../state/settings';
 import { ViewState } from '../state/ViewState';
 import { DesktopUI } from '../ui/DesktopUI';
 import { FpsMeter } from '../ui/FpsMeter';
@@ -35,6 +36,7 @@ export class App {
   readonly fps = new FpsMeter();
   readonly labels: Labels;
   measure: MeasureSession | null = null;
+  readonly settings: SettingsBinding;
   private lastTime = -1;
   private loaded = false;
   /** Utkastet er endret under oppmåling og tegnes når AR-økten er over. */
@@ -42,6 +44,8 @@ export class App {
 
   constructor(private readonly root: HTMLElement) {
     this.store = new ApartmentStore(`${import.meta.env.BASE_URL}apartment.json`);
+    // Lagrede valg hentes før UI-et bygges, så kontrollene starter riktig.
+    this.settings = new SettingsBinding(this.view, localStore());
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -69,6 +73,10 @@ export class App {
     );
     this.ui = new DesktopUI(root, this.view, this.xr, {
       reload: () => void this.load(),
+      goToRoom: (id) => this.goToRoom(id),
+      resetView: () => this.desktop.resetView(),
+      resetSettings: () => this.settings.reset({ layers: this.store.model?.data.layers ?? [] }),
+      defaultSectionHeight: () => this.store.model?.settings.planCutHeight ?? 1500,
       measure: {
         start: () => void this.xr.enterMeasure(),
         stop: () => void this.xr.exit(),
@@ -179,6 +187,7 @@ export class App {
     this.apartment.setMeasureHighlight(this.view.measureHighlight.value);
     this.scene.background = new THREE.Color(model.settings.backgroundColor);
     if (!this.loaded) this.desktop.fit(model);
+    this.desktop.setSectionHeight(this.view.sectionHeight.value, model);
     this.loaded = true;
     this.applyCameraMode();
   }
@@ -198,6 +207,8 @@ export class App {
       }
     });
     this.view.cameraMode.subscribe(() => this.applyCameraMode());
+    this.view.dollhouse.subscribe(() => this.applyCameraMode());
+    this.view.sectionHeight.subscribe((mm) => this.desktop.setSectionHeight(mm));
     this.view.ceilings.subscribe((v) => this.apartment.setCeilingsVisible(v));
     this.view.measureHighlight.subscribe((v) => this.apartment.setMeasureHighlight(v));
     this.xr.measuring.subscribe((on) => {
@@ -213,13 +224,23 @@ export class App {
     });
   }
 
-  /** Plan-modus: klipp i snitthøyden og vis baksider. VR/3D: ingen klipping. */
+  /** Plan-modus og dukkehus: klipp i snitthøyden og vis baksider. VR: ingen klipping. */
   private applyCameraMode(): void {
-    const top = this.view.cameraMode.value === 'top' && !this.view.inXR.value;
-    this.desktop.setMode(this.view.cameraMode.value);
-    this.renderer.clippingPlanes = top ? [this.desktop.cutPlane] : [];
-    this.materials.setPlanMode(top);
+    const v = this.view;
+    const top = v.cameraMode.value === 'top' && !v.inXR.value;
+    const cut = (top || v.dollhouse.value) && !v.inXR.value;
+    this.desktop.setMode(v.cameraMode.value);
+    this.renderer.clippingPlanes = cut ? [this.desktop.cutPlane] : [];
+    this.materials.setPlanMode(cut);
     this.labels.setVisible(top);
+  }
+
+  /** «Gå til rom»: i VR flyttes du dit, på laptopen flyttes kameraet. */
+  goToRoom(roomId: string): void {
+    const model = this.store.model;
+    if (!model) return;
+    if (this.xr.presenting) this.xr.goToRoom(roomId);
+    else this.desktop.focusRoom(model, roomId);
   }
 
   private resize(): void {
@@ -246,7 +267,7 @@ export class App {
       this.renderer.render(this.scene, this.xr.camera);
       return;
     }
-    this.desktop.update();
+    this.desktop.update(dt);
     this.renderer.render(this.scene, this.desktop.camera);
     if (this.view.cameraMode.value === 'top') this.labels.render(this.scene, this.desktop.camera);
   }
