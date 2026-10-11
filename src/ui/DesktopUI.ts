@@ -11,6 +11,24 @@ import type { Issue } from '../schema/validate';
 import { summarize } from '../schema/validate';
 import type { ViewState } from '../state/ViewState';
 import type { XRManager, XRSupport } from '../xr/XRManager';
+import type { MeasureSession } from '../measure/MeasureSession';
+import { h } from './dom';
+import { MeasureBox, type MeasureActions } from './MeasureBox';
+import { boundCheckbox, boundRange, boundSelect } from './controls';
+import { ACTION_TEXT, SHORTCUTS, isTypingTarget, shortcutFor } from './shortcuts';
+import { TURN_MODES, XR_RATES, type TurnMode, type XRRate } from '../state/ViewState';
+
+export interface DesktopActions {
+  reload: () => void;
+  measure: MeasureActions;
+  goToRoom: (roomId: string) => void;
+  resetView: () => void;
+  resetSettings: () => void;
+  /** Standard snitthøyde fra fila (mm over laveste gulv). */
+  defaultSectionHeight: () => number;
+}
+
+const TURN_TEXT = (t: TurnMode): string => (t === 'smooth' ? 'Myk dreiing' : `${t}° om gangen`);
 
 const VR_TEXT: Record<XRSupport, { label: string; hint: string; enabled: boolean }> = {
   checking: { label: 'Sjekker VR …', hint: '', enabled: false },
@@ -28,19 +46,6 @@ const VR_TEXT: Record<XRSupport, { label: string; hint: string; enabled: boolean
   },
 };
 
-const h = <K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  attrs: Record<string, string> = {},
-  ...children: (Node | string)[]
-): HTMLElementTagNameMap[K] => {
-  const el = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) {
-    if (k === 'class') el.className = v;
-    else el.setAttribute(k, v);
-  }
-  el.append(...children);
-  return el;
-};
 
 export class DesktopUI {
   readonly panel: HTMLElement;
@@ -57,16 +62,21 @@ export class DesktopUI {
   private readonly fpsBox: HTMLElement;
   private readonly modeButtons: Record<'orbit' | 'top', HTMLButtonElement>;
   private readonly help: HTMLElement;
+  readonly measureBox: MeasureBox;
+  private measureSession: MeasureSession | null = null;
+  private readonly roomList: HTMLElement;
+  private readonly helpDialog: HTMLElement;
 
   constructor(
     root: HTMLElement,
     private readonly view: ViewState,
     private readonly xr: XRManager,
-    private readonly actions: { reload: () => void },
+    private readonly actions: DesktopActions,
   ) {
     this.vrButton = h('button', { class: 'vr-button', 'data-testid': 'vr-button', disabled: '' }, 'Sjekker VR …');
     this.vrButton.addEventListener('click', () => (xr.presenting ? xr.exit() : xr.enter()));
     this.vrHint = h('p', { class: 'hint', 'data-testid': 'vr-hint' });
+    this.measureBox = new MeasureBox(actions.measure);
 
     this.modeButtons = {
       orbit: h('button', { 'data-testid': 'mode-orbit', 'aria-pressed': 'true' }, '3D'),
@@ -75,13 +85,38 @@ export class DesktopUI {
     this.modeButtons.orbit.addEventListener('click', () => view.cameraMode.set('orbit'));
     this.modeButtons.top.addEventListener('click', () => view.cameraMode.set('top'));
 
-    const ceilingBox = this.checkbox('Vis tak', view.ceilings.value, (v) => view.ceilings.set(v), 'toggle-ceilings');
-    const measureBox = this.checkbox(
-      'Marker umålte mål',
-      view.measureHighlight.value,
-      (v) => view.measureHighlight.set(v),
-      'toggle-measure',
+    const ceilingBox = boundCheckbox('Vis tak', view.ceilings, 'toggle-ceilings');
+    const measureBox = boundCheckbox('Marker umålte mål', view.measureHighlight, 'toggle-measure');
+    const dollhouseBox = boundCheckbox('Dukkehus (kutt 3D i snitthøyden)', view.dollhouse, 'toggle-dollhouse');
+    const section = boundRange(
+      'Snitthøyde',
+      view.sectionHeight,
+      { min: 300, max: 2600, step: 50, fallback: () => actions.defaultSectionHeight() },
+      'section-height',
     );
+    const resetView = h('button', { class: 'small', 'data-testid': 'reset-view' }, 'Tilbakestill visning');
+    resetView.addEventListener('click', () => actions.resetView());
+    const fullscreen = h('button', { class: 'small', 'data-testid': 'fullscreen' }, 'Fullskjerm');
+    fullscreen.hidden = !document.fullscreenEnabled;
+    fullscreen.addEventListener('click', () => {
+      if (document.fullscreenElement) void document.exitFullscreen();
+      else void document.documentElement.requestFullscreen?.().catch(() => undefined);
+    });
+    const shortcutsButton = h('button', { class: 'small', 'data-testid': 'show-help' }, 'Hurtigtaster (H)');
+    shortcutsButton.addEventListener('click', () => this.toggleHelp());
+    this.roomList = h('div', { class: 'room-list', 'data-testid': 'rooms' });
+
+    const settings = h(
+      'div',
+      { class: 'group', 'data-testid': 'settings' },
+      h('h2', {}, 'Innstillinger'),
+      boundSelect<TurnMode>('VR: snu', view.turn, TURN_MODES.map((t) => ({ value: t, label: TURN_TEXT(t) })), 'setting-turn'),
+      boundSelect<XRRate>('VR: bildefrekvens', view.xrRate, XR_RATES.map((r) => ({ value: r, label: `${r} Hz` })), 'setting-rate'),
+      h('p', { class: 'hint' }, 'Valgene lagres i denne nettleseren. Quest og laptop har hver sine valg; i VR finner du dem i menyen (X).'),
+    );
+    const resetSettings = h('button', { class: 'link', 'data-testid': 'reset-settings' }, 'Tilbakestill innstillinger');
+    resetSettings.addEventListener('click', () => actions.resetSettings());
+    settings.append(resetSettings);
     this.legend = h(
       'p',
       { class: 'legend', hidden: '' },
@@ -103,7 +138,7 @@ export class DesktopUI {
     this.help = h(
       'p',
       { class: 'hint' },
-      'Dra for å rotere, rull for å zoome, høyreklikk-dra for å panorere. Trykk F for bildefrekvens.',
+      'Dra for å rotere, rull for å zoome, høyreklikk-dra for å panorere. Trykk H for hurtigtaster.',
     );
 
     const toggle = h('button', { class: 'panel-toggle', 'aria-label': 'Vis/skjul meny', 'data-testid': 'panel-toggle' }, '☰');
@@ -114,8 +149,20 @@ export class DesktopUI {
       h('div', { class: 'panel-body' },
         this.vrButton,
         this.vrHint,
-        h('div', { class: 'group' }, h('h2', {}, 'Visning'), h('div', { class: 'segmented' }, this.modeButtons.orbit, this.modeButtons.top), ceilingBox, measureBox, this.legend),
+        this.measureBox.root,
+        h('div', { class: 'group' },
+          h('h2', {}, 'Visning'),
+          h('div', { class: 'segmented' }, this.modeButtons.orbit, this.modeButtons.top),
+          ceilingBox,
+          measureBox,
+          this.legend,
+          dollhouseBox,
+          section,
+          h('div', { class: 'row' }, resetView, fullscreen, shortcutsButton),
+        ),
+        h('div', { class: 'group' }, h('h2', {}, 'Gå til rom'), this.roomList),
         h('div', { class: 'group' }, h('h2', {}, 'Lag'), this.layerList),
+        settings,
         h('div', { class: 'group' }, this.status, this.measureInfo, this.warnings, reload),
         this.help,
       ),
@@ -128,13 +175,25 @@ export class DesktopUI {
     this.coords = h('div', { class: 'coords', 'data-testid': 'coords', hidden: '' });
     this.fpsBox = h('div', { class: 'fps', 'data-testid': 'fps', hidden: '' });
 
-    root.append(this.panel, this.overlay, this.scaleBar, this.coords, this.fpsBox);
+    this.helpDialog = this.buildHelp();
+    root.append(this.panel, this.overlay, this.scaleBar, this.coords, this.fpsBox, this.helpDialog);
+    // Snitthøyden er bare i bruk ovenfra eller i dukkehus.
+    const showSection = (): void => {
+      section.hidden = view.cameraMode.value !== 'top' && !view.dollhouse.value;
+    };
+    view.cameraMode.subscribe(showSection);
+    view.dollhouse.subscribe(showSection, true);
 
     xr.support.subscribe(() => this.updateVrButton(), true);
     xr.error.subscribe((msg) => {
       if (msg) this.vrHint.textContent = msg;
     });
-    view.inXR.subscribe(() => this.updateVrButton());
+    view.inXR.subscribe(() => {
+      this.updateVrButton();
+      this.updateMeasure();
+    });
+    xr.arSupport.subscribe(() => this.updateMeasure(), true);
+    xr.measuring.subscribe(() => this.updateMeasure());
     view.cameraMode.subscribe((mode) => {
       this.modeButtons.orbit.setAttribute('aria-pressed', String(mode === 'orbit'));
       this.modeButtons.top.setAttribute('aria-pressed', String(mode === 'top'));
@@ -142,27 +201,114 @@ export class DesktopUI {
       this.coords.hidden = mode !== 'top';
       this.help.textContent =
         mode === 'top'
-          ? 'Dra for å flytte, rull for å zoome. Rutenett: 1 m. Trykk F for bildefrekvens.'
-          : 'Dra for å rotere, rull for å zoome, høyreklikk-dra for å panorere. Trykk F for bildefrekvens.';
+          ? 'Dra for å flytte, rull for å zoome. Rutenett: 1 m. Trykk H for hurtigtaster.'
+          : 'Dra for å rotere, rull for å zoome, høyreklikk-dra for å panorere. Trykk H for hurtigtaster.';
     }, true);
     view.fps.subscribe((v) => (this.fpsBox.hidden = !v), true);
 
     window.addEventListener('keydown', (e) => {
-      if (e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key === 'f' || e.key === 'F') view.fps.set(!view.fps.value);
+      if (e.key === 'Escape' && !this.helpDialog.hidden) {
+        this.toggleHelp(false);
+        return;
+      }
+      if (isTypingTarget(e.target) || e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+      const s = shortcutFor(e.key);
+      if (!s) return;
+      this.runAction(s.action);
     });
   }
 
-  private checkbox(label: string, checked: boolean, onChange: (v: boolean) => void, testId: string): HTMLLabelElement {
-    const input = h('input', { type: 'checkbox', 'data-testid': testId });
-    input.checked = checked;
-    input.addEventListener('change', () => onChange(input.checked));
-    return h('label', { class: 'check' }, input, label);
+  private runAction(action: string): void {
+    const v = this.view;
+    switch (action) {
+      case 'orbit':
+      case 'top':
+        v.cameraMode.set(action);
+        break;
+      case 'ceilings':
+        v.ceilings.set(!v.ceilings.value);
+        break;
+      case 'highlight':
+        v.measureHighlight.set(!v.measureHighlight.value);
+        break;
+      case 'dollhouse':
+        v.dollhouse.set(!v.dollhouse.value);
+        break;
+      case 'resetView':
+        this.actions.resetView();
+        break;
+      case 'fps':
+        v.fps.set(!v.fps.value);
+        break;
+      case 'help':
+        this.toggleHelp();
+        break;
+    }
+  }
+
+  private buildHelp(): HTMLElement {
+    const rows = SHORTCUTS.map((s) => h('tr', {}, h('td', {}, h('kbd', {}, s.label)), h('td', {}, ACTION_TEXT[s.action] ?? s.action)));
+    const close = h('button', { 'data-testid': 'help-close' }, 'Lukk');
+    close.addEventListener('click', () => this.toggleHelp(false));
+    const vr = h(
+      'ul',
+      {},
+      h('li', {}, 'Venstre stikke fremover: sikt og slipp for å teleportere'),
+      h('li', {}, 'Høyre stikke til siden: snu · bakover: snu 180°'),
+      h('li', {}, 'X: meny (lag, tak, gå til rom, innstillinger) · Y: bildefrekvens'),
+    );
+    const dialog = h(
+      'div',
+      { class: 'help-dialog', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Hurtigtaster', 'data-testid': 'help', hidden: '' },
+      h('div', { class: 'help-box' },
+        h('h2', {}, 'Hurtigtaster'),
+        h('table', {}, ...rows),
+        h('p', { class: 'hint' }, '3D: dra for å rotere, rull for å zoome, høyreklikk-dra for å panorere. 2D: dra for å flytte.'),
+        h('h2', {}, 'I VR (Quest 3)'),
+        vr,
+        close,
+      ),
+    );
+    dialog.addEventListener('click', (e) => {
+      if (e.target === dialog) this.toggleHelp(false);
+    });
+    return dialog;
+  }
+
+  private toggleHelp(show = this.helpDialog.hidden): void {
+    this.helpDialog.hidden = !show;
+    if (show) (this.helpDialog.querySelector('button') as HTMLButtonElement | null)?.focus();
+  }
+
+  private buildRoomList(model: ApartmentModel): void {
+    this.roomList.replaceChildren(
+      ...[...model.rooms.values()].map(({ room }) => {
+        const b = h('button', { class: 'chip', 'data-testid': `room-${room.id}` }, room.name);
+        b.addEventListener('click', () => this.actions.goToRoom(room.id));
+        return b;
+      }),
+    );
+  }
+
+  /** Oppdaterer oppmålingsboksen (kalles når målingene endres). */
+  updateMeasure(session: MeasureSession | null = this.measureSession): void {
+    this.measureSession = session;
+    this.measureBox.update({
+      arSupport: this.xr.arSupport.value,
+      measuring: this.xr.measuring.value,
+      presenting: this.view.inXR.value,
+      session,
+    });
   }
 
   private updateVrButton(): void {
     const s = this.xr.support.value;
     const t = VR_TEXT[s];
+    if (this.view.inXR.value && this.xr.mode === 'measure') {
+      this.vrButton.textContent = 'Gå inn i VR';
+      this.vrButton.disabled = true;
+      return;
+    }
     if (this.view.inXR.value) {
       this.vrButton.textContent = 'Avslutt VR';
       this.vrButton.disabled = false;
@@ -206,6 +352,7 @@ export class DesktopUI {
     this.measureInfo.textContent = `Målt: ${measured} av ${states.length} objekter (${partial} delvis). Resten er plassholdere.`;
     this.setWarnings(warnings);
     this.buildLayerList();
+    this.buildRoomList(model);
   }
 
   private setWarnings(warnings: Issue[]): void {

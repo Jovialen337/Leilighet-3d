@@ -7,20 +7,37 @@ import type { Layer } from '../schema/types';
 import { Observable } from './Observable';
 
 export type CameraMode = 'orbit' | 'top';
+/** Grafikkvalitet: «Rask», «Standard», «Høy». */
+export type Quality = 'low' | 'medium' | 'high';
+export const QUALITIES: readonly Quality[] = ['low', 'medium', 'high'];
+/** Snu i VR: fast vinkel (grader) eller myk dreiing. */
+export type TurnMode = 15 | 30 | 45 | 'smooth';
+export const TURN_MODES: readonly TurnMode[] = [15, 30, 45, 'smooth'];
+export type XRRate = 72 | 90 | 120;
+export const XR_RATES: readonly XRRate[] = [72, 90, 120];
 
 export class LayerState {
   private readonly visible = new Map<string, Observable<boolean>>();
   private readonly initialized = new Set<string>();
   readonly layers: Layer[] = [];
+  /** Lagrede valg fra forrige gang (lag-id → synlig), brukes når laget dukker opp. */
+  saved: Record<string, boolean> = {};
+  /** Kalles når brukeren endrer et lag (for lagring). */
+  onUserChange: ((id: string, visible: boolean) => void) | null = null;
 
-  /** Nye lag får synligheten fra fila; valg brukeren har gjort beholdes ved ny innlasting. */
+  /**
+   * Nye lag får synligheten fra et lagret valg, ellers fra fila. Valg brukeren
+   * har gjort i denne økten beholdes ved ny innlasting.
+   */
   reset(layers: readonly Layer[]): void {
     this.layers.length = 0;
     this.layers.push(...layers);
     for (const l of layers) {
       if (this.initialized.has(l.id)) continue;
       this.initialized.add(l.id);
-      this.get(l.id).set(l.visible);
+      const o = this.get(l.id);
+      o.set(this.saved[l.id] ?? l.visible);
+      o.subscribe((v) => this.onUserChange?.(l.id, v));
     }
   }
 
@@ -53,4 +70,12 @@ export class ViewState {
   readonly measureHighlight = new Observable(false);
   readonly fps = new Observable(false);
   readonly inXR = new Observable(false);
+  /* ---- innstillinger (lagres i nettleseren) ---- */
+  readonly quality = new Observable<Quality>('medium');
+  readonly xrRate = new Observable<XRRate>(90);
+  readonly turn = new Observable<TurnMode>(30);
+  /** Snitthøyde over laveste gulv (mm); null = fra fila (planCutHeight). */
+  readonly sectionHeight = new Observable<number | null>(null);
+  /** Dukkehus: 3D-visningen kuttes i snitthøyden så man ser inn i rommene. */
+  readonly dollhouse = new Observable(false);
 }

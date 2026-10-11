@@ -26,6 +26,19 @@ export class DesktopView {
   /** Piksler til venstre som dekkes av panelet; innholdet sentreres i resten. */
   private insetLeft = 0;
   private readonly changeListeners = new Set<() => void>();
+  /** Myk kameraflytting («Gå til rom»). */
+  private tween: {
+    t: number;
+    fromPos: THREE.Vector3;
+    toPos: THREE.Vector3;
+    fromTarget: THREE.Vector3;
+    toTarget: THREE.Vector3;
+    fromZoom: number;
+    toZoom: number;
+    controls: OrbitControls;
+    camera: THREE.Camera & { zoom: number };
+  } | null = null;
+  private lastModel: ApartmentModel | null = null;
 
   constructor(private readonly dom: HTMLElement) {
     this.orbit = new OrbitControls(this.perspective, dom);
@@ -87,9 +100,74 @@ export class DesktopView {
     this.plan.target.set(cx - shift, 0, cz);
     this.plan.update();
 
-    this.cutPlane.constant = (model.lowestFloor + model.settings.planCutHeight) * MM;
+    this.lastModel = model;
+    this.setSectionHeight(null, model);
+    this.emitChange();
+  }
+
+  /** Snitthøyde (mm over laveste gulv); null = fra fila. Flytter også rutenettet. */
+  setSectionHeight(mm: number | null, model: ApartmentModel | null = this.lastModel): void {
+    if (!model) return;
+    this.lastModel = model;
+    const h = mm ?? model.settings.planCutHeight;
+    this.cutPlane.constant = (model.lowestFloor + h) * MM;
     this.buildGrid(model);
     this.emitChange();
+  }
+
+  /** Flytter kameraet mykt så rommet fyller bildet (3D: skrått ovenfra; 2D: rett ovenfra). */
+  focusRoom(model: ApartmentModel, roomId: string): boolean {
+    const info = model.rooms.get(roomId);
+    if (!info) return false;
+    const b = info.bounds;
+    const cx = ((b.minX + b.maxX) / 2) * MM;
+    const cz = ((b.minZ + b.maxZ) / 2) * MM;
+    const r = (Math.max(b.maxX - b.minX, b.maxZ - b.minZ) * MM) / 2 + 0.6;
+    const floor = info.room.floorLevel * MM;
+    if (this.mode === 'top') {
+      const zoom = Math.min(this.plan.maxZoom, Math.max(this.plan.minZoom, this.planHalfHeight / (r * 1.15)));
+      const target = new THREE.Vector3(cx, 0, cz);
+      this.startTween(this.plan, this.ortho, new THREE.Vector3(cx, 60, cz), target, zoom);
+    } else {
+      const target = new THREE.Vector3(cx, floor + 0.8, cz);
+      const dir = this.perspective.position.clone().sub(this.orbit.target);
+      dir.y = 0;
+      if (dir.lengthSq() < 1e-6) dir.set(0, 0, 1);
+      dir.normalize().multiplyScalar(r * 1.1);
+      const pos = target.clone().add(dir).setY(floor + r * 1.6 + 1);
+      this.startTween(this.orbit, this.perspective, pos, target, 1);
+    }
+    return true;
+  }
+
+  private startTween(
+    controls: OrbitControls,
+    camera: THREE.Camera & { zoom: number },
+    toPos: THREE.Vector3,
+    toTarget: THREE.Vector3,
+    toZoom: number,
+  ): void {
+    this.tween = {
+      t: 0,
+      fromPos: camera.position.clone(),
+      toPos,
+      fromTarget: controls.target.clone(),
+      toTarget,
+      fromZoom: camera.zoom,
+      toZoom,
+      controls,
+      camera,
+    };
+  }
+
+  /** Tilbake til oversikten over hele leiligheten. */
+  resetView(): void {
+    if (this.lastModel) this.fit(this.lastModel);
+  }
+
+  /** Høyde over laveste gulv (mm) som modellen kuttes i nå. */
+  get sectionHeight(): number {
+    return this.lastModel ? this.cutPlane.constant / MM - this.lastModel.lowestFloor : 1500;
   }
 
   setMode(mode: CameraMode): void {
@@ -121,7 +199,20 @@ export class DesktopView {
     this.ortho.updateProjectionMatrix();
   }
 
-  update(): void {
+  update(dt = 1 / 60): void {
+    const tw = this.tween;
+    if (tw) {
+      tw.t = Math.min(1, tw.t + dt / 0.6);
+      const k = tw.t * tw.t * (3 - 2 * tw.t);
+      tw.camera.position.lerpVectors(tw.fromPos, tw.toPos, k);
+      tw.controls.target.lerpVectors(tw.fromTarget, tw.toTarget, k);
+      if (tw.camera instanceof THREE.OrthographicCamera) {
+        tw.camera.zoom = tw.fromZoom + (tw.toZoom - tw.fromZoom) * k;
+        tw.camera.updateProjectionMatrix();
+      }
+      if (tw.t >= 1) this.tween = null;
+      this.emitChange();
+    }
     if (this.mode === 'top') this.plan.update();
     else this.orbit.update();
   }

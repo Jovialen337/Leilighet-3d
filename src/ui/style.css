@@ -243,6 +243,214 @@ body {
   text-decoration: underline;
 }
 
+/* Felter, knapperader, rom */
+.field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 14px;
+}
+
+.field select {
+  font: inherit;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+.field.range input {
+  flex: 1;
+  min-width: 0;
+}
+
+.field.range output {
+  min-width: 52px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+button.small,
+.chip {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--panel-fg);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.room-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip:hover,
+button.small:hover {
+  border-color: var(--accent);
+}
+
+button:focus-visible,
+select:focus-visible,
+input:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Hjelp: hurtigtaster */
+.help-dialog {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(20, 28, 36, 0.35);
+}
+
+.help-box {
+  background: #fff;
+  border-radius: 12px;
+  padding: 18px 22px;
+  max-width: 460px;
+  max-height: 85vh;
+  overflow: auto;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+  font-size: 14px;
+}
+
+.help-box h2 {
+  font-size: 15px;
+  margin: 0 0 8px;
+}
+
+.help-box table {
+  border-collapse: collapse;
+  margin-bottom: 8px;
+}
+
+.help-box td {
+  padding: 3px 10px 3px 0;
+}
+
+kbd {
+  display: inline-block;
+  min-width: 22px;
+  text-align: center;
+  padding: 2px 6px;
+  border: 1px solid #c3ccd3;
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: #f6f7f8;
+  font: 600 12px ui-monospace, monospace;
+}
+
+/* Grove pekere (Quest-nettleseren, berøring): større treffflater */
+@media (pointer: coarse) {
+  .check,
+  .field {
+    min-height: 40px;
+  }
+  .check input {
+    width: 22px;
+    height: 22px;
+  }
+  button.small,
+  .chip {
+    padding: 10px 14px;
+  }
+}
+
+/* Oppmåling */
+.measure-button {
+  width: 100%;
+  font-size: 16px;
+  font-weight: 700;
+  padding: 11px;
+  border-radius: 10px;
+  border: 2px solid var(--accent);
+  background: #fff;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.measure-button:disabled {
+  border-color: #c3ccd3;
+  color: #8a97a1;
+  cursor: not-allowed;
+}
+
+.draft {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fff7e0;
+  border: 1px solid #f0d58a;
+  font-size: 13px;
+}
+
+.draft p {
+  margin: 0 0 8px;
+}
+
+.draft .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.draft button:not(.link),
+.draft a.button {
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--panel-fg);
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.draft .primary {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  color: var(--accent-fg) !important;
+  font-weight: 600;
+}
+
+.draft .hint {
+  margin-top: 8px;
+}
+
+.link.danger {
+  color: var(--danger);
+}
+
+.draft-error {
+  color: var(--danger);
+}
+
+.draft-ok {
+  margin: 10px 0 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: #e5f8ec;
+  color: #17643a;
+  font-size: 13px;
+}
+
 /* Overlegg: lasting og feil */
 .overlay {
   position: absolute;

@@ -1,10 +1,15 @@
-import { expect, test } from '@playwright/test';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { collectErrors, colorDistance, pixelAt, renderedFrames, screenOf, stats, waitForModel } from './helpers';
-
-const apartment = (): any =>
-  JSON.parse(readFileSync(fileURLToPath(new URL('../../public/apartment.json', import.meta.url)), 'utf8'));
+import { expect } from '@playwright/test';
+import {
+  collectErrors,
+  colorDistance,
+  pixelAt,
+  placeholder as apartment,
+  renderedFrames,
+  screenOf,
+  stats,
+  test,
+  waitForModel,
+} from './helpers';
 
 test('laster fra Pages-stien uten feil, med norsk UI', async ({ page }) => {
   const errors = collectErrors(page);

@@ -1,7 +1,9 @@
 /**
  * ApartmentStore: eier rådataene (apartment.json) og den validerte modellen.
  *
- * Fase 1 laster bare. Fase 3 (VR-redigering) bruker `update()`: endringen
+ * Fase 1 laster bare. Fase 2 (oppmåling) viser et utkast med `setDoc()`,
+ * mens `fileDoc` beholder fila slik den ble lastet. Fase 3 (VR-redigering)
+ * bruker `update()`: endringen
  * gjøres på rådataene, valideres på nytt, og lytterne bygger scenen på nytt.
  * Rådataene beholdes uendret i form (inkl. { value, measured }) så de kan
  * lagres tilbake som JSON.
@@ -16,6 +18,8 @@ export type LoadResult =
 
 export class ApartmentStore {
   doc: ApartmentDoc | null = null;
+  /** Fila slik den ble lastet (grunnlaget for oppmålingen). */
+  fileDoc: ApartmentDoc | null = null;
   model: ApartmentModel | null = null;
   warnings: Issue[] = [];
   private listeners = new Set<(model: ApartmentModel) => void>();
@@ -37,7 +41,14 @@ export class ApartmentStore {
     } catch (e) {
       return this.fail(`apartment.json er ikke gyldig JSON: ${(e as Error).message}`);
     }
-    return this.apply(validateApartment(raw));
+    const result = this.apply(validateApartment(raw));
+    if (result.ok) this.fileDoc = this.doc;
+    return result;
+  }
+
+  /** Viser et annet dokument (f.eks. utkastet fra oppmålingen) uten å endre `fileDoc`. */
+  setDoc(doc: ApartmentDoc): LoadResult {
+    return this.apply(validateApartment(doc));
   }
 
   /** Endrer rådataene (fase 3). Endringen forkastes hvis den gir valideringsfeil. */

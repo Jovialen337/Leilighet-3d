@@ -19,6 +19,16 @@ export function isMeasuredValue(v: unknown): v is MeasuredValue {
 /** Tallverdien i et Num. */
 export const numValue = (n: Num): number => (typeof n === 'number' ? n : n.value);
 
+/** Objektets eget «measured»-flagg, ellers det arvede. */
+export const measuredFlag = (obj: unknown, inherited = false): boolean => {
+  const m = typeof obj === 'object' && obj !== null ? (obj as { measured?: unknown }).measured : undefined;
+  return typeof m === 'boolean' ? m : inherited;
+};
+
+/** Er tallet målt? Et rent tall arver flagget fra objektet det står i. */
+export const isMeasured = (n: unknown, inherited = false): boolean =>
+  typeof n === 'number' ? inherited : isMeasuredValue(n) ? (n.measured ?? inherited) : false;
+
 interface Tally {
   measured: number;
   total: number;
