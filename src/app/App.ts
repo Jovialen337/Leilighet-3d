@@ -7,12 +7,13 @@
  * opp eller forkastet.
  */
 import * as THREE from 'three';
-import { MeasureSession, type KV } from '../measure/MeasureSession';
+import { MeasureSession } from '../measure/MeasureSession';
 import { ApartmentStore } from '../model/ApartmentStore';
 import type { ApartmentModel } from '../model/ApartmentModel';
 import { ApartmentScene } from '../scene/ApartmentScene';
 import { Materials } from '../scene/materials';
 import { MM } from '../scene/geom';
+import { localStore } from '../state/persist';
 import { ViewState } from '../state/ViewState';
 import { DesktopUI } from '../ui/DesktopUI';
 import { FpsMeter } from '../ui/FpsMeter';
@@ -281,16 +282,4 @@ function addLights(scene: THREE.Scene): void {
   const fill = new THREE.DirectionalLight('#dfe9ff', 0.45);
   fill.position.set(6, 6, 8);
   scene.add(hemi, ambient, sun, sun.target, fill, fill.target);
-}
-
-/** localStorage hvis det er tilgjengelig (ikke i privat modus o.l.). */
-function localStore(): KV | null {
-  try {
-    const k = '__leilighet_test__';
-    localStorage.setItem(k, '1');
-    localStorage.removeItem(k);
-    return localStorage;
-  } catch {
-    return null;
-  }
 }
