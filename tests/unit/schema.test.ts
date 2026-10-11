@@ -2,7 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { validateApartment } from '../../src/schema/validate';
 import { normalize } from '../../src/schema/normalize';
 import { FIXTURE_TYPES, STANDARD_LAYER_IDS } from '../../src/schema/types';
-import { errorsOf, loadDoc } from './helpers';
+import { readFileSync } from 'node:fs';
+import { PUBLISHED_PATH, errorsOf, loadDoc } from './helpers';
+
+describe('public/apartment.json (den publiserte fila)', () => {
+  it('er gyldig', () => {
+    const r = validateApartment(JSON.parse(readFileSync(PUBLISHED_PATH, 'utf8')));
+    expect(r.errors).toEqual([]);
+    expect(r.ok).toBe(true);
+  });
+});
 
 describe('apartment.json (plassholder)', () => {
   it('er gyldig uten feil eller advarsler', () => {

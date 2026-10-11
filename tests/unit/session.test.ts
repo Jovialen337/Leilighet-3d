@@ -251,7 +251,7 @@ describe('lagring lokalt', () => {
 });
 
 describe('formatering av apartment.json', () => {
-  it('gir nøyaktig samme tekst som fila i repoet', () => {
+  it('gir nøyaktig samme tekst som den håndskrevne plassholder-fila', () => {
     const text = readFileSync(APARTMENT_PATH, 'utf8');
     expect(formatJson(JSON.parse(text))).toBe(text);
   });
@@ -263,5 +263,43 @@ describe('formatering av apartment.json', () => {
     const long = formatJson({ text: 'x'.repeat(120), n: 1 });
     expect(long.split('\n')).toHaveLength(5);
     expect(JSON.parse(long)).toEqual({ text: 'x'.repeat(120), n: 1 });
+  });
+});
+
+describe('justering mot det virkelige rommet', () => {
+  it('to berøringer gir origo i hjørnet og +x langs inngangsveggen', async () => {
+    const { alignFromTouches, rigToWorld } = await import('../../src/measure/align');
+    const THREE = await import('three');
+    // Hjørnet står et sted i rommet; veggen går 35° på skrå.
+    const q0 = { x: 1.2, y: 0.03, z: -0.4 };
+    const a = (35 * Math.PI) / 180;
+    const q1 = { x: q0.x + 2 * Math.cos(a), y: 1.1, z: q0.z + 2 * Math.sin(a) };
+    const r = alignFromTouches(q0, q1);
+    if (!r.ok) throw new Error(r.message);
+    const w0 = rigToWorld(r.rig, q0);
+    expect(w0.x).toBeCloseTo(0, 9);
+    expect(w0.y).toBeCloseTo(0, 9);
+    expect(w0.z).toBeCloseTo(0, 9);
+    const w1 = rigToWorld(r.rig, q1);
+    expect(w1.x).toBeCloseTo(2, 9);
+    expect(w1.z).toBeCloseTo(0, 9);
+    expect(w1.y).toBeCloseTo(1.07, 9);
+    // Samme svar som three.js gir for en gruppe med denne plasseringen.
+    const g = new THREE.Group();
+    g.position.set(r.rig.x, r.rig.y, r.rig.z);
+    g.rotation.y = r.rig.yaw;
+    g.updateMatrixWorld(true);
+    const p = { x: -0.7, y: 1.5, z: 2.2 };
+    const v = g.localToWorld(new THREE.Vector3(p.x, p.y, p.z));
+    const w = rigToWorld(r.rig, p);
+    expect(v.x).toBeCloseTo(w.x, 9);
+    expect(v.y).toBeCloseTo(w.y, 9);
+    expect(v.z).toBeCloseTo(w.z, 9);
+  });
+
+  it('for kort avstand avvises', async () => {
+    const { alignFromTouches } = await import('../../src/measure/align');
+    const r = alignFromTouches({ x: 0, y: 0, z: 0 }, { x: 0.2, y: 1, z: 0.1 });
+    expect(r).toEqual({ ok: false, message: expect.stringMatching(/For nær/) });
   });
 });

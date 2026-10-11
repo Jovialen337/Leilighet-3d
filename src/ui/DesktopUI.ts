@@ -11,6 +11,9 @@ import type { Issue } from '../schema/validate';
 import { summarize } from '../schema/validate';
 import type { ViewState } from '../state/ViewState';
 import type { XRManager, XRSupport } from '../xr/XRManager';
+import type { MeasureSession } from '../measure/MeasureSession';
+import { h } from './dom';
+import { MeasureBox, type MeasureActions } from './MeasureBox';
 
 const VR_TEXT: Record<XRSupport, { label: string; hint: string; enabled: boolean }> = {
   checking: { label: 'Sjekker VR …', hint: '', enabled: false },
@@ -28,19 +31,6 @@ const VR_TEXT: Record<XRSupport, { label: string; hint: string; enabled: boolean
   },
 };
 
-const h = <K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  attrs: Record<string, string> = {},
-  ...children: (Node | string)[]
-): HTMLElementTagNameMap[K] => {
-  const el = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) {
-    if (k === 'class') el.className = v;
-    else el.setAttribute(k, v);
-  }
-  el.append(...children);
-  return el;
-};
 
 export class DesktopUI {
   readonly panel: HTMLElement;
@@ -57,16 +47,19 @@ export class DesktopUI {
   private readonly fpsBox: HTMLElement;
   private readonly modeButtons: Record<'orbit' | 'top', HTMLButtonElement>;
   private readonly help: HTMLElement;
+  readonly measureBox: MeasureBox;
+  private measureSession: MeasureSession | null = null;
 
   constructor(
     root: HTMLElement,
     private readonly view: ViewState,
     private readonly xr: XRManager,
-    private readonly actions: { reload: () => void },
+    private readonly actions: { reload: () => void; measure: MeasureActions },
   ) {
     this.vrButton = h('button', { class: 'vr-button', 'data-testid': 'vr-button', disabled: '' }, 'Sjekker VR …');
     this.vrButton.addEventListener('click', () => (xr.presenting ? xr.exit() : xr.enter()));
     this.vrHint = h('p', { class: 'hint', 'data-testid': 'vr-hint' });
+    this.measureBox = new MeasureBox(actions.measure);
 
     this.modeButtons = {
       orbit: h('button', { 'data-testid': 'mode-orbit', 'aria-pressed': 'true' }, '3D'),
@@ -114,6 +107,7 @@ export class DesktopUI {
       h('div', { class: 'panel-body' },
         this.vrButton,
         this.vrHint,
+        this.measureBox.root,
         h('div', { class: 'group' }, h('h2', {}, 'Visning'), h('div', { class: 'segmented' }, this.modeButtons.orbit, this.modeButtons.top), ceilingBox, measureBox, this.legend),
         h('div', { class: 'group' }, h('h2', {}, 'Lag'), this.layerList),
         h('div', { class: 'group' }, this.status, this.measureInfo, this.warnings, reload),
@@ -134,7 +128,12 @@ export class DesktopUI {
     xr.error.subscribe((msg) => {
       if (msg) this.vrHint.textContent = msg;
     });
-    view.inXR.subscribe(() => this.updateVrButton());
+    view.inXR.subscribe(() => {
+      this.updateVrButton();
+      this.updateMeasure();
+    });
+    xr.arSupport.subscribe(() => this.updateMeasure(), true);
+    xr.measuring.subscribe(() => this.updateMeasure());
     view.cameraMode.subscribe((mode) => {
       this.modeButtons.orbit.setAttribute('aria-pressed', String(mode === 'orbit'));
       this.modeButtons.top.setAttribute('aria-pressed', String(mode === 'top'));
@@ -160,9 +159,25 @@ export class DesktopUI {
     return h('label', { class: 'check' }, input, label);
   }
 
+  /** Oppdaterer oppmålingsboksen (kalles når målingene endres). */
+  updateMeasure(session: MeasureSession | null = this.measureSession): void {
+    this.measureSession = session;
+    this.measureBox.update({
+      arSupport: this.xr.arSupport.value,
+      measuring: this.xr.measuring.value,
+      presenting: this.view.inXR.value,
+      session,
+    });
+  }
+
   private updateVrButton(): void {
     const s = this.xr.support.value;
     const t = VR_TEXT[s];
+    if (this.view.inXR.value && this.xr.mode === 'measure') {
+      this.vrButton.textContent = 'Gå inn i VR';
+      this.vrButton.disabled = true;
+      return;
+    }
     if (this.view.inXR.value) {
       this.vrButton.textContent = 'Avslutt VR';
       this.vrButton.disabled = false;

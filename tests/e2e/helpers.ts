@@ -1,4 +1,25 @@
-import { expect, type Page } from '@playwright/test';
+import { test as base, expect, type Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+/** Fast kopi av plassholder-leiligheten (testene skal ikke avhenge av den publiserte fila). */
+export const placeholder = (): any =>
+  JSON.parse(readFileSync(fileURLToPath(new URL('../fixtures/placeholder.json', import.meta.url)), 'utf8'));
+
+/**
+ * Som Playwrights `test`, men appen får plassholder-leiligheten i stedet for
+ * public/apartment.json. En test kan selv legge en ny rute oppå (nyeste vinner).
+ */
+export const test = base.extend<{ placeholderRoute: void }>({
+  placeholderRoute: [
+    async ({ page }, use) => {
+      const doc = placeholder();
+      await page.route('**/apartment.json', (route) => route.fulfill({ json: doc }));
+      await use();
+    },
+    { auto: true },
+  ],
+});
 
 /** Venter til appen har lastet og validert apartment.json. */
 export async function waitForModel(page: Page): Promise<void> {
@@ -131,4 +152,96 @@ export async function teleport(page: Page, worldX: number, worldZ: number, pitch
   const aim = await xrState(page);
   await stick(page, 'left', 0, 0);
   return { aim, after: await xrState(page) };
+}
+
+/* ------------------------- Oppmåling (gjennomsyn) ------------------------- */
+
+export interface MeasureDebug {
+  phase: 'align-0' | 'align-1' | 'measure';
+  method: 'touch' | 'point';
+  task: string | null;
+  title: string;
+  status: { text: string; tone: string } | null;
+  captures: number;
+  tip: { x: number; y: number; z: number };
+  rig: { x: number; y: number; z: number; yaw: number };
+  hitTest: string;
+  beacon: boolean;
+  overlayTriangles: number;
+  panel: { header: string; title: string; body: string; badge?: string } | null;
+}
+
+export const measureState = (page: Page): Promise<MeasureDebug> =>
+  page.evaluate(() => (window as any).leilighet.xr.measureDebug());
+
+/** Starter oppmåling (AR) i emulert Quest 3. */
+export async function enterMeasure(page: Page, goto = true): Promise<void> {
+  if (goto) {
+    await page.goto('./?emulator');
+    await waitForModel(page);
+  }
+  await expect(page.getByTestId('measure-button')).toBeEnabled();
+  await page.getByTestId('measure-button').click();
+  await page.waitForFunction(() => (window as any).leilighet.xr.presenting === true);
+  await frames(page, 4);
+  // Avstanden fra kontrolleren til måletuppen, målt med kontrolleren rett fram.
+  await page.evaluate(() => {
+    const c = (window as any).__iwer.controllers.right;
+    c.quaternion.set(0, 0, 0, 1);
+    c.position.set(0, 1, 0);
+  });
+  await frames(page, 3);
+  const tip = (await measureState(page)).tip;
+  await page.evaluate((o) => ((window as any).__tipOffset = o), { x: tip.x, y: tip.y - 1, z: tip.z });
+}
+
+/** Flytter høyre kontroller så måletuppen står i et punkt i referanserommet (m). */
+export async function placeTipLocal(page: Page, x: number, y: number, z: number): Promise<void> {
+  await page.evaluate(
+    ([px, py, pz]) => {
+      const o = (window as any).__tipOffset;
+      (window as any).__iwer.controllers.right.position.set(px - o.x, py - o.y, pz - o.z);
+    },
+    [x, y, z] as const,
+  );
+  await frames(page, 3);
+}
+
+/** Flytter måletuppen til et punkt i verden, dvs. modellens koordinater (m) etter justering. */
+export async function placeTip(page: Page, x: number, y: number, z: number): Promise<void> {
+  const local = await page.evaluate(
+    ([px, py, pz]) => {
+      const rig = (window as any).leilighet.xr.rig;
+      const v = rig.position.clone().set(px, py, pz);
+      rig.worldToLocal(v);
+      return { x: v.x, y: v.y, z: v.z };
+    },
+    [x, y, z] as const,
+  );
+  await placeTipLocal(page, local.x, local.y, local.z);
+}
+
+/** Trykker og slipper en knapp. */
+export async function press(page: Page, hand: 'left' | 'right', id: string): Promise<void> {
+  await button(page, hand, id, 1);
+  await button(page, hand, id, 0);
+}
+
+/**
+ * Justerer: hjørnet ved døra står i (0.5, 0.02, −1.0) i referanserommet og
+ * inngangsveggen går 30° på skrå – modellen må altså både flyttes og vris.
+ */
+export async function align(page: Page): Promise<void> {
+  const a = Math.PI / 6;
+  await placeTipLocal(page, 0.5, 0.02, -1.0);
+  await press(page, 'right', 'trigger');
+  await placeTipLocal(page, 0.5 + 2 * Math.cos(a), 1.1, -1.0 - 2 * Math.sin(a));
+  await press(page, 'right', 'trigger');
+}
+
+/** Måler oppgaven som står for tur, (dx, dy, dz) mm fra der modellen tror den er. */
+export async function measureCurrent(page: Page, dx = 0, dy = 0, dz = 0): Promise<void> {
+  const t = await page.evaluate(() => (window as any).leilighet.measure.current().target);
+  await placeTip(page, (t.x + dx) / 1000, (t.y + dy) / 1000, (t.z + dz) / 1000);
+  await press(page, 'right', 'trigger');
 }

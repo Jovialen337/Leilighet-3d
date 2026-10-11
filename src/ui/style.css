@@ -243,6 +243,84 @@ body {
   text-decoration: underline;
 }
 
+/* Oppmåling */
+.measure-button {
+  width: 100%;
+  font-size: 16px;
+  font-weight: 700;
+  padding: 11px;
+  border-radius: 10px;
+  border: 2px solid var(--accent);
+  background: #fff;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.measure-button:disabled {
+  border-color: #c3ccd3;
+  color: #8a97a1;
+  cursor: not-allowed;
+}
+
+.draft {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fff7e0;
+  border: 1px solid #f0d58a;
+  font-size: 13px;
+}
+
+.draft p {
+  margin: 0 0 8px;
+}
+
+.draft .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.draft button:not(.link),
+.draft a.button {
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--panel-fg);
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.draft .primary {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  color: var(--accent-fg) !important;
+  font-weight: 600;
+}
+
+.draft .hint {
+  margin-top: 8px;
+}
+
+.link.danger {
+  color: var(--danger);
+}
+
+.draft-error {
+  color: var(--danger);
+}
+
+.draft-ok {
+  margin: 10px 0 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: #e5f8ec;
+  color: #17643a;
+  font-size: 13px;
+}
+
 /* Overlegg: lasting og feil */
 .overlay {
   position: absolute;

@@ -1,6 +1,6 @@
 # Leilighet 3D – project plan
 
-Status: **Phase 1 live** at https://jovialen337.github.io/Leilighet-3d/ (awaiting a real-headset check). **Phase 2 (guided measuring) in progress.** This file is updated in every phase.
+Status: **Phase 1 live** at https://jovialen337.github.io/Leilighet-3d/ and checked on the Quest 3 (90 fps, 11.9 ms; movement and reach OK). **Phase 2 (guided measuring) built**; it ships when its pull request is merged, then needs a test on the Quest. This file is updated in every phase.
 
 ## Goal
 
@@ -16,7 +16,7 @@ All UI text is Norwegian (bokmål). All geometry comes from one data file, `publ
 | Phase | Content | Status |
 |---|---|---|
 | 1 | Data model + validation, rendering, VR walking (teleport, snap turn, room-scale), laptop orbit/top-down, layer toggles, FPS, GitHub Pages deploy | **live** – see [QA.md](QA.md) |
-| 2 | **Guided measuring** in passthrough on the Quest: align the model to the real apartment, then touch or point at corners, floors, ceilings, openings and fixtures, step by step. The model updates as you go. | **in progress** |
+| 2 | **Guided measuring** in passthrough on the Quest: align the model to the real apartment, then touch or point at corners, floors, ceilings, openings and fixtures, step by step. The model updates as you go. | **built**, awaiting Quest test |
 | 3 | **Editing** in VR: grab, move, turn, add and delete furniture and fixtures; edit walls, doors and windows with snapping and live dimensions; wrist menu; undo | planned |
 | 4+ | *(proposal)* Planning: electrical and wiring routes, ventilation, workshop zone, GLB furniture import, notes in VR | – |
 
@@ -45,6 +45,9 @@ The user walks around the real apartment wearing the Quest 3 and sees it through
 | B | Undo last measurement |
 | A | Skip this point |
 | Right thumbstick press | Switch between touching (tip) and pointing (ray) |
+| Left thumbstick left/right | Browse the list (previous/next point) without skipping |
+| Left thumbstick press | Re-align (start again at the door corner) |
+| Y | Show/hide frame rate |
 
 Every capture gives a short vibration. Moving around is by walking only: teleport and snap turn are off, so the alignment stays exact.
 
@@ -61,6 +64,39 @@ Every capture gives a short vibration. Moving around is by walking only: telepor
 - *Option B (later):* save straight to GitHub from the headset with a repository-scoped access key.
 
 **Accuracy:** controller tracking is roughly 0.5–1 cm. Dimensions that must be exact (for furniture that has to fit) can later be typed in from a laser or tape measure.
+
+### As built
+
+- `src/measure/`:
+  - `tasks.ts`: the guided list. Room by room, it lists the floor, the corners, 3 ceiling points, openings (both jambs, the top, and the sill for windows) and existing fixtures. It leaves out anything already `measured: true` in the file and anything only *planned*. The hallway floor is the origin and is never measured. The placeholder gives 84 points.
+  - `MeasureSession.ts`: an event log of measure, skip and "take the skipped ones". Undo removes the last event, and the state is derived from the log, so undo still works after a reload.
+    - After each event the draft is re-solved from the original file and validated. If a measurement makes the model invalid, the last valid draft stays visible and the error is shown.
+    - Ceiling points closer than 0.4 m to each other, or nearly in line, are rejected. A warning appears if a point is more than 1.5 m (or 0.4 m vertically) from where the model expected it.
+    - The session is saved in `localStorage` together with a fingerprint of the file.
+      - If the file has changed since, the old measurements are put aside and can still be used.
+      - If the new file *is* the exported one, the local data is cleared, because the measurements are published.
+  - `applyMeasurements.ts` + `fit.ts`: the solver (see above). `align.ts`: two touches → rig pose.
+- `src/xr/MeasureMode.ts`: the AR session. Alignment moves the *rig*, so the world equals the model in metres.
+  - Measuring tip: a yellow ball 6 cm in front of the right controller.
+  - Pointing uses WebXR hit-test. If the browser has no room scan, it says so and suggests touching instead.
+  - Haptics on every capture.
+- `src/xr/MeasureOverlay.ts`: the passthrough overlay.
+  - Room wireframes: white floor edges, blue ceiling edges, corner posts that are orange until measured and green after.
+  - Yellow door and window outlines, pink fixtures, and green dots for measured points.
+  - A pulsing cyan beacon with a floating label that grows with distance.
+  - Everything is in 2 meshes, about 2 700 triangles.
+- `src/xr/InfoPanel.ts`: the instruction panel follows the left hand and always turns to face you.
+- `src/ui/MeasureBox.ts`: the «Oppmåling» section in the page panel.
+  - «Mål opp leiligheten» / «Fortsett oppmålingen», with local progress.
+  - «Last ned apartment.json», «Last opp til GitHub» (opens the upload page for `public/`), «Kopier», «Forkast målingene».
+  - Notices for stale or published measurements.
+- **Tests no longer depend on the published file.** Unit and browser tests use a frozen copy of the placeholder (`tests/fixtures/placeholder.json`). The published `public/apartment.json` is only checked to be valid and to load without errors, so uploading real measurements cannot break the deploy.
+
+### Known limitation: the layout must roughly match
+
+Guided measuring *moves and resizes* what is in the model: rooms, corners, walls, openings and fixtures. It cannot yet add or remove rooms, corners, doors or windows. The first Quest test showed the placeholder layout is quite different from the real apartment.
+
+The fastest fix is to correct the layout *before* measuring, using a floor plan or a sketch with the rooms, corners, doors and windows; rough dimensions are enough. Measuring then makes it exact. Adding and removing corners, rooms and openings in VR belongs to phase 3.
 
 ## Phase 3 – editing in VR (design principles)
 
@@ -156,7 +192,8 @@ Assumption to confirm: "the far one higher" (bathroom) is read as a *higher ceil
 
 ```
 src/
-  schema/     types.ts (all object types), validate.ts (Norwegian), normalize.ts ({value,measured} → numbers + measure state)
+  schema/     types.ts (all object types), validate.ts (Norwegian), normalize.ts ({value,measured} → numbers + measure state),
+              format.ts (writes apartment.json in the hand-written compact style)
   geometry/   math2d.ts, plane.ts (ceiling plane fit) – pure maths, no three.js
   model/      ApartmentModel.ts (queries in mm: floor at a point, wall frames, wall top following ceilings,
               door geometry, thresholds, placements, spawn), ApartmentStore.ts (load / update / toJSON)
@@ -164,9 +201,12 @@ src/
               ApartmentScene.ts (merge per layer+material, pick proxies, id→range map), materials.ts
   state/      ViewState/LayerState (observable; shared by laptop UI and the future VR wrist menu)
   views/      DesktopView.ts (orbit + orthographic top-down with section cut, grid, scale)
-  xr/         XRManager.ts (session, controllers, teleport, snap turn, floor follow), teleport.ts (arc),
-              rig.ts (pure rig maths), WristPanel.ts (seed of the phase 3 wrist menu), emulator.ts (IWER)
-  ui/         DesktopUI.ts (Norwegian panel), Labels.ts, FpsMeter.ts, style.css
+  measure/    tasks.ts (guided list), MeasureSession.ts (log, undo, local save, export), applyMeasurements.ts +
+              fit.ts (solver), align.ts (two touches → rig pose), types.ts (observations)
+  xr/         XRManager.ts (session, controllers, teleport, snap turn, floor follow, measure mode), teleport.ts (arc),
+              rig.ts (pure rig maths), WristPanel.ts (seed of the phase 3 wrist menu), emulator.ts (IWER),
+              MeasureMode.ts, MeasureOverlay.ts, InfoPanel.ts (passthrough measuring)
+  ui/         DesktopUI.ts (Norwegian panel), MeasureBox.ts, Labels.ts, FpsMeter.ts, github.ts, style.css
   app/App.ts  wiring
 ```
 
@@ -187,9 +227,12 @@ src/
 - **Laptop, 3D:** drag to rotate, scroll to zoom, right-drag to pan.
 - **Laptop, Ovenfra (2D):** drag to pan, scroll to zoom. The plan is cut at `settings.planCutHeight` like an architectural drawing, with a 1 m grid, scale bar and cursor coordinates in mm. F toggles FPS.
 - **Quest:** left stick forward = aim the teleport arc, release = jump. Right stick left/right = snap turn 30°. Y = show/hide FPS. You start standing just inside the entrance door, facing in.
+- **Quest, measuring:** see the controls table in phase 2.
 
-## Known limitations (phase 1)
+## Known limitations
 
 - Imported GLB furniture is only a grey placeholder box. Scan references are validated but not drawn.
 - Notes are small markers in VR; their text shows only in the laptop 2D plan.
-- Only a real headset can confirm the frame rate and comfort. See the test list in [QA.md](QA.md).
+- Guided measuring cannot add or remove rooms, corners or openings (see phase 2).
+- Pointing (hit-test) needs the Quest's room setup (Space Setup); without it, use touch.
+- Measurements are stored only in the browser they were taken in (the Quest), until they are downloaded and uploaded to GitHub.

@@ -4,6 +4,8 @@ Scores 1–9 (1–3 failed, 4–6 partial, 7–9 solid). C = critical, N = non-c
 Rule: all C items 7–9; at most two N items at 4–6, none below 4.
 *(prov.)* = provisional, because it can only be fully confirmed on the real Quest.
 
+**Update 2026-10-11 – first test on the real Quest 3:** **90 fps at 11.9 ms** per frame. Movement and reach feel acceptable compared with real life for a first version. The ceiling is too high and the layout is quite different from the real apartment. Both come from the placeholder data, not the rendering, and are what phase 2 (measuring) and a corrected layout fix. Items 1, 2 and 6 below are now confirmed on the headset.
+
 **Update 2026-10-10:** phase 1 is live at https://jovialen337.github.io/Leilighet-3d/ (deployed from `main`, [run 5](https://github.com/Jovialen337/Leilighet-3d/actions/runs/38085575706)). The repository was made public, because GitHub Pages on the free plan requires it.
 
 ## Phase 1 – 2026-09-27
@@ -22,12 +24,12 @@ Rule: all C items 7–9; at most two N items at 4–6, none below 4.
 
 | # | Item | Type | Score | Evidence / what is missing |
 |---|---|---|---|---|
-| 1 | App loads on the Pages URL and enters VR without errors | C | **8** *(prov.)* | The production build under `/Leilighet-3d/` loads with zero console errors, and VR entry on the emulated Quest 3 has zero errors. The live Pages URL serves the page, data and bundle (HTTP 200); the same build passed all 15 browser tests in CI. Not yet tried on the real headset. |
-| 2 | Steady frame rate in VR with the whole apartment | C | **8** *(prov.)* | The whole apartment is 13 merged meshes and about 4 000 triangles: 14 draw calls per eye, no shadows, Lambert materials, no per-frame allocations in the render path. That is far below Quest 3 limits. The real frame rate must be read on the headset (Y button). |
+| 1 | App loads on the Pages URL and enters VR without errors | C | **8** | The production build under `/Leilighet-3d/` loads with zero console errors, and VR entry on the emulated Quest 3 has zero errors. The live Pages URL serves the page, data and bundle (HTTP 200); the same build passed all 15 browser tests in CI. Not yet tried on the real headset. |
+| 2 | Steady frame rate in VR with the whole apartment | C | **9** | **Quest 3: 90 fps, 11.9 ms.** | The whole apartment is 13 merged meshes and about 4 000 triangles: 14 draw calls per eye, no shadows, Lambert materials, no per-frame allocations in the render path. That is far below Quest 3 limits. The real frame rate must be read on the headset (Y button). |
 | 3 | Geometry comes 100 % from apartment.json | C | **8** | No room, wall, opening or furniture geometry is in code. A unit test and an e2e test change numbers in the JSON (wall thickness, floor level, sill height, room polygon) and the geometry, floor lookup and area all change. The code only holds presentation details (door frame/leaf thickness, default fixture sizes when `size` is omitted). |
 | 4 | Schema covers every object type, with validation | C | **8** | Types and validation exist for every listed type: rooms, walls, ceilings, doors, windows, passages, all six fixture types with layer and status, furniture with parts and source, outdoor areas, layers and the measured flag on every value. Zones, wiring, scans and notes are added for later phases. There are 22 negative tests with Norwegian messages. It does not yet detect overlapping rooms or walls. |
 | 5 | Step, sloped ceiling, door swing directions and window heights render correctly | C | **8** *(prov.)* | Checked numerically: the step is 180 mm with a riser; the ceiling follows the fitted plane (lowest at the entrance corner, rising toward the kitchen); hinge and swing of all three doors are correct; the window sill is at 900 mm above the living room floor. The top-down plan and VR screenshots match. Final visual check on the Quest is pending. |
-| 6 | Teleport works on both floor levels, and snap turn works | C | **8** *(prov.)* | On the emulated Quest: teleport hallway → living room lands at y = 0.18 m, and back lands at y = 0. Walls give a red arc and no jump. Snap turn is exactly ±30° around the head, once per stick push. Physically walking over the step lifts the floor to 0.18 m. Real controller feel is pending. |
+| 6 | Teleport works on both floor levels, and snap turn works | C | **8** | Quest 3: movement and reach acceptable. | On the emulated Quest: teleport hallway → living room lands at y = 0.18 m, and back lands at y = 0. Walls give a red arc and no jump. Snap turn is exactly ±30° around the head, once per stick push. Physically walking over the step lifts the floor to 0.18 m. Real controller feel is pending. |
 | 7 | Deploy pipeline works on every push | C | **8** | `.github/workflows/pages.yml` runs validate → build → unit tests → Playwright on every push, and deploys to Pages on push to `main`. The first run on this branch was **green in 2 min 25 s** ([run 1](https://github.com/Jovialen337/Leilighet-3d/actions/runs/36322169754)): all 55 unit tests and 15 browser tests passed on GitHub's runner. The first run on `main` after merging ([run 3](https://github.com/Jovialen337/Leilighet-3d/actions/runs/38084826376)) failed one browser test on timing: the slower runner had not drawn the next frame within a fixed 200 ms wait. The tests now wait for an actually rendered frame; the old version fails and the new one passes when frames are slowed to one per 600 ms. After the test fix, [run 5](https://github.com/Jovialen337/Leilighet-3d/actions/runs/38085575706) on `main` passed and deployed. The live page, `apartment.json` and the JS bundle all return 200. |
 | 8 | Top-down view is correct and to scale | N | **8** | Orthographic view, not mirrored. The e2e test measures 9.1 m and 5.7 m on screen against the scale bar (within 0.5 %). Cursor coordinates are within ±15 mm. The hallway and living-room floors appear at the expected screen positions. There is a 1 m grid, a section cut at 1.5 m, and room labels with area. |
 | 9 | Layer toggles work | N | **8** | All 11 layers toggle. The e2e test checks group visibility and fewer triangles drawn, and all layers off draws 0 triangles. Labels follow the layers, and hidden layers don't block teleport. |
@@ -52,3 +54,54 @@ this passes in the Quest 3 emulator. You enter VR at the entrance, walk physical
 10. Look for flicker (z-fighting) where walls meet ceilings or floors, and at the step.
 11. Leave VR with the Meta button → «Avslutt». The 2D page comes back.
 12. **Laptop** (Chrome/Edge on Windows): open the same URL. In 3D, drag to rotate. Click **«Ovenfra (2D)»** to get the plan with a 1 m grid and scale bar, then toggle a few layers.
+
+
+## Phase 2 – guided measuring – 2026-10-11
+
+### How it was tested
+
+- `npm run validate`, `npm run typecheck` and `vite build`: clean.
+- `npm run test:unit`: **91 Vitest tests**, 36 of them new.
+  - Solver (13): rigid fit and line fit; corners moving rooms and walls; rotation; floor level and the ceiling from 3 points; one ceiling point keeps the slope; jambs, top and sill giving offset, width, height and sill height; fixtures on walls; wall thickness from both faces; furniture moving with its room; a full survey with ±5 mm noise stays valid; the latest measurement wins.
+  - Guided list and session (20): unique keys that match observations, room order, skipping what is measured or planned, Norwegian texts, record / skip / revisit / undo / re-measure / browse, ceiling spacing and collinearity rejection, the far warning, an invalid intermediate model keeping the last valid draft, local save surviving a reload, stale vs published detection, discard, broken storage, and the formatter reproducing the hand-written file byte for byte.
+  - Alignment (2): two touches give the origin at the corner and +x along the wall, matching three.js exactly, and a too-short distance is rejected.
+- `npm run test:e2e`: **23 Playwright tests**, 8 of them new. Seven run on an **emulated Quest 3 in passthrough mode (immersive-ar)**:
+  - Start: the AR session starts, the solid model is hidden, and the panel asks for the door corner.
+  - Alignment: a corner placed elsewhere and a wall turned 30° are both handled; touching the real corner then reads (0, 0, 0) within 2 mm.
+  - A too-short alignment is rejected with a Norwegian message, and B goes back.
+  - Measure, skip, undo and browse all work with the real controller buttons. The measured corner lands in the draft as `{value, measured: true}`.
+  - Point mode without a room scan explains itself, and the stick switches back to touch.
+  - Exiting shows the draft in the 3D model and in the panel. It survives a reload, downloads as a valid `apartment.json`, has the right upload link, and «Forkast» restores the file.
+  - Serving the downloaded file as the new `apartment.json` marks the measurements as published and removes them from the list.
+- One new test loads the *published* file and checks only that it is valid and renders. All other tests use a frozen copy of the placeholder.
+- Screenshots from the emulated headset (overlay, beacon, label, hand panel) were checked by eye. The panel was changed to always face the head after the first screenshot showed it tilted away.
+- Speed: one measurement (solve + validate + rebuild the list) takes a median of 11 ms (max 27 ms) on the build machine over 60 measurements. The overlay is 2 meshes with about 2 700 triangles.
+
+### Scores
+
+| # | Item | Type | Score | Evidence / what is missing |
+|---|---|---|---|---|
+| 1 | Measurements become a correct, valid `apartment.json` | C | **8** | The 13 solver tests above. Everything measured is written as `{value, measured: true}`; everything else keeps its form. Limitation: it cannot add or remove corners, rooms or openings. |
+| 2 | Alignment lays the model on the real apartment | C | **8** *(prov.)* | Unit tests show exact maths; the e2e test with an offset and rotated wall reads the corner as (0, 0, 0) within 2 mm. Real controller precision (about 0.5–1 cm) must be felt on the Quest. |
+| 3 | The guided list covers what matters and is in a sensible order | C | **8** | Rooms in file order: floor, corners, 3 ceiling points, openings, fixtures. Measured and planned items are skipped. 84 points for the placeholder. Order within a room follows the polygon, so you walk around the room. |
+| 4 | Nothing is lost: undo, skip, browse, saving, resuming | C | **8** | The event log makes undo work after reloads. Stale data is put aside and can be adopted; a published file clears local data. Covered by unit and e2e tests. |
+| 5 | Getting the result back into the repository | C | **7** *(prov.)* | Download, copy and the GitHub upload link work in the browser tests. The upload itself (GitHub in Quest Browser) is not tested. Option B (save to GitHub directly from the headset) would make this one button. |
+| 6 | Publishing real measurements cannot break the deploy | C | **8** | The tests use a frozen placeholder; the published file is only checked for validity and that it loads. A broken upload stops at `npm run validate` in CI and is not deployed. |
+| 7 | Controls and panel are intuitive and readable on the Quest | N | **7** *(prov.)* | One button per action, a glowing beacon with a label at the target, a panel facing the head with the next step in plain Norwegian, a badge showing touch or point, haptics, and an error with a suggested fix for every refusal. Needs your opinion on the headset. |
+| 8 | Pointing at ceilings (hit-test) | N | **6** *(prov.)* | Implemented with WebXR hit-test from the right controller, with a reticle on the surface. The emulator has no room scan, so only the "not available" path is tested. Touch always works as a fallback. |
+| 9 | Frame rate while measuring | N | **8** *(prov.)* | Overlay: 2 meshes and about 2 700 triangles; no solid model in passthrough. Each measurement is a one-off of about 11 ms on a laptop; on the Quest perhaps 30–40 ms (one or two dropped frames on the trigger press). |
+
+**Rule check:** all C items are 7–8. One N item is at 6 (pointing), within the rule. Passes, provisionally.
+
+### Test on the Quest (phase 2)
+
+Do this after the phase 2 pull request is merged and the site has updated (about 3 minutes). Have the Quest's room setup done if you want to try pointing at the ceiling.
+
+1. Open the site in Quest Browser. In the panel, under **Oppmåling**, press **«Mål opp leiligheten»**. You should see your room through the cameras (passthrough).
+2. **Align:** walk to the entrance door. Put the **yellow ball** in front of the right controller into the inside corner by the door, down at the floor, and pull the trigger. Then touch the entrance wall at least 1 m further in and pull the trigger. White and blue lines (the model's rooms) appear.
+3. The panel above your left hand says what to do, and a cyan beacon with a label shows where. Measure a few corners (touch the corner, trigger). Watch the room's lines snap onto your real walls.
+4. Try **A** (skip), **B** (undo), **left stick** left/right (browse), and **right stick press** (touch ↔ point). Point at the ceiling with the ray and trigger.
+5. Exit with the Meta button. The panel shows «Lokale målinger: …» and the 3D model shows the change.
+6. Tell me: was it obvious what to do at each step? Was the panel readable? How did corners and ceiling heights compare with reality? What was the frame rate (Y)?
+
+Because the layout differs a lot, measure a few points to try it out, but expect the full survey to work best after the layout is corrected (see PLAN.md, "Known limitation").

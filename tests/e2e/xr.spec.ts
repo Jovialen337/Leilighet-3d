@@ -2,8 +2,8 @@
  * VR-sjekker med emulert Meta Quest 3 (Meta Immersive Web Emulation Runtime,
  * samme motor som Immersive Web Emulator-utvidelsen).
  */
-import { expect, test } from '@playwright/test';
-import { button, collectErrors, enterVR, frames, stats, stick, teleport, xrState } from './helpers';
+import { expect } from '@playwright/test';
+import { button, collectErrors, enterVR, frames, stats, stick, teleport, test, xrState } from './helpers';
 
 test('går inn i VR og starter stående innenfor inngangsdøra', async ({ page }) => {
   const errors = collectErrors(page);

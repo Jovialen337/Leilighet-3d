@@ -1,0 +1,866 @@
+{
+  "schemaVersion": 1,
+  "meta": {
+    "name": "Leiligheten (plassholder)",
+    "description": "Plassholdermodell (ca. 50 m²). Alle mål er omtrentlige og merket measured:false, unntatt planterommets størrelse. Erstattes med ekte mål i fase 2.",
+    "origin": "Innvendig hjørne ved inngangsdøra, på gangens gulv. x langs inngangsveggen mot kjøkkenet, z innover i leiligheten, y opp. Inngangsveggen vender mot øst (morgensol).",
+    "updated": "2026-09-27"
+  },
+  "settings": {"planCutHeight": 1500, "defaultWallHeight": 2400, "backgroundColor": "#dfe8ef"},
+  "layers": [
+    {"id": "structure", "name": "Konstruksjon", "visible": true},
+    {"id": "openings", "name": "Dører og vinduer", "visible": true},
+    {"id": "furniture", "name": "Møbler", "visible": true},
+    {"id": "electrical-existing", "name": "Elektrisk – eksisterende", "visible": true},
+    {"id": "electrical-planned", "name": "Elektrisk – planlagt", "visible": true},
+    {"id": "ventilation", "name": "Ventilasjon", "visible": true},
+    {"id": "wiring", "name": "Kabling", "visible": true},
+    {"id": "workshop-zone", "name": "Verkstedsone", "visible": true},
+    {"id": "outdoor", "name": "Uteområde", "visible": true},
+    {"id": "scan-reference", "name": "Skannereferanse", "visible": true},
+    {"id": "notes", "name": "Notater", "visible": true}
+  ],
+  "rooms": [
+    {
+      "id": "gang",
+      "name": "Gang",
+      "measured": false,
+      "polygon": [[0, 0], [2300, 0], [2300, 2400], [0, 2400]],
+      "floorLevel": 0,
+      "floorColor": "#8a7f73",
+      "ceiling": {
+        "points": [
+          {"x": 100, "z": 100, "height": 2207},
+          {"x": 2200, "z": 100, "height": 2312},
+          {"x": 100, "z": 2300, "height": 2251},
+          {"x": 2200, "z": 2300, "height": 2356}
+        ],
+        "color": "#f7f6f2"
+      },
+      "note": "Ett trinn lavere enn resten. Taket er lavest i hjørnet ved inngangsdøra."
+    },
+    {
+      "id": "stue",
+      "name": "Stue",
+      "measured": false,
+      "polygon": [[2400, 0], [6000, 0], [6000, 4200], [2400, 4200]],
+      "floorLevel": 180,
+      "floorColor": "#b99a74",
+      "ceiling": {
+        "points": [
+          {"x": 2500, "z": 100, "height": 2147},
+          {"x": 5900, "z": 100, "height": 2317},
+          {"x": 2500, "z": 4100, "height": 2227},
+          {"x": 5900, "z": 4100, "height": 2397}
+        ],
+        "color": "#f7f6f2"
+      }
+    },
+    {
+      "id": "kjokken",
+      "name": "Kjøkken",
+      "measured": false,
+      "polygon": [[6100, 0], [9100, 0], [9100, 4200], [6100, 4200]],
+      "floorLevel": 180,
+      "floorColor": "#c9c4ba",
+      "ceiling": {
+        "points": [
+          {"x": 6200, "z": 100, "height": 2332},
+          {"x": 9000, "z": 100, "height": 2472},
+          {"x": 6200, "z": 4100, "height": 2412},
+          {"x": 9000, "z": 4100, "height": 2552}
+        ],
+        "color": "#f7f6f2"
+      }
+    },
+    {
+      "id": "bad",
+      "name": "Bad",
+      "measured": false,
+      "polygon": [[2400, 4300], [3800, 4300], [3800, 4400], [4600, 4400], [4600, 5500], [2400, 5500]],
+      "floorLevel": 180,
+      "floorColor": "#9fb2b8",
+      "ceiling": {
+        "points": [
+          {"x": 2500, "z": 4400, "height": 2150},
+          {"x": 4500, "z": 4500, "height": 2150},
+          {"x": 2500, "z": 5400, "height": 2150}
+        ],
+        "color": "#f7f6f2"
+      },
+      "note": "Nære del av badet. Tolket slik at den indre delen har høyere tak."
+    },
+    {
+      "id": "bad-indre",
+      "name": "Bad (indre del)",
+      "measured": false,
+      "polygon": [[3200, 5500], [5400, 5500], [5400, 6700], [3200, 6700]],
+      "floorLevel": 180,
+      "floorColor": "#9fb2b8",
+      "ceiling": {
+        "points": [
+          {"x": 3300, "z": 5600, "height": 2400},
+          {"x": 5300, "z": 5600, "height": 2400},
+          {"x": 3300, "z": 6600, "height": 2400}
+        ],
+        "color": "#f7f6f2"
+      },
+      "note": "Indre del av badet, forskjøvet og med høyere tak."
+    },
+    {
+      "id": "planterom",
+      "name": "Planterom",
+      "measured": false,
+      "polygon": [[0, 2500], [2300, 2500], [2300, 5700], [0, 5700]],
+      "floorLevel": 180,
+      "floorColor": "#7d8a6b",
+      "dimensions": {
+        "length": {"value": 3200, "measured": true},
+        "width": {"value": 2300, "measured": true},
+        "height": {"value": 2100, "measured": true}
+      },
+      "ceiling": {
+        "points": [
+          {"x": 100, "z": 2600, "height": {"value": 2100, "measured": true}},
+          {"x": 2200, "z": 2600, "height": {"value": 2100, "measured": true}},
+          {"x": 100, "z": 5600, "height": {"value": 2100, "measured": true}}
+        ],
+        "color": "#f7f6f2"
+      },
+      "note": "Størrelsen 3200 × 2300 × 2100 mm er målt. Plasseringen er en plassholder."
+    }
+  ],
+  "walls": [
+    {
+      "id": "v-inngang",
+      "name": "Inngangsvegg (yttervegg)",
+      "measured": false,
+      "start": [-200, 0],
+      "end": [9300, 0],
+      "thickness": 200,
+      "justify": "left",
+      "color": "#e9e5dc",
+      "material": "brick"
+    },
+    {
+      "id": "v-kjokken-ost",
+      "name": "Kjøkken, endevegg",
+      "measured": false,
+      "start": [9100, 0],
+      "end": [9100, 4200],
+      "thickness": 200,
+      "justify": "left",
+      "color": "#e9e5dc",
+      "material": "brick"
+    },
+    {
+      "id": "v-betong",
+      "name": "Betongvegg",
+      "measured": false,
+      "start": [9300, 4200],
+      "end": [3800, 4200],
+      "thickness": 200,
+      "justify": "left",
+      "color": "#b8b5ae",
+      "material": "concrete",
+      "note": "Går fra kjøkkenet gjennom stua og slutter ved baddøra."
+    },
+    {
+      "id": "v-bad-skille",
+      "name": "Skillevegg stue/bad",
+      "measured": false,
+      "start": [3800, 4200],
+      "end": [2400, 4200],
+      "thickness": 100,
+      "justify": "left",
+      "color": "#f3f1ec",
+      "material": "drywall"
+    },
+    {
+      "id": "v-gang-stue",
+      "name": "Skillevegg gang/stue/planterom",
+      "measured": false,
+      "start": [2300, 0],
+      "end": [2300, 5700],
+      "thickness": 100,
+      "justify": "left",
+      "color": "#f3f1ec",
+      "material": "drywall"
+    },
+    {
+      "id": "v-gang-planterom",
+      "name": "Skillevegg gang/planterom",
+      "measured": false,
+      "start": [0, 2400],
+      "end": [2300, 2400],
+      "thickness": 100,
+      "justify": "right",
+      "color": "#f3f1ec",
+      "material": "drywall"
+    },
+    {
+      "id": "v-stue-kjokken",
+      "name": "Skillevegg stue/kjøkken",
+      "measured": false,
+      "start": [6000, 0],
+      "end": [6000, 4200],
+      "thickness": 100,
+      "justify": "left",
+      "color": "#f3f1ec",
+      "material": "drywall"
+    },
+    {
+      "id": "v-vest",
+      "name": "Yttervegg vest",
+      "measured": false,
+      "start": [0, 0],
+      "end": [0, 5700],
+      "thickness": 200,
+      "justify": "right",
+      "color": "#e9e5dc",
+      "material": "brick"
+    },
+    {
+      "id": "v-planterom-sor",
+      "name": "Yttervegg planterom",
+      "measured": false,
+      "start": [-200, 5700],
+      "end": [2400, 5700],
+      "thickness": 200,
+      "justify": "right",
+      "color": "#e9e5dc",
+      "material": "brick"
+    },
+    {
+      "id": "v-bad-sor",
+      "name": "Bad, yttervegg",
+      "measured": false,
+      "start": [2400, 5500],
+      "end": [3000, 5500],
+      "thickness": 200,
+      "justify": "right",
+      "color": "#e9e5dc",
+      "material": "brick"
+    },
+    {
+      "id": "v-bad-ost",
+      "name": "Bad, yttervegg øst",
+      "measured": false,
+      "start": [4600, 4400],
+      "end": [4600, 5300],
+      "thickness": 200,
+      "justify": "left",
+      "color": "#e9e5dc",
+      "material": "brick"
+    },
+    {
+      "id": "v-badindre-nord",
+      "name": "Bad indre, yttervegg nord",
+      "measured": false,
+      "start": [4600, 5500],
+      "end": [5600, 5500],
+      "thickness": 200,
+      "justify": "left",
+      "color": "#e9e5dc",
+      "material": "brick"
+    },
+    {
+      "id": "v-badindre-ost",
+      "name": "Bad indre, yttervegg øst",
+      "measured": false,
+      "start": [5400, 5500],
+      "end": [5400, 6900],
+      "thickness": 200,
+      "justify": "left",
+      "color": "#e9e5dc",
+      "material": "brick"
+    },
+    {
+      "id": "v-badindre-sor",
+      "name": "Bad indre, yttervegg sør",
+      "measured": false,
+      "start": [3000, 6700],
+      "end": [5400, 6700],
+      "thickness": 200,
+      "justify": "right",
+      "color": "#e9e5dc",
+      "material": "brick"
+    },
+    {
+      "id": "v-badindre-vest",
+      "name": "Bad indre, yttervegg vest",
+      "measured": false,
+      "start": [3200, 5500],
+      "end": [3200, 6700],
+      "thickness": 200,
+      "justify": "right",
+      "color": "#e9e5dc",
+      "material": "brick"
+    },
+    {
+      "id": "v-bad-drager",
+      "name": "Nedforing mellom baddelene",
+      "measured": false,
+      "start": [3200, 5500],
+      "end": [4600, 5500],
+      "thickness": 100,
+      "justify": "center",
+      "base": 2150,
+      "color": "#f3f1ec",
+      "material": "drywall",
+      "note": "Fyller spranget mellom lavt og høyt tak på badet."
+    }
+  ],
+  "openings": [
+    {
+      "id": "dor-inngang",
+      "type": "door",
+      "name": "Inngangsdør",
+      "measured": false,
+      "wall": "v-inngang",
+      "offset": 400,
+      "width": 900,
+      "height": 2000,
+      "into": "gang",
+      "hinge": "left",
+      "swing": "out",
+      "swingDirection": "clockwise",
+      "entrance": true,
+      "leafColor": "#5b6770"
+    },
+    {
+      "id": "vindu-stue-1",
+      "type": "window",
+      "name": "Stuevindu 1",
+      "measured": false,
+      "wall": "v-inngang",
+      "offset": 3000,
+      "width": 1000,
+      "height": 1000,
+      "sillHeight": 900,
+      "room": "stue"
+    },
+    {
+      "id": "vindu-stue-2",
+      "type": "window",
+      "name": "Stuevindu 2",
+      "measured": false,
+      "wall": "v-inngang",
+      "offset": 4800,
+      "width": 1000,
+      "height": 1000,
+      "sillHeight": 900,
+      "room": "stue"
+    },
+    {
+      "id": "apning-gang-stue",
+      "type": "passage",
+      "name": "Åpning gang–stue (trinn)",
+      "measured": false,
+      "wall": "v-gang-stue",
+      "offset": 700,
+      "width": 1000,
+      "height": 2000,
+      "room": "stue"
+    },
+    {
+      "id": "apning-stue-kjokken",
+      "type": "passage",
+      "name": "Åpning stue–kjøkken",
+      "measured": false,
+      "wall": "v-stue-kjokken",
+      "offset": 1200,
+      "width": 1200,
+      "height": 2100,
+      "room": "stue"
+    },
+    {
+      "id": "dor-bad",
+      "type": "door",
+      "name": "Baddør",
+      "measured": false,
+      "wall": "v-bad-skille",
+      "offset": 100,
+      "width": 800,
+      "height": 2000,
+      "into": "bad",
+      "hinge": "right",
+      "swing": "in",
+      "swingDirection": "clockwise",
+      "leafColor": "#f4f4f1"
+    },
+    {
+      "id": "dor-planterom",
+      "type": "door",
+      "name": "Dør til planterom",
+      "measured": false,
+      "wall": "v-gang-planterom",
+      "offset": 700,
+      "width": 900,
+      "height": 2000,
+      "into": "planterom",
+      "hinge": "left",
+      "swing": "in",
+      "swingDirection": "counterclockwise",
+      "leafColor": "#f4f4f1"
+    }
+  ],
+  "fixtures": [
+    {
+      "id": "feiluke-kjokken",
+      "type": "hatch",
+      "name": "Feiluke",
+      "label": "Feiluke/rør – ikke rør",
+      "measured": false,
+      "layer": "ventilation",
+      "status": "existing",
+      "mount": {"wall": "v-betong", "room": "kjokken", "along": 1500, "height": 1250},
+      "size": [250, 250, 25],
+      "color": "#5f5f5f"
+    },
+    {
+      "id": "ror-kjokken",
+      "type": "pipe",
+      "name": "Rør langs betongveggen",
+      "measured": false,
+      "layer": "structure",
+      "status": "existing",
+      "mount": {"wall": "v-betong", "room": "kjokken", "along": 3000, "height": 1200},
+      "size": [60, 2400, 60],
+      "orientation": "vertical",
+      "color": "#9a9a9a"
+    },
+    {
+      "id": "stk-gang-1",
+      "type": "outlet",
+      "name": "Stikkontakt gang",
+      "measured": false,
+      "layer": "electrical-existing",
+      "status": "existing",
+      "mount": {"wall": "v-vest", "room": "gang", "along": 1500, "height": 300}
+    },
+    {
+      "id": "stk-stue-1",
+      "type": "outlet",
+      "name": "Stikkontakt stue ved vindu",
+      "measured": false,
+      "layer": "electrical-existing",
+      "status": "existing",
+      "mount": {"wall": "v-inngang", "room": "stue", "along": 2800, "height": 300}
+    },
+    {
+      "id": "stk-stue-2",
+      "type": "outlet",
+      "name": "Stikkontakt stue bak sofa",
+      "measured": false,
+      "layer": "electrical-existing",
+      "status": "existing",
+      "mount": {"wall": "v-betong", "room": "stue", "along": 4300, "height": 300}
+    },
+    {
+      "id": "stk-kjokken-1",
+      "type": "outlet",
+      "name": "Stikkontakt kjøkkenbenk",
+      "measured": false,
+      "layer": "electrical-existing",
+      "status": "existing",
+      "mount": {"wall": "v-kjokken-ost", "room": "kjokken", "along": 1200, "height": 1100}
+    },
+    {
+      "id": "stk-kjokken-2",
+      "type": "outlet",
+      "name": "Stikkontakt kjøkkenbenk 2",
+      "measured": false,
+      "layer": "electrical-existing",
+      "status": "existing",
+      "mount": {"wall": "v-kjokken-ost", "room": "kjokken", "along": 2600, "height": 1100}
+    },
+    {
+      "id": "stk-planterom-1",
+      "type": "outlet",
+      "name": "Ny stikkontakt planterom",
+      "measured": false,
+      "layer": "electrical-planned",
+      "status": "planned",
+      "mount": {"wall": "v-planterom-sor", "room": "planterom", "along": 1000, "height": 1200}
+    },
+    {
+      "id": "stk-planterom-2",
+      "type": "outlet",
+      "name": "Ny stikkontakt planterom 2",
+      "measured": false,
+      "layer": "electrical-planned",
+      "status": "planned",
+      "mount": {"wall": "v-vest", "room": "planterom", "along": 4000, "height": 1200}
+    },
+    {
+      "id": "bryter-gang",
+      "type": "switch",
+      "name": "Lysbryter gang",
+      "measured": false,
+      "layer": "electrical-existing",
+      "status": "existing",
+      "mount": {"wall": "v-inngang", "room": "gang", "along": 1500, "height": 1050}
+    },
+    {
+      "id": "bryter-stue",
+      "type": "switch",
+      "name": "Lysbryter stue",
+      "measured": false,
+      "layer": "electrical-existing",
+      "status": "existing",
+      "mount": {"wall": "v-gang-stue", "room": "stue", "along": 1900, "height": 1050}
+    },
+    {
+      "id": "bryter-bad",
+      "type": "switch",
+      "name": "Lysbryter bad",
+      "measured": false,
+      "layer": "electrical-existing",
+      "status": "existing",
+      "mount": {"wall": "v-bad-skille", "room": "stue", "along": 1050, "height": 1050}
+    },
+    {
+      "id": "bryter-planterom",
+      "type": "switch",
+      "name": "Lysbryter planterom",
+      "measured": false,
+      "layer": "electrical-existing",
+      "status": "existing",
+      "mount": {"wall": "v-gang-planterom", "room": "gang", "along": 1800, "height": 1050}
+    },
+    {
+      "id": "rad-stue",
+      "type": "radiator",
+      "name": "Radiator under stuevindu",
+      "measured": false,
+      "layer": "structure",
+      "status": "existing",
+      "mount": {"wall": "v-inngang", "room": "stue", "along": 3500, "height": 380},
+      "size": [800, 500, 100],
+      "color": "#f7f7f7"
+    },
+    {
+      "id": "rad-bad",
+      "type": "radiator",
+      "name": "Håndklederadiator",
+      "measured": false,
+      "layer": "structure",
+      "status": "existing",
+      "mount": {"wall": "v-badindre-sor", "room": "bad-indre", "along": 1300, "height": 700},
+      "size": [500, 800, 80],
+      "color": "#dcdcdc"
+    },
+    {
+      "id": "vent-bad",
+      "type": "vent",
+      "name": "Avtrekk bad",
+      "measured": false,
+      "layer": "ventilation",
+      "status": "existing",
+      "position": [4300, 2380, 6100],
+      "size": [200, 40, 200],
+      "color": "#e0e0e0"
+    },
+    {
+      "id": "vent-kjokken",
+      "type": "vent",
+      "name": "Kjøkkenavtrekk",
+      "measured": false,
+      "layer": "ventilation",
+      "status": "existing",
+      "mount": {"wall": "v-kjokken-ost", "room": "kjokken", "along": 1900, "height": 2000},
+      "size": [250, 250, 40],
+      "color": "#d0d0d0"
+    },
+    {
+      "id": "vent-planterom",
+      "type": "vent",
+      "name": "Ny ventil planterom",
+      "measured": false,
+      "layer": "ventilation",
+      "status": "planned",
+      "mount": {"wall": "v-planterom-sor", "room": "planterom", "along": 2000, "height": 1800},
+      "size": [200, 200, 40]
+    }
+  ],
+  "furniture": [
+    {
+      "id": "sofa",
+      "name": "Sofa",
+      "template": "sofa",
+      "measured": false,
+      "position": [4200, 0, 3700],
+      "rotation": 0,
+      "layer": "furniture",
+      "source": {"kind": "own"},
+      "parts": [
+        {
+          "shape": "roundedBox",
+          "name": "sete",
+          "size": [2000, 420, 900],
+          "offset": [0, 210, 0],
+          "color": "#5d6d7e",
+          "radius": 40
+        },
+        {
+          "shape": "roundedBox",
+          "name": "rygg",
+          "size": [2000, 450, 200],
+          "offset": [0, 645, 350],
+          "color": "#566573",
+          "radius": 40
+        },
+        {
+          "shape": "roundedBox",
+          "name": "armlene venstre",
+          "size": [180, 600, 900],
+          "offset": [-910, 300, 0],
+          "color": "#566573",
+          "radius": 40
+        },
+        {
+          "shape": "roundedBox",
+          "name": "armlene høyre",
+          "size": [180, 600, 900],
+          "offset": [910, 300, 0],
+          "color": "#566573",
+          "radius": 40
+        }
+      ]
+    },
+    {
+      "id": "salongbord",
+      "name": "Salongbord",
+      "template": "bord",
+      "measured": false,
+      "position": [4200, 0, 2350],
+      "rotation": 0,
+      "layer": "furniture",
+      "source": {"kind": "own"},
+      "parts": [
+        {
+          "shape": "roundedBox",
+          "name": "plate",
+          "size": [1100, 40, 600],
+          "offset": [0, 420, 0],
+          "color": "#a47a4f",
+          "radius": 15
+        },
+        {"shape": "cylinder", "size": [40, 400, 40], "offset": [-500, 200, -250], "color": "#3b3b3b"},
+        {"shape": "cylinder", "size": [40, 400, 40], "offset": [500, 200, -250], "color": "#3b3b3b"},
+        {"shape": "cylinder", "size": [40, 400, 40], "offset": [-500, 200, 250], "color": "#3b3b3b"},
+        {"shape": "cylinder", "size": [40, 400, 40], "offset": [500, 200, 250], "color": "#3b3b3b"}
+      ]
+    },
+    {
+      "id": "kjokkenbenk",
+      "name": "Kjøkkenbenk",
+      "template": "benk",
+      "measured": false,
+      "position": [8800, 0, 2000],
+      "rotation": 90,
+      "layer": "furniture",
+      "source": {"kind": "own"},
+      "parts": [
+        {"shape": "box", "name": "skap", "size": [3200, 860, 580], "offset": [0, 430, 0], "color": "#f1f1ee"},
+        {
+          "shape": "box",
+          "name": "benkeplate",
+          "size": [3200, 40, 620],
+          "offset": [0, 880, 0],
+          "color": "#8c6a4a"
+        },
+        {"shape": "box", "name": "vask", "size": [500, 30, 400], "offset": [-400, 890, 0], "color": "#b0b6ba"}
+      ]
+    },
+    {
+      "id": "spisebord",
+      "name": "Spisebord",
+      "template": "bord",
+      "measured": false,
+      "position": [7300, 0, 1900],
+      "rotation": 0,
+      "layer": "furniture",
+      "source": {"kind": "own"},
+      "parts": [
+        {"shape": "box", "name": "plate", "size": [1200, 40, 800], "offset": [0, 740, 0], "color": "#c9a97c"},
+        {"shape": "box", "size": [50, 720, 50], "offset": [-550, 360, -350], "color": "#c9a97c"},
+        {"shape": "box", "size": [50, 720, 50], "offset": [550, 360, -350], "color": "#c9a97c"},
+        {"shape": "box", "size": [50, 720, 50], "offset": [-550, 360, 350], "color": "#c9a97c"},
+        {"shape": "box", "size": [50, 720, 50], "offset": [550, 360, 350], "color": "#c9a97c"}
+      ]
+    },
+    {
+      "id": "dyrkehylle",
+      "name": "Dyrkehylle",
+      "template": "hylle",
+      "measured": false,
+      "position": [330, 0, 4100],
+      "rotation": 90,
+      "layer": "furniture",
+      "source": {"kind": "own"},
+      "parts": [
+        {"shape": "box", "size": [40, 1800, 40], "offset": [-580, 900, -230], "color": "#d9d9d9"},
+        {"shape": "box", "size": [40, 1800, 40], "offset": [580, 900, -230], "color": "#d9d9d9"},
+        {"shape": "box", "size": [40, 1800, 40], "offset": [-580, 900, 230], "color": "#d9d9d9"},
+        {"shape": "box", "size": [40, 1800, 40], "offset": [580, 900, 230], "color": "#d9d9d9"},
+        {
+          "shape": "box",
+          "name": "hylle 1",
+          "size": [1200, 25, 500],
+          "offset": [0, 300, 0],
+          "color": "#eeeeee"
+        },
+        {
+          "shape": "box",
+          "name": "hylle 2",
+          "size": [1200, 25, 500],
+          "offset": [0, 900, 0],
+          "color": "#eeeeee"
+        },
+        {
+          "shape": "box",
+          "name": "hylle 3",
+          "size": [1200, 25, 500],
+          "offset": [0, 1500, 0],
+          "color": "#eeeeee"
+        },
+        {
+          "shape": "box",
+          "name": "plantelys",
+          "size": [1100, 30, 120],
+          "offset": [0, 1780, 0],
+          "color": "#f7e98e"
+        }
+      ]
+    },
+    {
+      "id": "toalett",
+      "name": "Toalett",
+      "template": "toalett",
+      "measured": false,
+      "position": [4900, 0, 6350],
+      "rotation": 270,
+      "layer": "furniture",
+      "source": {"kind": "own"},
+      "parts": [
+        {
+          "shape": "roundedBox",
+          "name": "skål",
+          "size": [380, 400, 550],
+          "offset": [0, 200, -60],
+          "color": "#fbfbfb",
+          "radius": 60
+        },
+        {
+          "shape": "box",
+          "name": "sisterne",
+          "size": [380, 380, 160],
+          "offset": [0, 600, 220],
+          "color": "#fbfbfb"
+        }
+      ]
+    },
+    {
+      "id": "servant",
+      "name": "Servant",
+      "template": "servant",
+      "measured": false,
+      "position": [2800, 0, 5250],
+      "rotation": 180,
+      "layer": "furniture",
+      "source": {"kind": "own"},
+      "parts": [
+        {"shape": "box", "name": "skap", "size": [600, 450, 420], "offset": [0, 575, 0], "color": "#ffffff"},
+        {
+          "shape": "roundedBox",
+          "name": "vask",
+          "size": [600, 80, 450],
+          "offset": [0, 840, 0],
+          "color": "#f4f6f7",
+          "radius": 20
+        }
+      ]
+    },
+    {
+      "id": "arbeidsbenk",
+      "name": "Arbeidsbenk (forslag)",
+      "template": "benk",
+      "measured": false,
+      "position": [5300, 0, 700],
+      "rotation": 0,
+      "layer": "workshop-zone",
+      "source": {"kind": "own"},
+      "parts": [
+        {"shape": "box", "name": "plate", "size": [1200, 40, 600], "offset": [0, 880, 0], "color": "#b08654"},
+        {"shape": "box", "size": [60, 860, 60], "offset": [-560, 430, -240], "color": "#555555"},
+        {"shape": "box", "size": [60, 860, 60], "offset": [560, 430, -240], "color": "#555555"},
+        {"shape": "box", "size": [60, 860, 60], "offset": [-560, 430, 240], "color": "#555555"},
+        {"shape": "box", "size": [60, 860, 60], "offset": [560, 430, 240], "color": "#555555"}
+      ]
+    }
+  ],
+  "outdoor": [
+    {
+      "id": "sti",
+      "name": "Gangsti til inngang",
+      "kind": "pathway",
+      "measured": false,
+      "polygon": [[100, -3500], [1300, -3500], [1300, -200], [100, -200]],
+      "level": -60,
+      "color": "#b9ae9f"
+    },
+    {
+      "id": "hage",
+      "name": "Hage foran stuevinduene",
+      "kind": "garden",
+      "measured": false,
+      "polygon": [[1300, -5000], [9300, -5000], [9300, -200], [1300, -200]],
+      "level": -150,
+      "color": "#8fb574"
+    }
+  ],
+  "zones": [
+    {
+      "id": "sone-verksted",
+      "name": "Verkstedhjørne (forslag)",
+      "measured": false,
+      "layer": "workshop-zone",
+      "polygon": [[4700, 200], [5900, 200], [5900, 1300], [4700, 1300]],
+      "height": 2000,
+      "color": "#f0a030"
+    }
+  ],
+  "wiring": [
+    {
+      "id": "kabel-planterom",
+      "name": "Ny kurs til planterom",
+      "measured": false,
+      "layer": "wiring",
+      "status": "planned",
+      "kind": "power",
+      "points": [[30, 300, 1500], [30, 2050, 1500], [30, 1950, 4000], [30, 1200, 4000]],
+      "color": "#e0532f"
+    }
+  ],
+  "scans": [],
+  "notes": [
+    {
+      "id": "notat-plassholder",
+      "text": "Plassholder – alle mål erstattes med ekte mål",
+      "measured": false,
+      "layer": "notes",
+      "position": [300, 1700, 2150],
+      "color": "#ffd84d"
+    },
+    {
+      "id": "notat-trinn",
+      "text": "Trinnet opp til stua: nøyaktig plassering ikke målt",
+      "measured": false,
+      "layer": "notes",
+      "position": [2550, 1500, 1850],
+      "color": "#ffd84d"
+    }
+  ]
+}

@@ -7,19 +7,25 @@
  * - Høyre stikke til siden: snu 30°.
  * - Venstre Y-knapp: vis/skjul bildefrekvens.
  * - Går man fysisk (room-scale) over trinnet, følger gulvhøyden etter.
+ *
+ * Oppmåling (fase 2) bruker en egen AR-økt med gjennomsyn; da styrer
+ * MeasureMode kontrollerne, og teleport/snu/gulvfølging er av.
  */
 import * as THREE from 'three';
 import type { ApartmentModel } from '../model/ApartmentModel';
+import type { MeasureSession } from '../measure/MeasureSession';
 import type { ApartmentScene } from '../scene/ApartmentScene';
 import { MM } from '../scene/geom';
 import { Observable } from '../state/Observable';
 import type { ViewState } from '../state/ViewState';
 import type { FpsMeter } from '../ui/FpsMeter';
+import { MeasureMode, type MeasureDebugState } from './MeasureMode';
 import { TeleportArc } from './teleport';
 import { WristPanel } from './WristPanel';
 import { followFloor, placeAtSpawn, snapTurn, teleportTo } from './rig';
 
 export type XRSupport = 'checking' | 'supported' | 'unsupported' | 'insecure' | 'no-webxr';
+export type XRMode = 'walk' | 'measure';
 
 export const SNAP_ANGLE = (30 * Math.PI) / 180;
 const AIM_START = -0.6;
@@ -36,6 +42,7 @@ interface Slot {
 
 export interface XRDebugState {
   presenting: boolean;
+  mode: XRMode;
   rig: { x: number; y: number; z: number; yaw: number };
   head: { x: number; y: number; z: number };
   aiming: boolean;
@@ -49,7 +56,14 @@ export class XRManager {
   readonly rig = new THREE.Group();
   readonly camera = new THREE.PerspectiveCamera(70, 1, 0.03, 300);
   readonly support = new Observable<XRSupport>('checking');
+  /** Støtter nettleseren gjennomsyn (immersive-ar)? */
+  readonly arSupport = new Observable<boolean | null>(null);
   readonly error = new Observable<string | null>(null);
+  /** Oppmåling pågår (AR-økt). */
+  readonly measuring = new Observable(false);
+  mode: XRMode = 'walk';
+  measure: MeasureMode | null = null;
+  private requestedMode: XRMode = 'walk';
   private readonly slots: Slot[] = [];
   private readonly arc = new TeleportArc();
   private readonly arcLine: THREE.Line;
@@ -67,14 +81,16 @@ export class XRManager {
   private readonly tmpPos = new THREE.Vector3();
   private readonly tmpDir = new THREE.Vector3();
   private readonly tmpQuat = new THREE.Quaternion();
+  private measureSession: MeasureSession | null = null;
 
   constructor(
     private readonly renderer: THREE.WebGLRenderer,
-    scene: THREE.Scene,
+    private readonly scene: THREE.Scene,
     private readonly view: ViewState,
     private readonly apartment: ApartmentScene,
     private readonly getModel: () => ApartmentModel | null,
     private readonly fps: FpsMeter,
+    private readonly getMeasureSession: () => MeasureSession | null = () => null,
   ) {
     renderer.xr.enabled = true;
     renderer.xr.setReferenceSpaceType('local-floor');
@@ -131,6 +147,11 @@ export class XRManager {
     } catch {
       this.support.set('unsupported');
     }
+    try {
+      this.arSupport.set(await navigator.xr.isSessionSupported('immersive-ar'));
+    } catch {
+      this.arSupport.set(false);
+    }
   }
 
   get presenting(): boolean {
@@ -140,6 +161,7 @@ export class XRManager {
   async enter(): Promise<void> {
     if (!navigator.xr || this.presenting) return;
     this.error.set(null);
+    this.requestedMode = 'walk';
     try {
       const session = await navigator.xr.requestSession('immersive-vr', {
         optionalFeatures: ['local-floor', 'bounded-floor'],
@@ -152,23 +174,74 @@ export class XRManager {
     }
   }
 
+  /** Starter oppmåling med gjennomsyn (immersive-ar). */
+  async enterMeasure(): Promise<void> {
+    if (!navigator.xr || this.presenting) return;
+    this.error.set(null);
+    const ms = this.getMeasureSession();
+    if (!ms) return;
+    this.requestedMode = 'measure';
+    try {
+      const session = await navigator.xr.requestSession('immersive-ar', {
+        requiredFeatures: ['local-floor'],
+        optionalFeatures: ['hit-test'],
+      });
+      await this.renderer.xr.setSession(session);
+    } catch (e) {
+      this.requestedMode = 'walk';
+      this.error.set(`Kunne ikke starte oppmåling: ${(e as Error).message}`);
+    }
+  }
+
   async exit(): Promise<void> {
     await this.renderer.xr.getSession()?.end();
   }
 
   private onSessionStart(): void {
-    this.view.inXR.set(true);
     this.frames = 0;
-    this.pendingSpawn = true;
     this.aiming = false;
-    this.spawn(new THREE.Vector3(), new THREE.Quaternion());
+    this.mode = this.requestedMode;
+    const xrSession = this.renderer.xr.getSession();
+    const ms = this.getMeasureSession();
+    if (this.mode === 'measure' && xrSession && ms) {
+      if (!this.measure || this.measureSession !== ms) {
+        this.measure?.stop();
+        this.measure = new MeasureMode(this.rig, this.camera, this.scene, ms, (hand) => this.slot(hand));
+        this.measureSession = ms;
+      }
+      this.pendingSpawn = false;
+      this.setPointersVisible(false);
+      this.wrist.mesh.visible = false;
+      this.measure.start(xrSession);
+      this.measuring.set(true);
+    } else {
+      this.mode = 'walk';
+      this.pendingSpawn = true;
+      this.spawn(new THREE.Vector3(), new THREE.Quaternion());
+    }
+    this.view.inXR.set(true);
   }
 
   private onSessionEnd(): void {
-    this.view.inXR.set(false);
     this.aiming = false;
     this.arcLine.visible = false;
     this.marker.visible = false;
+    if (this.mode === 'measure') {
+      this.measure?.stop();
+      this.setPointersVisible(true);
+      this.wrist.mesh.visible = true;
+      this.mode = 'walk';
+      this.requestedMode = 'walk';
+      this.measuring.set(false);
+    }
+    this.view.inXR.set(false);
+  }
+
+  private setPointersVisible(visible: boolean): void {
+    for (const s of this.slots) {
+      const line = s.controller.getObjectByName('peker');
+      if (line) line.visible = visible;
+    }
   }
 
   /** Setter brukeren innenfor inngangsdøra (fra apartment.json). */
@@ -180,10 +253,22 @@ export class XRManager {
   }
 
   /** Kalles hver ramme i VR, før tegning. */
-  update(dt: number): void {
+  update(dt: number, frame?: XRFrame, time = performance.now()): void {
     const model = this.getModel();
     if (!model) return;
     this.frames++;
+
+    // Y-knappen viser/skjuler bildefrekvens (begge moduser).
+    const yPressed = this.gamepad('left')?.buttons[5]?.pressed ?? false;
+    if (yPressed && !this.yWasPressed) this.view.fps.set(!this.view.fps.value);
+    this.yWasPressed = yPressed;
+
+    if (this.mode === 'measure' && this.measure) {
+      this.measure.update(frame, this.renderer.xr.getReferenceSpace(), time);
+      this.camera.getWorldPosition(this.head);
+      return;
+    }
+
     this.camera.getWorldPosition(this.head);
 
     if (this.pendingSpawn && this.frames >= 3) {
@@ -224,11 +309,6 @@ export class XRManager {
       this.turnArmed = true;
     }
 
-    // Y-knappen viser/skjuler bildefrekvens.
-    const yPressed = left?.buttons[5]?.pressed ?? false;
-    if (yPressed && !this.yWasPressed) this.view.fps.set(!this.view.fps.value);
-    this.yWasPressed = yPressed;
-
     // Gulvet følger med når man går fysisk opp/ned trinnet.
     const level = model.floorLevelAt({ x: this.head.x / MM, z: this.head.z / MM });
     this.floorUnderHead = level;
@@ -267,6 +347,10 @@ export class XRManager {
     return this.slot(hand)?.source?.gamepad ?? null;
   }
 
+  measureDebug(): MeasureDebugState | null {
+    return this.measure?.debugState() ?? null;
+  }
+
   private updateWristFps(): void {
     this.wrist.setFps(this.view.fps.value ? this.fps.label() : null);
   }
@@ -276,6 +360,7 @@ export class XRManager {
     this.camera.getWorldPosition(this.head);
     return {
       presenting: this.presenting,
+      mode: this.mode,
       rig: { x: this.rig.position.x, y: this.rig.position.y, z: this.rig.position.z, yaw: this.rig.rotation.y },
       head: { x: this.head.x, y: this.head.y, z: this.head.z },
       aiming: this.aiming,

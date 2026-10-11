@@ -4,7 +4,13 @@ import type { ApartmentDoc } from '../../src/schema/types';
 import { validateApartment } from '../../src/schema/validate';
 import type { ApartmentModel } from '../../src/model/ApartmentModel';
 
-export const APARTMENT_PATH = resolve(__dirname, '../../public/apartment.json');
+/**
+ * Testene bruker en fast kopi av plassholder-leiligheten, så den publiserte
+ * fila (public/apartment.json) kan byttes ut med ekte mål uten at testene
+ * brekker. Den publiserte fila sjekkes for seg (gyldig og lastbar).
+ */
+export const APARTMENT_PATH = resolve(__dirname, '../fixtures/placeholder.json');
+export const PUBLISHED_PATH = resolve(__dirname, '../../public/apartment.json');
 
 /** Ny, fersk kopi av plassholder-leiligheten. */
 export function loadDoc(): ApartmentDoc {
