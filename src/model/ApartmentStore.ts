@@ -51,6 +51,11 @@ export class ApartmentStore {
     return this.apply(validateApartment(doc));
   }
 
+  /** Som `setDoc`, for et dokument som allerede er validert (slipper å validere to ganger). */
+  setValidated(result: ValidationResult): LoadResult {
+    return this.apply(result);
+  }
+
   /** Endrer rådataene (fase 3). Endringen forkastes hvis den gir valideringsfeil. */
   update(mutate: (doc: ApartmentDoc) => void): LoadResult {
     if (!this.doc) return this.fail('Ingen leilighet er lastet.');

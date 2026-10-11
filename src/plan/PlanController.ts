@@ -20,13 +20,13 @@ import {
   pickNearest,
   resolveHeight,
   runLength,
-  Snapper,
+  snapperFor,
   type DrawOptions,
   type Pickable,
   type DrawTool,
   type Snap,
 } from './draw';
-import type { PlanEdits } from './PlanEdits';
+import type { PlanCollection, PlanEdits, PlanObject, PlanOp } from './PlanEdits';
 
 export interface Selection {
   c: 'wiring' | 'pipes' | 'fixtures';
@@ -46,25 +46,28 @@ export class PlanController {
   readonly draftVersion = new Observable(0);
   /** Hva som synes (lag og filtre); «Velg» treffer bare det. Settes av appen. */
   isVisible: (o: Pickable) => boolean = () => true;
+  /**
+   * Sjekker nye endringer før de lagres: null = de gir en gyldig modell,
+   * ellers grunnen til at de avvises. Settes av appen.
+   */
+  canApply: (ops: readonly PlanOp[]) => string | null = () => null;
   /** Siste festepunkt under pekeren/strålen (for forhåndsvisning). */
   hover: { p: P2; h: number; snap: Snap['kind']; floor: number } | null = null;
   /** Gjenbrukte objekter: forhåndsvisningen lager ingen nye objekter per ramme. */
   private readonly hoverObj = { p: { x: 0, z: 0 }, h: 0, snap: 'fri' as Snap['kind'], floor: 0 };
   private readonly snapOut = { x: 0, z: 0, kind: 'fri' as Snap['kind'] };
-  private snapper: Snapper | null = null;
 
-  /** Festeren for gjeldende modell (bygges på nytt bare når modellen er ny). */
-  private snapperFor(model: ApartmentModel): Snapper {
-    if (this.snapper?.model !== model) this.snapper = new Snapper(model);
-    return this.snapper;
-  }
-
-  /** Fester (x, z) til punktene under tegning eller modellen; resultatet i `snapOut`. */
+  /** Fester (x, z) til punktene under tegning eller modellen; resultatet i `snapOut` (ingen nye objekter). */
   private snapRaw(model: ApartmentModel, x: number, z: number, tol: number, free: boolean): void {
     const o = this.snapOut;
     if (!free) {
-      for (const q of this.draft.points) {
-        if (Math.hypot(q[0] - x, q[2] - z) < tol) {
+      const pts = this.draft.points;
+      const tol2 = tol * tol;
+      for (let i = 0; i < pts.length; i++) {
+        const q = pts[i]!;
+        const ex = q[0] - x;
+        const ez = q[2] - z;
+        if (ex * ex + ez * ez < tol2) {
           o.x = q[0];
           o.z = q[2];
           o.kind = 'punkt';
@@ -73,7 +76,7 @@ export class PlanController {
       }
     }
     const last = this.draft.last;
-    this.snapperFor(model).snapInto(x, z, last ? last[0] : null, last ? last[2] : null, tol, free, o);
+    snapperFor(model).snapInto(x, z, last ? last[0] : null, last ? last[2] : null, tol, free, o);
   }
 
   constructor(
@@ -156,9 +159,8 @@ export class PlanController {
     if (o.tool === 'fixture') {
       const id = this.edits.newId(base, o.fixtureType === 'outlet' ? 'stk' : o.fixtureType);
       const obj = makeFixture(model, id, s.p, o, h);
-      this.ensureLayer(String(obj.layer));
-      this.edits.put('fixtures', obj);
-      this.message.set(`${FIXTURE_TEXT[o.fixtureType] ?? 'Punkt'} satt inn (${obj.mount ? 'på vegg' : 'fritt'}).`);
+      if (this.commit('fixtures', obj))
+        this.message.set(`${FIXTURE_TEXT[o.fixtureType] ?? 'Punkt'} satt inn (${obj.mount ? 'på vegg' : 'fritt'}).`);
       return;
     }
     // Kabel/rør: klikk på siste punkt igjen = ferdig.
@@ -184,9 +186,8 @@ export class PlanController {
     const what = o.tool === 'wire' ? 'wire' : 'pipe';
     const id = this.edits.newId(base, what === 'wire' ? 'kabel' : 'ror');
     const obj = makeRun(what, id, this.draft.points, o);
-    this.ensureLayer(String(obj.layer));
     const len = this.draft.length;
-    this.edits.put(what === 'wire' ? 'wiring' : 'pipes', obj);
+    if (!this.commit(what === 'wire' ? 'wiring' : 'pipes', obj)) return false;
     this.draft.clear();
     this.bump();
     const kind = what === 'wire' ? `Kabel (${WIRE_KIND_TEXT[o.wireKind].toLowerCase()})` : PIPE_KIND_TEXT[o.pipeKind];
@@ -220,6 +221,11 @@ export class PlanController {
   deleteSelected(): boolean {
     const sel = this.selected.value;
     if (!sel) return false;
+    const why = this.canApply([{ op: 'del', c: sel.c, id: sel.id }]);
+    if (why) {
+      this.message.set(`Kan ikke slettes: ${why}`);
+      return false;
+    }
     this.edits.remove(sel.c, sel.id);
     this.selected.set(null);
     this.message.set('Slettet. «Angre» henter det tilbake.');
@@ -232,27 +238,44 @@ export class PlanController {
     if (!base || !name.trim()) return null;
     const id = this.edits.newId(base, 'kurs');
     const n = (this.edits.apply(base).circuits ?? []).length;
-    this.edits.put('circuits', {
-      id,
-      name: name.trim(),
-      ...(fuse && fuse > 0 ? { fuse } : {}),
-      color: CIRCUIT_COLORS[n % CIRCUIT_COLORS.length]!,
-    });
+    const obj = { id, name: name.trim(), ...(fuse && fuse > 0 ? { fuse } : {}), color: CIRCUIT_COLORS[n % CIRCUIT_COLORS.length]! };
+    if (!this.commit('circuits', obj)) return null;
     this.set({ circuit: id });
     return id;
   }
 
-  /** Lengden av strekket under tegning, inkludert linjen til pekeren. */
+  /** Lengden av strekket under tegning, inkludert linjen til pekeren (ingen nye objekter). */
   liveLength(): number {
-    const pts = [...this.draft.points];
-    if (this.hover) pts.push([this.hover.p.x, this.hover.h, this.hover.p.z]);
-    return runLength(pts);
+    let len = this.draft.length;
+    const last = this.draft.last;
+    const hv = this.hover;
+    if (last && hv) {
+      const dx = hv.p.x - last[0];
+      const dy = hv.h - last[1];
+      const dz = hv.p.z - last[2];
+      len += Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+    return len;
   }
 
-  private ensureLayer(id: string): void {
+  /**
+   * Lagrer et nytt eller endret objekt (og laget det trenger) hvis det gir en
+   * gyldig modell. Ellers står grunnen i beskjeden, og ingenting lagres.
+   */
+  private commit(c: PlanCollection, obj: PlanObject): boolean {
+    const ops: PlanOp[] = [];
+    const layer = typeof obj.layer === 'string' ? obj.layer : null;
     const model = this.getModel();
-    if (!model || model.layers.has(id)) return;
-    this.edits.put('layers', { id, name: LAYER_NAMES[id] ?? id, visible: true });
+    if (layer && model && !model.layers.has(layer))
+      ops.push({ op: 'put', c: 'layers', obj: { id: layer, name: LAYER_NAMES[layer] ?? layer, visible: true } });
+    ops.push({ op: 'put', c, obj });
+    const why = this.canApply(ops);
+    if (why) {
+      this.message.set(`Kan ikke legges inn: ${why}`);
+      return false;
+    }
+    this.edits.add(ops);
+    return true;
   }
 
   private describe(model: ApartmentModel, hit: Selection): string {

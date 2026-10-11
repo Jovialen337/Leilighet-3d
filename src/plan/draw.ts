@@ -143,16 +143,21 @@ export class Snapper {
 
   /** Nærmeste veggflate: skriver punktet på flaten i `out` og returnerer avstanden (Infinity hvis ingen vegger). */
   nearestWall(px: number, pz: number, out: { x: number; z: number; wallId: string; face: 'left' | 'right'; along: number }): number {
+    // Kvadrerte avstander og indekserte løkker: ingen nye objekter (kalles hver ramme i VR).
     let best = Infinity;
-    for (const w of this.walls) {
+    const walls = this.walls;
+    for (let i = 0; i < walls.length; i++) {
+      const w = walls[i]!;
       const u = Math.max(0, Math.min(w.len, (px - w.x) * w.dx + (pz - w.z) * w.dz));
       for (let k = 0; k < 2; k++) {
         const n = k === 0 ? w.nMax : w.nMin;
         const qx = w.x + w.dx * u + w.lx * n;
         const qz = w.z + w.dz * u + w.lz * n;
-        const d = Math.hypot(px - qx, pz - qz);
-        if (d < best) {
-          best = d;
+        const ex = px - qx;
+        const ez = pz - qz;
+        const d2 = ex * ex + ez * ez;
+        if (d2 < best) {
+          best = d2;
           out.x = qx;
           out.z = qz;
           out.wallId = w.id;
@@ -161,7 +166,7 @@ export class Snapper {
         }
       }
     }
-    return best;
+    return Math.sqrt(best);
   }
 
   private readonly wallTmp = { x: 0, z: 0, wallId: '', face: 'left' as 'left' | 'right', along: 0 };
@@ -186,11 +191,15 @@ export class Snapper {
       return;
     }
     let bi = -1;
-    let bd = tol;
-    for (let i = 0; i < this.ax.length; i++) {
-      const d = Math.hypot(px - this.ax[i]!, pz - this.az[i]!);
-      if (d < bd) {
-        bd = d;
+    let bd = tol * tol;
+    const ax = this.ax;
+    const az = this.az;
+    for (let i = 0; i < ax.length; i++) {
+      const ex = px - ax[i]!;
+      const ez = pz - az[i]!;
+      const d2 = ex * ex + ez * ez;
+      if (d2 < bd) {
+        bd = d2;
         bi = i;
       }
     }
@@ -209,8 +218,9 @@ export class Snapper {
     if (prevX !== null && prevZ !== null) {
       const dx = px - prevX;
       const dz = pz - prevZ;
-      const len = Math.hypot(dx, dz);
-      if (len > 1) {
+      const len2 = dx * dx + dz * dz;
+      if (len2 > 1) {
+        const len = Math.sqrt(len2);
         const a = Math.atan2(dz, dx);
         const k = Math.round(a / (Math.PI / 2));
         if (Math.abs(a - (k * Math.PI) / 2) < RIGHT_ANGLE_TOL) {
@@ -228,21 +238,29 @@ export class Snapper {
   }
 }
 
+const snappers = new WeakMap<ApartmentModel, Snapper>();
+
+/** Festeren for en modell, bygget én gang per modell og gjenbrukt. */
+export function snapperFor(model: ApartmentModel): Snapper {
+  let s = snappers.get(model);
+  if (!s) snappers.set(model, (s = new Snapper(model)));
+  return s;
+}
+
 /** Nærmeste punkt på en veggflate (begge sider av alle vegger). */
 export function nearestWallFace(model: ApartmentModel, p: P2): { q: P2; wallId: string; face: 'left' | 'right'; along: number; d: number } | null {
   const out = { x: 0, z: 0, wallId: '', face: 'left' as 'left' | 'right', along: 0 };
-  const d = new Snapper(model).nearestWall(p.x, p.z, out);
+  const d = snapperFor(model).nearestWall(p.x, p.z, out);
   return Number.isFinite(d) ? { q: p2(out.x, out.z), wallId: out.wallId, face: out.face, along: out.along, d } : null;
 }
 
 /**
  * Fester et punkt i planet. `tol` er festeavstanden i mm (regnet om fra
  * piksler eller vinkel av den som kaller). `free` = ingen festing.
- * (Enkel variant; hver ramme brukes en Snapper som gjenbrukes.)
  */
-export function snapPlan(model: ApartmentModel, p: P2, opts: { prev: P2 | null; tol: number; free?: boolean }, snapper = new Snapper(model)): Snap {
+export function snapPlan(model: ApartmentModel, p: P2, opts: { prev: P2 | null; tol: number; free?: boolean }): Snap {
   const out = { x: 0, z: 0, kind: 'fri' as SnapKind };
-  snapper.snapInto(p.x, p.z, opts.prev?.x ?? null, opts.prev?.z ?? null, opts.tol, !!opts.free, out);
+  snapperFor(model).snapInto(p.x, p.z, opts.prev?.x ?? null, opts.prev?.z ?? null, opts.tol, !!opts.free, out);
   return { p: opts.free ? p : p2(out.x, out.z), kind: out.kind };
 }
 
@@ -302,7 +320,10 @@ export function runLength(points: readonly (readonly [number, number, number])[]
   for (let i = 1; i < points.length; i++) {
     const a = points[i - 1]!;
     const b = points[i]!;
-    s += Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const dz = b[2] - a[2];
+    s += Math.sqrt(dx * dx + dy * dy + dz * dz);
   }
   return s;
 }
@@ -364,7 +385,6 @@ export function makeFixture(
   return { ...base, position: [Math.round(p.x), h, Math.round(p.z)] };
 }
 
-/** Nærmeste kabel, rør eller installasjon (i planet) innen `tol` mm. */
 /** Det som kan velges, slik `pickNearest` ser det (for filter på synlighet). */
 export interface Pickable {
   kind: 'wire' | 'pipe' | 'fixture';
@@ -373,6 +393,7 @@ export interface Pickable {
   circuit?: string;
 }
 
+/** Nærmeste kabel, rør eller installasjon (i planet) innen `tol` mm, blant det som synes. */
 export function pickNearest(
   model: ApartmentModel,
   p: P2,

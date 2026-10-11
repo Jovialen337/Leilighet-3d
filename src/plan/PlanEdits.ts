@@ -26,6 +26,8 @@ export class PlanEdits {
   ops: PlanOp[] = [];
   /** Endringene som lå lagret, er nå med i fila. */
   published = false;
+  /** Øker ved hver endring (for mellomlagring hos den som bruker endringene). */
+  revision = 0;
   private readonly listeners = new Set<() => void>();
 
   constructor(
@@ -48,62 +50,76 @@ export class PlanEdits {
     }
   }
 
-  /** Endringer som ikke passet med fila (lagt til side, kan forkastes). */
-  get staleCount(): number {
-    try {
-      const t = this.storage?.getItem(`${this.key}:gammel`);
-      const ops = t ? (JSON.parse(t) as { ops?: unknown[] }).ops : null;
-      return Array.isArray(ops) ? ops.length : 0;
-    } catch {
-      return 0;
+  /**
+   * Fila med bare de endringene som passer (gir en gyldig modell), og listen
+   * over dem som ikke passer akkurat nå. Ingenting slettes: blir modellen
+   * gyldig for dem igjen (f.eks. når en måling angres), vises de igjen.
+   */
+  split(
+    base: ApartmentDoc,
+    isValid: (doc: ApartmentDoc) => boolean,
+    /** De som ikke passet sist: prøves først for seg, så det holder med få valideringer. */
+    hint: readonly PlanOp[] = [],
+  ): { doc: ApartmentDoc; hidden: PlanOp[] } {
+    const all = this.apply(base);
+    if (!this.ops.length || isValid(all)) return { doc: all, hidden: [] };
+    const quick = this.splitWithHint(base, isValid, hint);
+    if (quick) return quick;
+    const hidden: PlanOp[] = [];
+    let doc = base;
+    for (const op of this.ops) {
+      const next = applyOps(doc, [op]);
+      if (isValid(next)) doc = next;
+      else hidden.push(op);
     }
-  }
-
-  discardStale(): void {
-    try {
-      this.storage?.removeItem(`${this.key}:gammel`);
-    } catch {
-      /* lagring utilgjengelig */
-    }
-    for (const l of this.listeners) l();
+    return { doc, hidden };
   }
 
   /**
-   * Beholder bare endringene som gir en gyldig fil (i rekkefølge). De andre
-   * fjernes – eller legges til side (`setAside`), f.eks. når fila er byttet ut
-   * og en vegg en tegning hang på, er borte. Returnerer antall som ble tatt ut.
+   * Rask vei når de som ikke passet sist er kjent: resten legges inn samlet, og
+   * de kjente prøves én og én oppå. Brukes bare når ingen andre endringer
+   * gjelder de samme objektene (da betyr rekkefølgen ingenting).
    */
-  keepValid(base: ApartmentDoc, isValid: (doc: ApartmentDoc) => boolean, setAside: boolean): number {
-    const kept: PlanOp[] = [];
-    const out: PlanOp[] = [];
+  private splitWithHint(
+    base: ApartmentDoc,
+    isValid: (doc: ApartmentDoc) => boolean,
+    hint: readonly PlanOp[],
+  ): { doc: ApartmentDoc; hidden: PlanOp[] } | null {
+    const inHint = new Set(hint.filter((o) => this.ops.includes(o)));
+    if (!inHint.size) return null;
+    const hintKeys = new Set([...inHint].map(keyOf));
+    const rest = this.ops.filter((o) => !inHint.has(o));
+    if (rest.some((o) => hintKeys.has(keyOf(o)))) return null;
+    let doc = applyOps(base, rest);
+    if (!isValid(doc)) return null;
+    const hidden: PlanOp[] = [];
     for (const op of this.ops) {
-      const all = this.ops;
-      this.ops = [...kept, op];
-      const ok = isValid(this.apply(base));
-      this.ops = all;
-      (ok ? kept : out).push(op);
+      if (!inHint.has(op)) continue;
+      const next = applyOps(doc, [op]);
+      if (isValid(next)) doc = next;
+      else hidden.push(op);
     }
-    if (!out.length) return 0;
-    this.ops = kept;
-    if (setAside) {
-      try {
-        const prev = this.staleCount ? (JSON.parse(this.storage!.getItem(`${this.key}:gammel`)!) as { ops: PlanOp[] }).ops : [];
-        this.storage?.setItem(`${this.key}:gammel`, JSON.stringify({ version: 1, ops: [...prev, ...out] }));
-      } catch {
-        /* lagring utilgjengelig */
-      }
-    }
-    this.changed();
-    return out.length;
+    return { doc, hidden };
   }
 
-  /** Ny grunnfil (lastet på nytt): fjerner det fila allerede har. */
+  /** Fjerner bestemte endringer (f.eks. de som ikke passer, etter «Forkast»). */
+  removeOps(ops: readonly PlanOp[]): void {
+    if (!ops.length) return;
+    const drop = new Set(ops);
+    this.ops = this.ops.filter((o) => !drop.has(o));
+    this.changed();
+  }
+
+  /**
+   * Ny grunnfil (lastet på nytt): fjerner det fila allerede har. Varsler ikke
+   * lytterne – den som laster, tegner modellen på nytt uansett.
+   */
   rebase(base: ApartmentDoc): void {
     const before = this.ops.length;
     if (!before) return;
     this.ops = this.prune(base);
     if (!this.ops.length) this.published = true;
-    if (this.ops.length !== before) this.changed();
+    if (this.ops.length !== before) this.save();
   }
 
   get size(): number {
@@ -112,16 +128,21 @@ export class PlanEdits {
 
   /** Antall objekter som er endret (lagt til, endret eller fjernet). */
   get changedObjects(): number {
-    return new Set(this.ops.map((o) => `${o.c}:${o.op === 'put' ? o.obj.id : o.id}`)).size;
+    return new Set(this.ops.map(keyOf)).size;
   }
 
   put(c: PlanCollection, obj: PlanObject): void {
-    this.ops.push({ op: 'put', c, obj: structuredClone(obj) });
-    this.changed();
+    this.add([{ op: 'put', c, obj }]);
   }
 
   remove(c: PlanCollection, id: string): void {
-    this.ops.push({ op: 'del', c, id });
+    this.add([{ op: 'del', c, id }]);
+  }
+
+  /** Flere endringer på én gang (lytterne varsles én gang). */
+  add(ops: readonly PlanOp[]): void {
+    if (!ops.length) return;
+    for (const o of ops) this.ops.push(o.op === 'put' ? { op: 'put', c: o.c, obj: structuredClone(o.obj) } : { ...o });
     this.changed();
   }
 
@@ -139,21 +160,7 @@ export class PlanEdits {
 
   /** Fila med endringene lagt inn (originalen endres ikke). */
   apply(doc: ApartmentDoc): ApartmentDoc {
-    if (!this.ops.length) return doc;
-    const out = structuredClone(doc);
-    const lists = out as unknown as DocLists;
-    for (const o of this.ops) {
-      const list = (lists[o.c] ??= []);
-      if (o.op === 'put') {
-        const i = list.findIndex((x) => x.id === o.obj.id);
-        if (i >= 0) list[i] = structuredClone(o.obj);
-        else list.push(structuredClone(o.obj));
-      } else {
-        const i = list.findIndex((x) => x.id === o.id);
-        if (i >= 0) list.splice(i, 1);
-      }
-    }
-    return out;
+    return applyOps(doc, this.ops);
   }
 
   /** En id som ikke er i bruk i fila eller i endringene. */
@@ -175,7 +182,7 @@ export class PlanEdits {
   private prune(base: ApartmentDoc): PlanOp[] {
     const last = new Map<string, PlanOp>();
     for (const o of this.ops) {
-      const k = `${o.c}:${o.op === 'put' ? o.obj.id : o.id}`;
+      const k = keyOf(o);
       last.delete(k);
       last.set(k, o);
     }
@@ -188,23 +195,41 @@ export class PlanEdits {
   }
 
   private changed(): void {
+    this.save();
+    for (const l of this.listeners) l();
+  }
+
+  private save(): void {
+    this.revision++;
     try {
       if (this.ops.length) this.storage?.setItem(this.key, JSON.stringify({ version: 1, ops: this.ops }));
       else this.storage?.removeItem(this.key);
     } catch {
       /* full eller utilgjengelig lagring: endringene finnes fortsatt i minnet */
     }
-    for (const l of this.listeners) l();
   }
+}
 
-  private save(): void {
-    try {
-      if (this.ops.length) this.storage?.setItem(this.key, JSON.stringify({ version: 1, ops: this.ops }));
-      else this.storage?.removeItem(this.key);
-    } catch {
-      /* lagring utilgjengelig */
+/** Hvilket objekt en endring gjelder («samling:id»). */
+const keyOf = (o: PlanOp): string => `${o.c}:${o.op === 'put' ? o.obj.id : o.id}`;
+
+/** Legger endringene inn i en kopi av fila. */
+export function applyOps(doc: ApartmentDoc, ops: readonly PlanOp[]): ApartmentDoc {
+  if (!ops.length) return doc;
+  const out = structuredClone(doc);
+  const lists = out as unknown as DocLists;
+  for (const o of ops) {
+    const list = (lists[o.c] ??= []);
+    if (o.op === 'put') {
+      const i = list.findIndex((x) => x.id === o.obj.id);
+      if (i >= 0) list[i] = structuredClone(o.obj);
+      else list.push(structuredClone(o.obj));
+    } else {
+      const i = list.findIndex((x) => x.id === o.id);
+      if (i >= 0) list.splice(i, 1);
     }
   }
+  return out;
 }
 
 function isOp(v: unknown): v is PlanOp {

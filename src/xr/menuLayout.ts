@@ -113,7 +113,10 @@ export function buildMenu(s: MenuState): { items: MenuItem[]; labels: MenuLabel[
   /** To kolonner med knapper. */
   const grid = (list: readonly { id: string; label: string; active: boolean; kind: ItemKind }[]): void => {
     const w = (full - GAP) / 2;
-    const rowH = list.length > 10 ? 62 : ROW_H;
+    // Lavere knapper når listen er lang, så den alltid får plass på lerretet.
+    const rows = Math.ceil(list.length / 2);
+    const fit = rows ? Math.floor((MENU_H - PAD - y) / rows) - 10 : ROW_H;
+    const rowH = Math.max(28, Math.min(list.length > 10 ? 62 : ROW_H, fit));
     list.forEach((o, i) => {
       const col = i % 2;
       const row = Math.floor(i / 2);

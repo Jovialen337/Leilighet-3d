@@ -162,18 +162,21 @@ export class WristMenu {
       }
       const cy = it.y + it.h / 2;
       c.fillStyle = '#ffffff';
-      c.font = `${it.kind === 'tab' ? 700 : 500} ${it.h < 70 ? 32 : 36}px system-ui, sans-serif`;
+      // Lange lister får lavere knapper (se menuLayout): tekst og bryter krymper med.
+      const size = it.h >= 70 ? 36 : it.h >= 56 ? 32 : Math.max(18, Math.round(it.h * 0.55));
+      c.font = `${it.kind === 'tab' ? 700 : 500} ${size}px system-ui, sans-serif`;
       if (it.kind === 'toggle') {
         // Bryter til høyre.
-        const sw = 76;
+        const sh = Math.min(40, it.h - 12);
+        const sw = Math.round(sh * 1.9);
         const sx = it.x + it.w - sw - 18;
         c.fillStyle = on ? '#39d98a' : 'rgba(255,255,255,0.25)';
         c.beginPath();
-        c.roundRect(sx, cy - 20, sw, 40, 20);
+        c.roundRect(sx, cy - sh / 2, sw, sh, sh / 2);
         c.fill();
         c.fillStyle = '#ffffff';
         c.beginPath();
-        c.arc(on ? sx + sw - 20 : sx + 20, cy, 15, 0, Math.PI * 2);
+        c.arc(on ? sx + sw - sh / 2 : sx + sh / 2, cy, sh * 0.375, 0, Math.PI * 2);
         c.fill();
         c.textAlign = 'left';
         c.fillText(this.fit(it.label, it.w - sw - 56), it.x + 22, cy + 1);

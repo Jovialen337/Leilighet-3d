@@ -13,7 +13,7 @@ export interface MeasureActions {
   uploadUrl(): string;
   discard(): void;
   adoptStale(): void;
-  /** Forkast tegnede endringer som ble lagt til side. */
+  /** Forkast tegnede endringer som ikke passer med modellen nå. */
   discardPlanStale?(): void;
 }
 
@@ -26,7 +26,7 @@ export interface MeasureUiState {
   /** Antall objekter endret med tegneverktøyet (el og vann), og om de er publisert. */
   planChanges?: number;
   planPublished?: boolean;
-  /** Tegnede endringer som ikke passet med fila og er lagt til side. */
+  /** Tegnede endringer som ikke passer med modellen nå (vises ikke, men beholdes). */
   planStale?: number;
 }
 
@@ -154,7 +154,7 @@ export class MeasureBox {
       this.staleText.textContent = `Det finnes ${plural(ms.stale.count, 'måling', 'målinger')} laget mot en eldre versjon av apartment.json.`;
     const ps = s.planStale ?? 0;
     this.planStale.hidden = ps === 0;
-    this.planStaleText.textContent = `${plural(ps, 'tegnet endring', 'tegnede endringer')} passet ikke med apartment.json (f.eks. en vegg er borte) og er lagt til side.`;
+    this.planStaleText.textContent = `${plural(ps, 'tegnet endring passer', 'tegnede endringer passer')} ikke med modellen nå (f.eks. er en vegg blitt kortere eller borte) og vises ikke. De er tatt vare på og kommer tilbake hvis modellen endres så de passer igjen.`;
     this.published.hidden = !ms?.published && !s.planPublished;
   }
 }

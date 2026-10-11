@@ -125,6 +125,52 @@ describe('tegneverktøyet', () => {
   });
 });
 
+describe('avvisning før lagring', () => {
+  it('en endring som gir ugyldig modell lagres ikke, og beskjeden sier hvorfor', () => {
+    const edits = new PlanEdits(base);
+    const ctrl = new PlanController(edits, () => modelOf(edits.apply(base)), () => base);
+    let seen: readonly unknown[] = [];
+    ctrl.canApply = (ops) => {
+      seen = ops;
+      return 'veggen er for kort.';
+    };
+    ctrl.set({ tool: 'fixture', fixtureType: 'outlet', status: 'planned' });
+    ctrl.click({ x: 9070, z: 2000 }, 20);
+    expect(seen.length).toBeGreaterThan(0);
+    expect(edits.size).toBe(0);
+    expect(ctrl.message.value).toBe('Kan ikke legges inn: veggen er for kort.');
+    ctrl.set({ tool: 'wire' });
+    ctrl.click({ x: 3000, z: 1000 }, 20);
+    ctrl.click({ x: 3000, z: 3000 }, 20);
+    expect(ctrl.finish()).toBe(false);
+    expect(ctrl.drawing).toBe(true); // punktene beholdes, så man kan rette opp
+    expect(edits.size).toBe(0);
+    expect(ctrl.addCircuit('Kurs X')).toBeNull();
+    ctrl.canApply = () => null;
+    expect(ctrl.finish()).toBe(true);
+    expect(edits.size).toBe(1);
+    ctrl.set({ tool: 'select' });
+    ctrl.click({ x: 3010, z: 2000 }, 100);
+    ctrl.canApply = () => 'noe annet peker på den.';
+    expect(ctrl.deleteSelected()).toBe(false);
+    expect(ctrl.message.value).toBe('Kan ikke slettes: noe annet peker på den.');
+    expect(edits.size).toBe(1);
+  });
+
+  it('festing og lengde under tegning lager ingen nye objekter per kall', () => {
+    const edits = new PlanEdits(base);
+    const ctrl = new PlanController(edits, () => model, () => base);
+    ctrl.set({ tool: 'pipe', height: 300 });
+    ctrl.click({ x: 3000, z: 1000 }, 20);
+    ctrl.hoverAt({ x: 3000, z: 2000 }, 20);
+    const first = ctrl.hover;
+    ctrl.hoverAt({ x: 9070, z: 2000 }, 60);
+    expect(ctrl.hover).toBe(first); // samme objekt gjenbrukes
+    expect(ctrl.hover?.snap).toBe('vegg');
+    expect(ctrl.liveLength()).toBeCloseTo(Math.hypot(ctrl.hover!.p.x - 3000, ctrl.hover!.p.z - 1000), 6);
+  });
+});
+
 describe('oversikt', () => {
   it('summerer kabel per kurs og rør per type', () => {
     const s = summarize(model, { existing: true });

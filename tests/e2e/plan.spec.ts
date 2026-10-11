@@ -203,7 +203,7 @@ test('PC: kursfilteret viser bare én kurs', async ({ page }) => {
   expect(await has('kabel-planterom')).toBe(true);
 });
 
-test('lagrede tegninger som ikke passer med fila legges til side – modellen vises likevel', async ({ page }) => {
+test('lagrede tegninger som ikke passer med fila skjules, men beholdes – modellen vises likevel', async ({ page }) => {
   const errors = collectErrors(page);
   await page.addInitScript(() => {
     if (sessionStorage.getItem('seeded')) return;
@@ -225,8 +225,150 @@ test('lagrede tegninger som ikke passer med fila legges til side – modellen vi
   expect(d.wiring.some((w: any) => w.id === 'k-ok')).toBe(true);
   expect(d.fixtures.some((f: any) => f.id === 'stk-x')).toBe(false);
   expect(await page.evaluate(() => (window as any).leilighet.stats().mergedMeshes)).toBeGreaterThan(10);
-  await expect(page.getByTestId('plan-stale')).toContainText('1 tegnet endring passet ikke');
+  await expect(page.getByTestId('plan-stale')).toContainText('1 tegnet endring passer ikke');
+  // Ingenting er slettet: begge ligger fortsatt lagret, også etter ny innlasting.
+  const stored = () => page.evaluate(() => JSON.parse(localStorage.getItem('leilighet:plan:v1') ?? '{"ops":[]}').ops.length);
+  expect(await stored()).toBe(2);
+  await page.reload();
+  await waitForModel(page);
+  await expect(page.getByTestId('plan-stale')).toBeVisible();
+  expect(await stored()).toBe(2);
+  // «Forkast dem» spør først; avbryt beholder dem.
+  page.once('dialog', (dlg) => void dlg.dismiss());
+  await page.getByTestId('plan-stale-discard').click();
+  await expect(page.getByTestId('plan-stale')).toBeVisible();
+  expect(await stored()).toBe(2);
+  page.once('dialog', (dlg) => void dlg.accept());
   await page.getByTestId('plan-stale-discard').click();
   await expect(page.getByTestId('plan-stale')).toBeHidden();
+  expect(await stored()).toBe(1);
+  expect((await model(page)).wiring.some((w: any) => w.id === 'k-ok')).toBe(true);
   expect(errors).toEqual([]);
+});
+
+test('en måling som gjør at en tegning ikke passer, skjuler den – angre målingen henter den tilbake', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('./');
+  await waitForModel(page);
+  const r = await page.evaluate(() => {
+    const a = (window as any).leilighet;
+    const m0 = a.store.model;
+    const tasks = a.measure.tasks.filter((t: any) => t.task.kind === 'room-corner');
+    for (const wid of [...m0.walls.keys()]) {
+      const f = a.store.model.walls.get(wid);
+      const start = { x: f.p0.x, z: f.p0.z };
+      const end = { x: f.p0.x + f.dir.x * f.length, z: f.p0.z + f.dir.z * f.length };
+      const tE = tasks.find((t: any) => Math.hypot(t.target.x - end.x, t.target.z - end.z) < 200);
+      const tS = tE && tasks.find((t: any) => t.task.roomId === tE.task.roomId && t !== tE && Math.hypot(t.target.x - start.x, t.target.z - start.z) < 200);
+      if (!tE || !tS) continue;
+      a.plan.put('fixtures', { id: 'stk-end', type: 'outlet', layer: 'electrical-planned', status: 'planned', mount: { wall: wid, room: tE.task.roomId, along: Math.round(f.length - 40), height: 300 } });
+      const present = () => a.store.model.data.fixtures.some((x: any) => x.id === 'stk-end');
+      if (!present()) {
+        a.plan.clear();
+        continue;
+      }
+      // Måler veggen 400 mm kortere: punktet nær enden passer ikke lenger.
+      a.measure.record({ x: tS.target.x, y: tS.target.y, z: tS.target.z }, tS);
+      a.measure.record({ x: tE.target.x - f.dir.x * 400, y: tE.target.y, z: tE.target.z - f.dir.z * 400 }, tE);
+      const shorter = (a.store.model.walls.get(wid)?.length ?? f.length) < f.length - 100;
+      const after = { present: present(), ops: a.plan.size, stored: !!localStorage.getItem('leilighet:plan:v1') };
+      if (!shorter || after.present) {
+        a.measure.undo();
+        a.measure.undo();
+        a.plan.clear();
+        continue;
+      }
+      const hiddenText = (document.querySelector('[data-testid="plan-stale"]') as HTMLElement | null)?.hidden === false;
+      a.measure.undo();
+      a.measure.undo();
+      return { wid, after, hiddenText, back: present(), opsBack: a.plan.size };
+    }
+    return null;
+  });
+  expect(r).not.toBeNull();
+  expect(r!.after).toEqual({ present: false, ops: 1, stored: true });
+  expect(r!.hiddenText).toBe(true);
+  expect(r!.back).toBe(true);
+  expect(r!.opsBack).toBe(1);
+  await expect(page.getByTestId('plan-stale')).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
+test('PC: Esc med hjelpen åpen lukker bare hjelpen – punktene beholdes', async ({ page }) => {
+  await page.goto('./');
+  await waitForModel(page);
+  await page.keyboard.press('2');
+  await page.keyboard.press('e');
+  await clickPlan(page, 3000, 1000);
+  await clickPlan(page, 3000, 3000);
+  const points = () => page.evaluate(() => (window as any).leilighet.planCtrl.draft.points.length);
+  const tool = () => page.evaluate(() => (window as any).leilighet.planCtrl.tool);
+  expect(await points()).toBe(2);
+  await page.keyboard.press('h');
+  await expect(page.getByTestId('help')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('help')).toBeHidden();
+  expect(await points()).toBe(2);
+  await page.keyboard.press('Escape'); // avbryter tegningen
+  expect(await points()).toBe(0);
+  expect(await tool()).toBe('wire');
+  await page.keyboard.press('Escape'); // tilbake til «Velg»
+  expect(await tool()).toBe('select');
+});
+
+test('VR: avslutt økten midt i en tegning – verktøy og utkast nullstilles, rutenettet følger 2D-visningen', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('./?emulator');
+  await waitForModel(page);
+  await page.keyboard.press('2');
+  const grid = () => page.evaluate(() => (window as any).leilighet.desktop.grid.visible);
+  expect(await grid()).toBe(true);
+  await page.getByTestId('vr-button').click();
+  await page.waitForFunction(() => (window as any).leilighet.xr.presenting === true);
+  await page.waitForTimeout(400);
+  await page.evaluate(() => {
+    const d = (window as any).__iwer;
+    d.controllers.left.position.set(-0.2, 1.3, -0.3);
+    d.controllers.right.position.set(0.2, 1.3, -0.3);
+  });
+  expect(await grid()).toBe(false);
+  await press(page, 'left', 'x-button');
+  await menuPress(page, 'tab:tegn');
+  await menuPress(page, 'draw:pipe:cold');
+  await aimAt(page, 'right', { x: 0.6, y: 1.0, z: 2.35 });
+  await press(page, 'right', 'trigger');
+  expect((await xrState(page)).draw.points).toBe(1);
+  await page.evaluate(() => (window as any).leilighet.xr.exit());
+  await page.waitForFunction(() => (window as any).leilighet.xr.presenting === false);
+  const st = await page.evaluate(() => {
+    const a = (window as any).leilighet;
+    return { tool: a.planCtrl.tool, points: a.planCtrl.draft.points.length, hover: a.planCtrl.hover, vrTool: a.xr.debugState().draw.tool };
+  });
+  expect(st).toEqual({ tool: 'select', points: 0, hover: null, vrTool: null });
+  expect(await grid()).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('VR: «Alle kurser» i Lag-fanen slår av kursfilteret', async ({ page }) => {
+  await enterVR(page);
+  await page.evaluate(() => (window as any).leilighet.view.circuit.set('kurs-1'));
+  await press(page, 'left', 'x-button');
+  await menuPress(page, 'tab:lag');
+  await menuPress(page, 'circuit:all');
+  expect(await page.evaluate(() => (window as any).leilighet.view.circuit.value)).toBeNull();
+  expect(await page.evaluate(() => (window as any).leilighet.apartment.ranges.has('kabel-planterom'))).toBe(true);
+});
+
+test('PC: skarphet ved skjermskala 1 (Rask/Standard/Høy)', async ({ browser }) => {
+  const ctx = await browser.newContext({ deviceScaleFactor: 1, viewport: { width: 1280, height: 800 } });
+  const page = await ctx.newPage();
+  await page.goto('./');
+  await waitForModel(page);
+  const ratio = () => page.evaluate(() => (window as any).leilighet.renderer.getPixelRatio());
+  expect(await ratio()).toBe(1);
+  await page.getByTestId('setting-quality').selectOption({ label: 'Rask' });
+  expect(await ratio()).toBe(1);
+  await page.getByTestId('setting-quality').selectOption({ label: 'Høy' });
+  expect(await ratio()).toBe(1.5);
+  await ctx.close();
 });

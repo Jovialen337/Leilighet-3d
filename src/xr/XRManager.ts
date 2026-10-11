@@ -300,7 +300,9 @@ export class XRManager {
   private onSessionEnd(): void {
     this.aiming = false;
     this.setMenuOpen(false);
-    // Tegning i VR avsluttes sammen med økten (verktøyet på PC beholdes).
+    // Tegning i VR avsluttes sammen med økten: et halvferdig strekk forkastes og
+    // verktøyet går tilbake til «Velg» (et verktøy valgt på PC beholdes).
+    if (this.drawTool && this.plan) this.plan.set({ tool: 'select' });
     this.drawTool = null;
     if (this.plan) this.plan.hover = null;
     this.updateWristHelp();

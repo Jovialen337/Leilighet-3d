@@ -126,6 +126,10 @@ The fastest fix is to correct the layout *before* measuring, using a floor plan 
   - Undo works, and changes are saved per device.
   - They are exported in the same `apartment.json` as measurements.
   - They clear themselves once the published file contains them.
+  - A new drawing is checked before it is saved. If it would make the model invalid, it is refused with the reason («Kan ikke legges inn: …»).
+  - A drawing that stops fitting is hidden, not deleted (for example after a measurement shortens the wall an outlet hangs on, or after a new file renames a wall). The panel says how many are hidden.
+  - Hidden drawings come back by themselves when they fit again (for example when the measurement is undone). «Forkast dem» deletes them, after a confirmation.
+  - Download and copy include only the drawings that fit.
 - **Drawing on the PC** (panel «Tegn el og vann»):
   - Tools «Velg» (S), «Kabel» (E), «Rør» (V) and «Punkt» (P).
   - Click to place points, in 2D on the plan or in 3D on walls and floors. A drag still pans or rotates the view.

@@ -10,11 +10,10 @@ import * as THREE from 'three';
 import { MeasureSession } from '../measure/MeasureSession';
 import { ApartmentStore } from '../model/ApartmentStore';
 import type { ApartmentModel } from '../model/ApartmentModel';
-import { ApartmentScene } from '../scene/ApartmentScene';
+import { ApartmentScene, passes } from '../scene/ApartmentScene';
 import { Materials } from '../scene/materials';
 import { addLights, configureRenderer } from '../scene/lighting';
 import { createSky, setGroundLevel } from '../scene/sky';
-import { passes } from '../scene/ApartmentScene';
 import { MM } from '../scene/geom';
 import { localStore } from '../state/persist';
 import { SettingsBinding } from '../state/settings';
@@ -25,13 +24,13 @@ import { repoFromLocation, uploadUrl } from '../ui/github';
 import { Labels } from '../ui/Labels';
 import { DesktopView } from '../views/DesktopView';
 import { XRManager } from '../xr/XRManager';
-import { PlanEdits } from '../plan/PlanEdits';
+import { applyOps, PlanEdits, type PlanOp } from '../plan/PlanEdits';
 import { PlanController } from '../plan/PlanController';
 import { PlanOverlay } from '../plan/PlanOverlay';
 import { PlanBox } from '../ui/PlanBox';
 import { isTypingTarget } from '../ui/shortcuts';
 import type { ApartmentDoc } from '../schema/types';
-import { validateApartment } from '../schema/validate';
+import { validateApartment, type ValidationResult } from '../schema/validate';
 import type { DrawTool } from '../plan/draw';
 
 export class App {
@@ -63,6 +62,10 @@ export class App {
   private draftDirty = false;
   /** Dokumentet som sist ble tegnet (for å slippe unødvendig ombygging). */
   private renderedDoc: ApartmentDoc | null = null;
+  /** Tegnede endringer som ikke passer med modellen nå (vises ikke, men beholdes). */
+  private planHidden: PlanOp[] = [];
+  /** Sist utregnede «tegningene som passer» for et grunnlag (slipper å validere på nytt ved hvert klikk). */
+  private planCache: { base: ApartmentDoc; rev: number; doc: ApartmentDoc; hidden: PlanOp[] } | null = null;
 
   constructor(private readonly root: HTMLElement) {
     this.store = new ApartmentStore(`${import.meta.env.BASE_URL}apartment.json`);
@@ -70,6 +73,7 @@ export class App {
     this.settings = new SettingsBinding(this.view, localStore());
     this.plan = new PlanEdits(null, localStore());
     this.planCtrl = new PlanController(this.plan, () => this.store.model, () => this.baseDoc());
+    this.planCtrl.canApply = (ops) => this.checkPlanOps(ops);
     // «Velg» skal bare treffe det som synes (lag og filtre).
     this.planCtrl.isVisible = (o) =>
       this.view.layers.isVisible(o.layer) &&
@@ -129,7 +133,9 @@ export class App {
           this.measure?.discard();
           this.plan.clear();
         },
-        discardPlanStale: () => this.plan.discardStale(),
+        discardPlanStale: () => {
+          if (confirm('Slette tegningene som ikke passer med modellen nå? Dette kan ikke angres.')) this.plan.removeOps(this.planHidden);
+        },
         adoptStale: () => this.measure?.adoptStale(),
       },
     });
@@ -164,15 +170,6 @@ export class App {
     }
     this.measure = this.createMeasureSession();
     if (this.store.fileDoc) this.plan.rebase(this.store.fileDoc);
-    const base = this.baseDoc();
-    if (base && this.plan.size) {
-      // Tegninger som ikke passer med (en ny) fil, legges til side – modellen vises alltid.
-      const n = this.plan.keepValid(base, (d) => validateApartment(d).ok, true);
-      if (n)
-        this.planCtrl.message.set(
-          `${n} tegnet ${n === 1 ? 'endring' : 'endringer'} passet ikke med fila og er lagt til side.`,
-        );
-    }
     if (this.measure?.hasMeasurements || this.plan.size) this.showDraft(true);
     else {
       this.renderedDoc = this.store.doc;
@@ -191,7 +188,7 @@ export class App {
     this.ui.updateMeasure(this.measure, {
       planChanges: this.plan.changedObjects,
       planPublished: this.plan.published,
-      planStale: this.plan.staleCount,
+      planStale: this.planHidden.length,
     });
   }
 
@@ -220,22 +217,34 @@ export class App {
     else this.showDraft();
   }
 
-  /** Tegner utkastet: oppmåling (eller fila) med de tegnede endringene oppå. */
+  /**
+   * Tegner utkastet: oppmåling (eller fila) med de tegnede endringene oppå.
+   * Tegninger som ikke passer med modellen nå (f.eks. en vegg ble kortere ved
+   * oppmåling), vises ikke, men beholdes – de kommer tilbake når de passer igjen.
+   */
   private showDraft(force = false): void {
     this.draftDirty = false;
     const base = this.baseDoc();
     if (!base) return;
-    const doc = this.plan.apply(base);
+    const checked = new Map<ApartmentDoc, ValidationResult>();
+    const { doc, hidden } = this.splitPlan(base, (d) => {
+      const r = validateApartment(d);
+      checked.set(d, r);
+      return r.ok;
+    });
+    const before = this.planHidden.length;
+    this.planHidden = hidden;
+    if (hidden.length !== before) {
+      this.updateMeasureUi();
+      if (hidden.length > before)
+        this.planCtrl.message.set(
+          `${hidden.length} ${hidden.length === 1 ? 'tegnet endring passer' : 'tegnede endringer passer'} ikke med modellen nå og vises ikke (se «Oppmåling»).`,
+        );
+    }
     if (!force && doc === this.renderedDoc) return;
-    const r = this.store.setDoc(doc);
+    const r = this.store.setValidated(checked.get(doc) ?? validateApartment(doc));
     if (!r.ok) {
-      // En tegnet endring ga en ugyldig fil: den avvises, og det gyldige vises.
-      const why = r.errors[0]?.message ?? '';
-      console.warn('Tegnet endring avvist', r.errors);
-      if (doc !== base && this.plan.keepValid(base, (d) => validateApartment(d).ok, false) > 0) {
-        this.planCtrl.message.set(`Endringen ble avvist: ${why}`);
-        return; // keepValid varsler, og showDraft kjøres på nytt med det gyldige
-      }
+      console.error('Utkastet er ugyldig', r.errors);
       return;
     }
     this.renderedDoc = doc;
@@ -243,10 +252,31 @@ export class App {
     this.ui.showModel(r.model, r.warnings);
   }
 
-  /** Hele utkastet som tekst (målinger + tegninger), for nedlasting og kopiering. */
+  /** Tegningene som passer, lagt oppå `base` (og de som ikke passer nå). Mellomlagret per grunnlag og endring. */
+  private splitPlan(base: ApartmentDoc, isValid = (d: ApartmentDoc): boolean => validateApartment(d).ok): { doc: ApartmentDoc; hidden: PlanOp[] } {
+    const c = this.planCache;
+    if (c && c.base === base && c.rev === this.plan.revision) return c;
+    const r = this.plan.split(base, isValid, this.planHidden);
+    this.planCache = { base, rev: this.plan.revision, ...r };
+    return r;
+  }
+
+  private planOn(base: ApartmentDoc): ApartmentDoc {
+    return this.splitPlan(base).doc;
+  }
+
+  /** Avviser nye tegnede endringer som ville gitt en ugyldig modell (før de lagres). */
+  private checkPlanOps(ops: readonly PlanOp[]): string | null {
+    const base = this.baseDoc();
+    if (!base) return 'Ingen modell er lastet.';
+    const r = validateApartment(applyOps(this.planOn(base), ops));
+    return r.ok ? null : (r.errors[0]?.message ?? 'Ugyldig endring.');
+  }
+
+  /** Hele utkastet som tekst (målinger + tegninger som passer), for nedlasting og kopiering. */
   private exportText(): string | null {
     if (!this.measure) return null;
-    return this.measure.exportText(new Date(), (d) => this.plan.apply(d));
+    return this.measure.exportText(new Date(), (d) => this.planOn(d));
   }
 
   private downloadDraft(): void {
