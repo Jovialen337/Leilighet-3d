@@ -4,6 +4,16 @@ Scores 1–9 (1–3 failed, 4–6 partial, 7–9 solid). C = critical, N = non-c
 Rule: all C items 7–9; at most two N items at 4–6, none below 4.
 *(prov.)* = provisional, because it can only be fully confirmed on the real Quest.
 
+**Update 2026-10-12 – layout from the user's sketch:**
+- `public/apartment.json` now follows the real layout:
+  - The hallway (lower floor) at the bottom. The entrance is on its left side, and the wall to the garden is glass.
+  - The living room is the centre.
+  - The kitchen is reached through a large opening, the bathroom has a raised part, and the grow room has a window to the garden.
+- The 2D plan is turned so it looks like the sketch (`settings.planRotation: 90`).
+- Sizes come from the measured grow room and the hallway, and will be made exact by measuring on the Quest.
+- Assumptions to check are listed in PLAN.md under "The apartment".
+- Local measurements or drawings made against the old file are set aside or hidden, not lost.
+
 **Update 2026-10-11 – first test on the real Quest 3:** **90 fps at 11.9 ms** per frame. Movement and reach feel acceptable compared with real life for a first version. The ceiling is too high and the layout is quite different from the real apartment. Both come from the placeholder data, not the rendering, and are what phase 2 (measuring) and a corrected layout fix. Items 1, 2 and 6 below are now confirmed on the headset.
 
 **Update 2026-10-10:** phase 1 is live at https://jovialen337.github.io/Leilighet-3d/ (deployed from `main`, [run 5](https://github.com/Jovialen337/Leilighet-3d/actions/runs/38085575706)). The repository was made public, because GitHub Pages on the free plan requires it.

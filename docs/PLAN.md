@@ -96,9 +96,9 @@ Every capture gives a short vibration. Moving around is by walking only: telepor
 
 ### Known limitation: the layout must roughly match
 
-Guided measuring *moves and resizes* what is in the model: rooms, corners, walls, openings and fixtures. It cannot yet add or remove rooms, corners, doors or windows. The first Quest test showed the placeholder layout is quite different from the real apartment.
+Guided measuring *moves and resizes* what is in the model: rooms, corners, walls, openings and fixtures. It cannot yet add or remove rooms, corners, doors or windows. The first Quest test showed the placeholder layout was quite different from the real apartment.
 
-The fastest fix is to correct the layout *before* measuring, using a floor plan or a sketch with the rooms, corners, doors and windows; rough dimensions are enough. Measuring then makes it exact. Adding and removing corners, rooms and openings in VR belongs to phase 3.
+**Done 2026-10-12:** the layout was corrected from the user's sketch (see "The apartment" below). Measuring now makes it exact. Adding and removing corners, rooms and openings in VR belongs to phase 3.
 
 ## Phase 2b – graphics, options, electrical and water planning
 
@@ -192,7 +192,8 @@ The same validator runs in the app on load and from the command line (`npm run v
 
 ### Conventions
 
-- **Millimetres** everywhere. Plan points are `[x, z]`. Viewed from above, x points right (along the entrance wall toward the kitchen) and z points down (into the apartment).
+- **Millimetres** everywhere. Plan points are `[x, z]`. x runs along the entrance wall toward the kitchen and z points into the apartment. By default the 2D plan shows x to the right and z down.
+- **`settings.planRotation`** (0, 90, 180 or 270 degrees, counter-clockwise) turns only the 2D plan and the starting 3D view; coordinates never change. With 90, x points up and z right, matching the user's sketch.
 - **Origin** is the inside corner at the entrance door, on the hallway floor. y points up.
 - **Heights are measured from the floor where the point stands** (the room's floor), which is how you measure with a tape. The exceptions are `rooms[].floorLevel` and `outdoor[].level`, which are absolute (from the origin).
 - **Rotation** is in degrees, clockwise seen from above.
@@ -231,21 +232,33 @@ The same validator runs in the app on load and from the command line (`npm run v
 
 Errors stop loading and are listed in Norwegian with the path in the file. Warnings are shown in the panel.
 
-### Placeholder apartment (phase 1)
+### The apartment (from the user's sketch, 2026-10-12)
 
-About 50 m² gross (45.8 m² net floor), rooms: gang, stue, kjøkken, bad (two offset sections), planterom.
-Everything is `measured:false` except the grow room's size (3200 × 2300 × 2100 mm, `measured:true`), so the grow room is "partially measured".
+The layout follows the user's sketch. With `planRotation: 90` the 2D plan looks like the sketch: hallway at the bottom, kitchen at the top. The scale comes from the two known sizes: the grow room is measured at 3200 × 2300 × 2100 mm, and the hallway is 2300 × 2500. Both fit the sketch at about 6 mm per sketch pixel. Everything else is `measured:false` until it is measured. Net floor area is about 31 m².
 
-- **Hallway:** 2300 × 2400, floor 0. All other rooms are one 180 mm step up.
-- **Ceiling:** one plane across hallway/living room/kitchen, `y = 2200 + 0.05·x + 0.02·z` (absolute). It is lowest at the hallway corner by the entrance door (the corner furthest from the kitchen) and rises to about 2.74 m in the far kitchen corner.
-- **Entrance door:** hinge on the left when entering, opens **out**. **Bathroom door:** hinge right, opens in. **Grow room door:** hinge left, opens in, 900 wide.
-- **Windows:** two windows in the entrance wall (faces east, morning sun), between the door and the kitchen. Sill 900 mm, height 1000 mm.
-- **Passages:** doorless openings hallway→living room (at the step) and living room→kitchen.
-- **Concrete wall:** runs from the kitchen through the living room and ends at the bathroom door. The hatch *«Feiluke/rør – ikke rør»* is on its kitchen side.
-- **Bathroom:** two short offset sections; the far one has a higher ceiling (2400 vs 2150), with a soffit wall filling the step.
-- **Outdoors:** a pathway to the entrance and a garden in front of the windows.
+- **Rooms:**
+  - **Gang:** the hallway, one step lower (floor 0); the rest is at 180.
+  - **Stue:** the living room, the centre. The hallway, kitchen, bathroom and grow room can be reached **only** from here.
+  - **Kjøkken:** the kitchen, reached through a large doorless opening from the living room.
+  - **Bad:** the bathroom, entered from the living room.
+    - The lower entrance part goes straight in, with the shower and toilet on the left.
+    - The raised part (`bad-hoy`, +150 mm, step not measured) is on the right, with the washing machine and drying rack.
+  - **Planterom:** the grow room, beside the living room.
+- **Entrance:** the only way in from outside, on the left side of the hallway (the entrance wall). The door opens out, with the path in front.
+- **Windows:**
+  - The entrance wall has two evenly spaced living room windows and one kitchen window further along.
+  - The hallway wall facing the garden is glass from edge to edge.
+  - The grow room has one window to the garden.
+  - The bathroom has one small double window in its far wall.
+- **Ceilings:** one sloping plane, lowest at the entrance corner, about 150 mm lower than the first placeholder (the phase 1 Quest test found it too high). The bathroom is flat (2150 mm above its lower floor); the grow room is measured at 2100.
 
-Assumption to confirm: "the far one higher" (bathroom) is read as a *higher ceiling*. If it means a raised floor, change `floorLevel` of `bad-indre`.
+Assumptions to confirm or measure:
+- Rooms are simple rectangles; the kitchen is narrower beside the bathroom.
+- The façade (kitchen, living room and hallway) is one straight wall.
+- The grow room starts level with the living room, so the hallway sticks out toward the garden.
+- The bathroom door is in the corner where the bathroom meets the living room; it is 700 wide.
+- The heights of the bathroom step and the hallway step are not known.
+- Measuring moves corners but cannot add them, so a wrong number of corners must be fixed in the file.
 
 ## Architecture
 

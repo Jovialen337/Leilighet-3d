@@ -4,12 +4,20 @@ import { normalize } from '../../src/schema/normalize';
 import { FIXTURE_TYPES, STANDARD_LAYER_IDS } from '../../src/schema/types';
 import { readFileSync } from 'node:fs';
 import { PUBLISHED_PATH, errorsOf, loadDoc } from './helpers';
+import { MeasureSession } from '../../src/measure/MeasureSession';
 
 describe('public/apartment.json (den publiserte fila)', () => {
   it('er gyldig', () => {
     const r = validateApartment(JSON.parse(readFileSync(PUBLISHED_PATH, 'utf8')));
     expect(r.errors).toEqual([]);
     expect(r.ok).toBe(true);
+  });
+
+  it('har én inngangsdør, og oppmålingen kan startes på den', () => {
+    const doc = JSON.parse(readFileSync(PUBLISHED_PATH, 'utf8'));
+    expect(doc.openings.filter((o: { entrance?: boolean }) => o.entrance)).toHaveLength(1);
+    const s = new MeasureSession(validateApartment(doc).doc!);
+    expect(s.tasks.length).toBeGreaterThan(20);
   });
 });
 
@@ -53,6 +61,26 @@ describe('apartment.json (plassholder)', () => {
     const doc = loadDoc();
     doc.scans.push({ id: 'skann-1', name: 'Skann stue', layer: 'scan-reference', url: 'skann/stue.glb', format: 'glb', position: [0, 0, 0], rotation: 0 });
     expect(validateApartment(doc).ok).toBe(true);
+  });
+});
+
+describe('dreiing av 2D-planen (settings.planRotation)', () => {
+  it('godtar 0, 90, 180 og 270, og standard er 0', () => {
+    for (const rot of [0, 90, 180, 270]) {
+      const d = loadDoc() as unknown as Record<string, any>;
+      d.settings = { ...d.settings, planRotation: rot };
+      const r = validateApartment(d);
+      expect(r.errors).toEqual([]);
+      expect(r.model!.settings.planRotation).toBe(rot);
+    }
+    const d = loadDoc() as unknown as Record<string, any>;
+    delete d.settings.planRotation;
+    expect(validateApartment(d).model!.settings.planRotation).toBe(0);
+  });
+
+  it('avviser andre vinkler med en norsk feilmelding', () => {
+    const errors = errorsOf((d) => (d.settings = { ...d.settings, planRotation: 45 }));
+    expect(errors.join('\n')).toMatch(/må være 0, 90, 180 eller 270, men er 45/);
   });
 });
 

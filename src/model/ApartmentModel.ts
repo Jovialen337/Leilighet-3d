@@ -13,6 +13,7 @@ import type {
   MeasureState,
   Opening,
   OutdoorArea,
+  PlanRotation,
   Room,
   Wall,
 } from '../schema/types';
@@ -41,6 +42,7 @@ export const DEFAULTS = {
   planCutHeight: 1500,
   defaultWallHeight: 2400,
   backgroundColor: '#dfe8ef',
+  planRotation: 0 as PlanRotation,
   openAngle: 90,
   /** Hvor langt ut fra veggflaten vi ser etter rom (mm). */
   sideProbe: 150,
@@ -200,6 +202,7 @@ export class ApartmentModel {
       planCutHeight: s.planCutHeight ?? DEFAULTS.planCutHeight,
       defaultWallHeight: s.defaultWallHeight ?? DEFAULTS.defaultWallHeight,
       backgroundColor: s.backgroundColor ?? DEFAULTS.backgroundColor,
+      planRotation: s.planRotation ?? DEFAULTS.planRotation,
     };
   }
 

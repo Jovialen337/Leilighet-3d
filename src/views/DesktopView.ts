@@ -85,19 +85,31 @@ export class DesktopView {
     const w = (e.maxX - e.minX) * MM;
     const d = (e.maxZ - e.minZ) * MM;
     const r = Math.max(w, d);
+    // Dreiing av planen (settings.planRotation): retningene «høyre» og «ned» på skjermen.
+    const rot = (model.settings.planRotation * Math.PI) / 180;
+    const rx = Math.round(Math.cos(rot));
+    const rz = Math.round(Math.sin(rot));
+    const dx = -rz;
+    const dz = rx;
+    this.ortho.up.set(-dx, 0, -dz);
+    const quarter = rx === 0;
+    const screenW = quarter ? d : w;
+    const screenH = quarter ? w : d;
 
     this.orbit.target.set(cx, 0.6, cz);
-    this.perspective.position.set(cx - r * 0.1, r * 1.25, cz + r * 0.85);
+    // Skrått ovenfra, sett fra «nedre» kant av planen.
+    this.perspective.position.set(cx - rx * r * 0.1 + dx * r * 0.85, r * 1.25, cz - rz * r * 0.1 + dz * r * 0.85);
     this.orbit.update();
 
     const availW = Math.max(1, this.width - this.insetLeft);
-    this.planHalfHeight = Math.max(d / 2, w / 2 / Math.max(0.3, availW / this.height)) + PLAN_MARGIN;
+    this.planHalfHeight = Math.max(screenH / 2, screenW / 2 / Math.max(0.3, availW / this.height)) + PLAN_MARGIN;
     this.updateOrthoFrustum();
     // Flytt kameraet så leiligheten havner midt i området til høyre for panelet.
     const shift = this.insetLeft / 2 / ((this.height / (2 * this.planHalfHeight)) || 1);
-    this.ortho.position.set(cx - shift, 60, cz);
+    this.ortho.position.set(cx - rx * shift, 60, cz - rz * shift);
+    this.ortho.lookAt(cx - rx * shift, 0, cz - rz * shift);
     this.ortho.zoom = 1;
-    this.plan.target.set(cx - shift, 0, cz);
+    this.plan.target.set(cx - rx * shift, 0, cz - rz * shift);
     this.plan.update();
 
     this.lastModel = model;

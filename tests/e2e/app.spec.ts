@@ -67,6 +67,34 @@ test('lagbrytere skjuler og viser lag', async ({ page }) => {
   await page.getByTestId('layers-all').click();
 });
 
+test('2D-planen kan dreies med settings.planRotation (90 = x opp, z mot høyre)', async ({ page }) => {
+  const doc = apartment();
+  doc.settings = { ...doc.settings, planRotation: 90 };
+  await page.route('**/apartment.json', (route) => route.fulfill({ json: doc }));
+  await page.goto('./');
+  await waitForModel(page);
+  await page.getByTestId('mode-top').click();
+  await renderedFrames(page);
+  const a = await screenOf(page, 0, 0, 0);
+  const b = await screenOf(page, 5000, 0, 0);
+  const c = await screenOf(page, 0, 0, 3000);
+  // +x peker opp på skjermen, +z mot høyre (ikke speilvendt).
+  expect(b.y).toBeLessThan(a.y - 50);
+  expect(Math.abs(b.x - a.x)).toBeLessThan(2);
+  expect(c.x).toBeGreaterThan(a.x + 50);
+  expect(Math.abs(c.y - a.y)).toBeLessThan(2);
+  // Hele leiligheten er på skjermen, til høyre for panelet.
+  const e = await page.evaluate(() => (window as any).leilighet.store.model.extent());
+  const vw = page.viewportSize()!;
+  for (const [x, z] of [[e.minX, e.minZ], [e.maxX, e.maxZ]]) {
+    const p = await screenOf(page, x, 0, z);
+    expect(p.x).toBeGreaterThan(0);
+    expect(p.x).toBeLessThan(vw.width);
+    expect(p.y).toBeGreaterThan(0);
+    expect(p.y).toBeLessThan(vw.height);
+  }
+});
+
 test('ovenfra-visningen er i riktig målestokk', async ({ page }) => {
   await page.goto('./');
   await waitForModel(page);

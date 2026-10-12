@@ -12,6 +12,7 @@ import {
   FIXTURE_TYPES,
   OPTIONAL_COLLECTIONS,
   PIPE_KINDS,
+  PLAN_ROTATIONS,
   STANDARD_LAYER_IDS,
   type ApartmentDoc,
   type CollectionKey,
@@ -101,6 +102,7 @@ const LABEL: Record<string, string> = {
   planCutHeight: 'snitthøyde for plan',
   defaultWallHeight: 'standard vegghøyde',
   backgroundColor: 'bakgrunnsfarge',
+  planRotation: 'dreiing av planen',
 };
 
 const FIXTURE_NAME: Record<string, string> = {
@@ -681,6 +683,9 @@ export function validateApartment(raw: unknown): ValidationResult {
     settings.optNum('planCutHeight', { gt: 0 });
     settings.optNum('defaultWallHeight', { gt: 0 });
     settings.color('backgroundColor');
+    const rot = settings.optNum('planRotation');
+    if (rot !== null && !(PLAN_ROTATIONS as readonly number[]).includes(rot))
+      c.error(`${settings.path}.planRotation`, settings.subject, `${field('planRotation')} må være 0, 90, 180 eller 270, men er ${rot}.`);
   }
 
   // Lag
