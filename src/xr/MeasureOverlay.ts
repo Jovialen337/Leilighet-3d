@@ -29,7 +29,7 @@ const LABEL_H = 0.08;
 const POST = 0.008;
 
 /** Samler trekanter med farge per hjørne. */
-class GeoBuilder {
+export class GeoBuilder {
   readonly pos: number[] = [];
   readonly col: number[] = [];
   readonly idx: number[] = [];

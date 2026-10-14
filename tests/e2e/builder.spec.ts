@@ -1,0 +1,581 @@
+/**
+ * «Lag ny modell»: tegn på PC (mus og tastatur), med knapper uten tastatur
+ * (Quest-nettleseren), og mål opp i gjennomsyn med emulert Quest 3.
+ */
+import { expect, type Page } from '@playwright/test';
+import { validateApartment } from '../../src/schema/validate';
+import {
+  buildMenu,
+  buildState,
+  builderDoc,
+  collectErrors,
+  enterBuild,
+  frames,
+  openBuilder,
+  placeholder,
+  press,
+  screenOf,
+  test,
+  touch,
+  waitForModel,
+} from './helpers';
+
+/** Klikker i 2D-planen på et punkt (mm). */
+async function clickPlan(page: Page, x: number, z: number): Promise<void> {
+  const p = await screenOf(page, x, 0, z);
+  await page.mouse.move(p.x - 3, p.y - 3);
+  await page.mouse.move(p.x, p.y);
+  await page.mouse.click(p.x, p.y);
+}
+
+/** Drar fra ett punkt til et annet i planen (mm). */
+async function dragPlan(page: Page, from: { x: number; z: number }, to: { x: number; z: number }): Promise<void> {
+  const a = await screenOf(page, from.x, 0, from.z);
+  const b = await screenOf(page, to.x, 0, to.z);
+  await page.mouse.move(a.x, a.y);
+  await page.mouse.down();
+  for (let i = 1; i <= 6; i++) await page.mouse.move(a.x + ((b.x - a.x) * i) / 6, a.y + ((b.y - a.y) * i) / 6);
+  await page.mouse.up();
+}
+
+const near = (a: number, b: number, tol = 25): boolean => Math.abs(a - b) <= tol;
+
+/** Laster ned apartment.json fra byggeren og returnerer innholdet. */
+async function downloadExport(page: Page): Promise<{ text: string; doc: any }> {
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByTestId('builder-download').click()]);
+  expect(download.suggestedFilename()).toBe('apartment.json');
+  const text = await (await download.createReadStream()).toArray().then((c) => Buffer.concat(c).toString('utf8'));
+  return { text, doc: JSON.parse(text) };
+}
+
+test('tegn med mus: rektangel, rom inntil, dør og vindu – sjekk og last ned', async ({ page }) => {
+  const errors = collectErrors(page);
+  await openBuilder(page);
+  await expect(page.getByTestId('builder-start')).toBeVisible();
+  await page.getByTestId('builder-new').click();
+  await expect(page.getByTestId('builder-work')).toBeVisible();
+  // En ny tegning starter med rektangelverktøyet, i 2D.
+  await expect(page.getByTestId('builder-tool-rect')).toHaveAttribute('aria-pressed', 'true');
+  expect(await page.evaluate(() => (window as any).leilighet.view.cameraMode.value)).toBe('top');
+  await expect(page.getByTestId('builder-overlay')).toBeVisible();
+
+  await clickPlan(page, 0, 0);
+  await clickPlan(page, 4000, 3000);
+  let doc = await builderDoc(page);
+  expect(doc.rooms).toHaveLength(1);
+  const gang = doc.rooms[0];
+  expect(gang.name).toBe('Gang');
+  const xs = gang.polygon.map((p: any) => p.x);
+  const zs = gang.polygon.map((p: any) => p.z);
+  expect(near(Math.max(...xs) - Math.min(...xs), 4000)).toBe(true);
+  expect(near(Math.max(...zs) - Math.min(...zs), 3000)).toBe(true);
+
+  // Rom inntil høyre kant: skillevegg på 100 mm, like dypt som kanten er lang.
+  await page.keyboard.press('i');
+  await clickPlan(page, Math.max(...xs), 1500);
+  doc = await builderDoc(page);
+  expect(doc.rooms).toHaveLength(2);
+  expect(doc.rooms[1].name).toBe('Stue');
+  expect(Math.min(...doc.rooms[1].polygon.map((p: any) => p.x))).toBe(Math.max(...xs) + 100);
+
+  // Dør i ytterveggen til venstre (blir inngangsdør), dør inn til stua og vindu i stua.
+  await page.keyboard.press('d');
+  await clickPlan(page, Math.min(...xs), 1500);
+  // Uten dør inn til stua sier sjekken fra.
+  await expect(page.getByTestId('builder-issues')).toContainText('kommer ikke inn i «Stue»');
+  await clickPlan(page, Math.max(...xs), 1500);
+  await page.keyboard.press('v');
+  await clickPlan(page, Math.max(...xs) + 1600, Math.max(...zs));
+  doc = await builderDoc(page);
+  expect(doc.openings.map((o: any) => o.type)).toEqual(['door', 'door', 'window']);
+  expect(doc.openings[0].entrance).toBe(true);
+  expect(doc.openings[1].entrance).toBeUndefined();
+  // Det som nettopp ble satt inn, kan justeres i panelet med en gang.
+  await expect(page.getByTestId('builder-op-width')).toBeVisible();
+
+  await expect(page.getByTestId('builder-summary')).toContainText('2 rom');
+  await expect(page.getByTestId('builder-issues')).toContainText('Modellen er gyldig');
+  // Forhåndsvisningen er den nye modellen (2 rom), ikke fila.
+  expect(await page.evaluate(() => (window as any).leilighet.store.model.rooms.size)).toBe(2);
+
+  const { doc: file } = await downloadExport(page);
+  expect(validateApartment(file).ok).toBe(true);
+  expect(file.rooms).toHaveLength(2);
+  expect(file.walls.length).toBeGreaterThanOrEqual(5);
+  // Døra mellom rommene går inn i stua (rommet på den andre siden av skilleveggen).
+  expect(file.openings.find((o: any) => o.type === 'door' && !o.entrance)?.into).toBe('stue');
+  // Origo i hjørnet ved inngangsdøra, gangens gulv = 0.
+  const entrance = file.openings.find((o: any) => o.entrance);
+  expect(entrance?.type).toBe('door');
+  const hall = file.rooms.find((r: any) => r.id === 'gang');
+  expect(hall.polygon.some(([x, z]: [number, number]) => x === 0 && z === 0)).toBe(true);
+  expect(hall.floorLevel).toBe(0);
+  await expect(page.getByTestId('builder-upload')).toHaveAttribute('href', 'https://github.com/Jovialen337/Leilighet-3d/upload/main/public');
+  expect(errors).toEqual([]);
+});
+
+test('skriv mål med tastaturet: rektangel, angre og gjør om', async ({ page }) => {
+  await openBuilder(page);
+  await page.getByTestId('builder-new').click();
+  // Tall går rett i breddefeltet, Tab til dybden, Enter lager rommet.
+  await page.keyboard.type('4,2');
+  await expect(page.getByTestId('builder-rect-w')).toBeFocused();
+  await expect(page.getByTestId('builder-rect-w')).toHaveValue('4,2');
+  await page.keyboard.press('Tab');
+  await expect(page.getByTestId('builder-rect-d')).toBeFocused();
+  await page.keyboard.type('3');
+  await page.keyboard.press('Enter');
+  let doc = await builderDoc(page);
+  expect(doc.rooms).toHaveLength(1);
+  const xs = doc.rooms[0].polygon.map((p: any) => p.x);
+  const zs = doc.rooms[0].polygon.map((p: any) => p.z);
+  expect(Math.max(...xs) - Math.min(...xs)).toBe(4200);
+  expect(Math.max(...zs) - Math.min(...zs)).toBe(3000);
+
+  await page.keyboard.press('Escape'); // ut av feltet
+  await page.keyboard.press('Control+z');
+  expect((await builderDoc(page)).rooms).toHaveLength(0);
+  await page.keyboard.press('Control+y');
+  expect((await builderDoc(page)).rooms).toHaveLength(1);
+
+  // Endre en kant ved å skrive en ny lengde (relativt med +).
+  await page.keyboard.press('s');
+  await clickPlan(page, (Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...zs) + Math.max(...zs)) / 2);
+  await expect(page.getByTestId('builder-room-name')).toHaveValue('Gang');
+  const first = page.getByTestId('builder-edge-len-0');
+  await first.fill('+300');
+  await first.press('Enter');
+  doc = await builderDoc(page);
+  const lens = doc.rooms[0].polygon.map((p: any, i: number, a: any[]) => Math.hypot(a[(i + 1) % a.length].x - p.x, a[(i + 1) % a.length].z - p.z));
+  expect(Math.round(lens[0])).toBe(4500);
+  // Fokus blir i feltet etter Enter, så man kan fortsette å justere.
+  await expect(page.getByTestId('builder-edge-len-0')).toBeFocused();
+});
+
+test('mangekant med skrevne lengder og pilknapper (L-formet rom)', async ({ page }) => {
+  await openBuilder(page);
+  await page.getByTestId('builder-new').click();
+  await page.keyboard.press('m');
+  await clickPlan(page, 0, 0);
+  const seg = async (len: string, dir: 'right' | 'down' | 'left' | 'up'): Promise<void> => {
+    await page.keyboard.type(len);
+    await expect(page.getByTestId('builder-seg-len')).toBeFocused();
+    await page.getByTestId(`builder-seg-${dir}`).click();
+  };
+  await seg('5', 'right');
+  await seg('2', 'down');
+  await seg('3', 'left');
+  await seg('2', 'down');
+  await seg('2', 'left');
+  await page.getByTestId('builder-poly-finish').click();
+  const doc = await builderDoc(page);
+  expect(doc.rooms).toHaveLength(1);
+  const p0 = doc.rooms[0].polygon[0];
+  const rel = doc.rooms[0].polygon.map((p: any) => [p.x - p0.x, p.z - p0.z]);
+  expect(rel).toEqual([
+    [0, 0],
+    [5000, 0],
+    [5000, 2000],
+    [2000, 2000],
+    [2000, 4000],
+    [0, 4000],
+  ]);
+  await expect(page.getByTestId('builder-message')).toContainText('Rom lagt til');
+});
+
+test('dra et hjørne og en kant – hvert drag er ett angresteg', async ({ page }) => {
+  await openBuilder(page);
+  await page.getByTestId('builder-new').click();
+  await page.getByTestId('builder-rect-w').fill('4000');
+  await page.getByTestId('builder-rect-d').fill('3000');
+  await page.getByTestId('builder-rect-make').click();
+  await page.keyboard.press('s');
+  const before = (await builderDoc(page)).rooms[0];
+  const id = before.id;
+  // Velg rommet, dra hjørne 2 (motsatt hjørne) 500 mm til høyre.
+  await clickPlan(page, before.polygon[0].x + 2000, before.polygon[0].z + 1500);
+  const c = before.polygon[2];
+  await expect(page.getByTestId(`bo-corner-${id}-2`)).toBeVisible();
+  await dragPlan(page, c, { x: c.x + 500, z: c.z });
+  let room = (await builderDoc(page)).rooms[0];
+  expect(near(room.polygon[2].x, c.x + 500, 15)).toBe(true);
+  await page.getByTestId('builder-undo').click();
+  room = (await builderDoc(page)).rooms[0];
+  expect(room.polygon).toEqual(before.polygon);
+
+  // Dra kant 0 (øverst) 300 mm opp: begge hjørnene følger.
+  await clickPlan(page, before.polygon[0].x + 2000, before.polygon[0].z + 1500);
+  const mid = { x: (before.polygon[0].x + before.polygon[1].x) / 2, z: before.polygon[0].z };
+  await expect(page.getByTestId(`bo-edge-${id}-0`)).toBeVisible();
+  await dragPlan(page, mid, { x: mid.x, z: mid.z - 300 });
+  room = (await builderDoc(page)).rooms[0];
+  expect(near(room.polygon[0].z, before.polygon[0].z - 300, 15)).toBe(true);
+  expect(room.polygon[0].z).toBe(room.polygon[1].z);
+  // Piltastene flytter det valgte (her kanten, valgt av draget) 10 mm, Shift 100 mm.
+  expect(await page.evaluate(() => (window as any).leilighet.builder.editor.selection.value)).toEqual({ kind: 'edge', room: id, edge: 0 });
+  const z0 = room.polygon[0].z;
+  await page.keyboard.press('Shift+ArrowUp');
+  room = (await builderDoc(page)).rooms[0];
+  expect(room.polygon[0].z).toBe(z0 - 100);
+});
+
+test('start fra nåværende modell tar med alt, og «Lukk» viser fila igjen', async ({ page }) => {
+  const errors = collectErrors(page);
+  await openBuilder(page);
+  await page.getByTestId('builder-from-current').click();
+  const fixture = placeholder();
+  const doc = await builderDoc(page);
+  expect(doc.rooms.map((r: any) => r.id).sort()).toEqual(fixture.rooms.map((r: any) => r.id).sort());
+  await expect(page.getByTestId('builder-issues')).not.toContainText('✗');
+  // Veggene beholder id-ene (installasjoner og tegninger peker på dem).
+  const { doc: file } = await downloadExport(page);
+  expect(validateApartment(file).ok).toBe(true);
+  const fixtureWalls = new Set(fixture.walls.map((w: any) => w.id));
+  const kept = file.walls.filter((w: any) => fixtureWalls.has(w.id)).length;
+  expect(kept).toBeGreaterThanOrEqual(Math.min(fixture.walls.length, file.walls.length) - 2);
+  expect(file.fixtures.length).toBe(fixture.fixtures.length);
+  expect(file.furniture.length).toBe(fixture.furniture.length);
+
+  await page.getByTestId('builder-close').click();
+  await expect(page.getByTestId('builder')).toBeHidden();
+  await expect(page.getByTestId('builder-entry')).toHaveText('Fortsett på ny modell …');
+  expect(await page.evaluate(() => (window as any).leilighet.store.doc.meta.name)).toBe(fixture.meta.name);
+  expect(errors).toEqual([]);
+});
+
+test('tegningen huskes etter omlasting, og fila kan lagres og åpnes som tegning', async ({ page }) => {
+  await openBuilder(page);
+  await page.getByTestId('builder-new').click();
+  await page.getByTestId('builder-rect-make').click();
+  await page.getByTestId('builder-name').fill('Hytta');
+  await page.getByTestId('builder-name').press('Enter');
+  await page.reload();
+  await waitForModel(page);
+  await expect(page.getByTestId('builder-work')).toBeVisible();
+  const doc = await builderDoc(page);
+  expect(doc.name).toBe('Hytta');
+  expect(doc.rooms).toHaveLength(1);
+  expect(await page.evaluate(() => (window as any).leilighet.store.model.rooms.size)).toBe(1);
+
+  // Lagre tegningen som fil, forkast, og åpne den igjen.
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByTestId('builder-save-draft').click()]);
+  expect(download.suggestedFilename()).toBe('hytta.tegning.json');
+  const path = await download.path();
+  page.once('dialog', (d) => void d.accept());
+  await page.getByTestId('builder-discard').click();
+  await expect(page.getByTestId('builder-start')).toBeVisible();
+  await page.getByTestId('builder-open-file').setInputFiles(path!);
+  await expect(page.getByTestId('builder-work')).toBeVisible();
+  expect((await builderDoc(page)).name).toBe('Hytta');
+  // Feil fil gir en forklaring.
+  await page.getByTestId('builder-open-file').setInputFiles({ name: 'feil.json', mimeType: 'application/json', buffer: Buffer.from('{"x":1}') });
+  await expect(page.getByTestId('builder-message')).toContainText('ikke en tegning');
+});
+
+test('når den eksporterte fila er publisert, ryddes tegningen bort', async ({ page }) => {
+  await openBuilder(page);
+  await page.getByTestId('builder-new').click();
+  await page.getByTestId('builder-rect-make').click();
+  await page.keyboard.press('d');
+  const room = (await builderDoc(page)).rooms[0];
+  await clickPlan(page, room.polygon[0].x, room.polygon[0].z + 1500);
+  const { text } = await downloadExport(page);
+  await page.route('**/apartment.json', (route) => route.fulfill({ body: text, contentType: 'application/json' }));
+  await page.reload();
+  await waitForModel(page);
+  await expect(page.getByTestId('builder-notice')).toContainText('lagt ut');
+  expect(await builderDoc(page)).toBeNull();
+  expect(await page.evaluate(() => (window as any).leilighet.store.doc.meta.description)).toContain('Lag ny modell');
+});
+
+test('feil i tegningen vises med «Vis», og lagring er sperret til de er rettet', async ({ page }) => {
+  await openBuilder(page);
+  await page.getByTestId('builder-new').click();
+  await page.getByTestId('builder-rect-make').click();
+  // Et rom til oppå det første.
+  await page.getByTestId('builder-rect-make').click();
+  await expect(page.getByTestId('builder-issues')).toContainText('overlapper');
+  await expect(page.getByTestId('builder-download')).toBeDisabled();
+  const doc = await builderDoc(page);
+  await page.getByTestId(`builder-issue-show-${doc.rooms[1].id}`).click();
+  expect(await page.evaluate(() => (window as any).leilighet.builder.editor.selection.value)).toEqual({ kind: 'room', room: doc.rooms[1].id });
+  await page.getByTestId('builder-room-delete').click();
+  await expect(page.getByTestId('builder-issues')).not.toContainText('overlapper');
+});
+
+test('apartment.json med feil: «Lag ny modell i stedet»', async ({ page }) => {
+  await page.route('**/apartment.json', (route) => route.fulfill({ body: '{ ødelagt', contentType: 'application/json' }));
+  await page.goto('./');
+  await expect(page.getByTestId('errors')).toBeVisible();
+  await page.getByTestId('errors-builder').click();
+  await expect(page.getByTestId('builder-start')).toBeVisible();
+  await expect(page.getByTestId('errors')).toBeHidden();
+  await page.getByTestId('builder-new').click();
+  await page.getByTestId('builder-rect-make').click();
+  await expect(page.getByTestId('builder-issues')).toContainText('inngangsdør');
+  expect(await page.evaluate(() => (window as any).leilighet.store.model.rooms.size)).toBe(1);
+});
+
+test('bakgrunnsbilde: velg, sett målestokk med to klikk, flytt, og det huskes', async ({ page }) => {
+  await openBuilder(page);
+  await page.getByTestId('builder-new').click();
+  await page.getByTestId('builder-backdrop').locator('summary').click();
+  // Et lite testbilde (400 × 300 px) laget i nettleseren.
+  const b64 = await page.evaluate(() => {
+    const c = document.createElement('canvas');
+    c.width = 400;
+    c.height = 300;
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#fff';
+    g.fillRect(0, 0, 400, 300);
+    g.strokeStyle = '#000';
+    g.strokeRect(20, 20, 360, 260);
+    return c.toDataURL('image/png').split(',')[1]!;
+  });
+  await page.getByTestId('builder-backdrop-file').setInputFiles({ name: 'skisse.png', mimeType: 'image/png', buffer: Buffer.from(b64, 'base64') });
+  await expect(page.getByTestId('builder-backdrop-image')).toBeVisible();
+  await expect(page.getByTestId('builder-backdrop-calibrate')).toHaveAttribute('aria-pressed', 'true');
+  const state = () => page.evaluate(() => (window as any).leilighet.builder.backdrop.state);
+  expect((await state()).w).toBe(400);
+  expect((await state()).w * (await state()).mmPerPx).toBeCloseTo(10_000, 0);
+
+  // Målestokk: to punkter 2 m fra hverandre i bildet er egentlig 4 m → bildet blir dobbelt så stort.
+  await clickPlan(page, 1000, 1000);
+  await clickPlan(page, 3000, 1000);
+  await expect(page.getByTestId('bo-mark-1')).toBeVisible();
+  await page.getByTestId('builder-backdrop-real').fill('4 m');
+  await page.getByTestId('builder-backdrop-apply').click();
+  const scaled = await state();
+  expect(scaled.w * scaled.mmPerPx).toBeGreaterThan(19_500);
+  expect(scaled.w * scaled.mmPerPx).toBeLessThan(20_500);
+  // Ingen rom ble tegnet av klikkene.
+  expect((await builderDoc(page)).rooms).toHaveLength(0);
+
+  // Flytt bildet 1 m mot høyre.
+  await page.getByTestId('builder-backdrop-move').click();
+  const x0 = scaled.x;
+  await dragPlan(page, { x: 0, z: 0 }, { x: 1000, z: 0 });
+  await page.getByTestId('builder-backdrop-move').click();
+  expect(Math.abs((await state()).x - (x0 + 1000))).toBeLessThan(30);
+
+  // Huskes etter omlasting.
+  await page.reload();
+  await waitForModel(page);
+  await expect(page.getByTestId('builder-backdrop-image')).toBeVisible();
+  expect(Math.round((await state()).mmPerPx * 1000)).toBe(Math.round(scaled.mmPerPx * 1000));
+  await page.getByTestId('builder-backdrop').locator('summary').click();
+  await page.getByTestId('builder-backdrop-remove').click();
+  await expect(page.getByTestId('builder-backdrop-image')).toBeHidden();
+  expect(await state()).toBeNull();
+});
+
+test.describe('Quest-nettleseren (laserpeker, uten tastatur)', () => {
+  test.use({
+    userAgent:
+      'Mozilla/5.0 (X11; Linux x86_64; Quest 3) AppleWebKit/537.36 (KHTML, like Gecko) OculusBrowser/35.0 SamsungBrowser/4.0 Chrome/126.0 VR Safari/537.36',
+  });
+
+  test('alt kan gjøres med knapper og store håndtak', async ({ page }) => {
+    await openBuilder(page);
+    await page.getByTestId('builder-new').click();
+    await page.getByTestId('builder-rect-w').fill('3,5 m');
+    await page.getByTestId('builder-rect-d').fill('280 cm');
+    await page.getByTestId('builder-rect-make').click();
+    let doc = await builderDoc(page);
+    const id = doc.rooms[0].id;
+    // Store håndtak for laserpekeren (rommet som ble laget, er valgt).
+    await page.getByTestId('builder-tool-select').click();
+    await expect(page.getByTestId(`bo-corner-${id}-0`).locator('circle')).toHaveAttribute('r', '16');
+    // Kant 4 (venstre) → «Dør her».
+    await page.getByTestId('builder-room-edge-3').click();
+    await page.getByTestId('builder-edge-door').click();
+    doc = await builderDoc(page);
+    expect(doc.openings).toHaveLength(1);
+    await page.getByTestId('builder-op-width').fill('1,0');
+    await page.getByTestId('builder-op-width').press('Enter');
+    expect((await builderDoc(page)).openings[0].width).toBe(1000);
+    // Fra venstre hjørne, sett fra rommet.
+    await page.getByTestId('builder-op-left').fill('200');
+    await page.getByTestId('builder-op-left').press('Enter');
+    const o = (await builderDoc(page)).openings[0];
+    expect(o.offset === 200 || o.offset === 2800 - 1000 - 200).toBe(true);
+    await expect(page.getByTestId('builder-issues')).toContainText('Modellen er gyldig');
+  });
+});
+
+/* ------------------- Oppmåling i gjennomsyn (emulert Quest 3) ------------------- */
+
+/** Et rom på 4 × 3 m: veggene ved z = −1 og −4, x = −1 og 3 (referanserommet, m). */
+async function captureRoom(page: Page): Promise<void> {
+  await touch(page, 0.5, 1, -1);
+  await touch(page, 2.5, 1, -1);
+  await touch(page, 3, 1, -2);
+  await touch(page, 1.5, 1, -4);
+  await touch(page, -1, 1, -2.5);
+  await press(page, 'right', 'a-button');
+  await touch(page, 1, 0.004, -2);
+  await touch(page, 1, 2.45, -2);
+}
+
+test('mål opp et rom i gjennomsyn: vegger, gulv, tak, dør og navn', async ({ page }) => {
+  const errors = collectErrors(page);
+  await openBuilder(page, './?emulator');
+  await enterBuild(page);
+  let s = await buildState(page);
+  expect(s.phase).toBe('walls');
+  expect(s.panel?.title).toBe('Rom 1: første vegg');
+  expect(await page.evaluate(() => (window as any).leilighet.apartment.root.visible)).toBe(false);
+
+  await touch(page, 0.5, 1, -1);
+  s = await buildState(page);
+  expect(s.walls).toEqual([1]);
+  expect(s.panel?.title).toBe('Første vegg: ett punkt til');
+  await touch(page, 2.5, 1, -1);
+  await touch(page, 3, 1, -2);
+  // Spøkelseshjørnet viser hvor neste hjørne havner.
+  await page.evaluate(() => (window as any).__iwer.controllers.right.position.set(1.5, 1, -3.5));
+  await frames(page, 3);
+  expect((await buildState(page)).ghost).not.toBeNull();
+  await touch(page, 1.5, 1, -4);
+  await touch(page, -1, 1, -2.5);
+  s = await buildState(page);
+  expect(s.walls).toEqual([2, 1, 1, 1]);
+  expect(s.corners).toBe(3);
+  await press(page, 'right', 'a-button');
+  s = await buildState(page);
+  expect(s.phase).toBe('floor');
+  expect(s.status?.text).toContain('12,0 m²');
+  await touch(page, 1, 0.004, -2);
+  expect((await buildState(page)).phase).toBe('ceiling');
+  await touch(page, 1, 2.45, -2);
+  s = await buildState(page);
+  expect(s.phase).toBe('ready');
+  expect(s.status?.text).toContain('«Gang» er lagt til');
+  let doc = await builderDoc(page);
+  expect(doc.rooms[0].polygon).toEqual([
+    { x: -1000, z: -1000, m: true },
+    { x: 3000, z: -1000, m: true },
+    { x: 3000, z: -4000, m: true },
+    { x: -1000, z: -4000, m: true },
+  ]);
+  expect(doc.rooms[0].floor).toBe(4);
+  expect(doc.rooms[0].ceiling).toBe(2446);
+
+  // Menyen: døra (karm, karm, overkant) – blir inngangsdør.
+  await buildMenu(page, 'b:door');
+  s = await buildState(page);
+  expect(s.phase).toBe('opening');
+  expect(s.menu.open).toBe(false);
+  expect(s.panel?.title).toBe('Dør: 1 av 3');
+  await touch(page, 0.2, 1, -1.01);
+  await touch(page, 1.1, 1, -1.01);
+  await touch(page, 0.65, 2.004, -1.01);
+  s = await buildState(page);
+  expect(s.phase).toBe('ready');
+  expect(s.status?.text).toContain('inngangsdør');
+  doc = await builderDoc(page);
+  // Første berøring var hengselsiden: til venstre for den som går inn (mot −z).
+  expect(doc.openings[0]).toMatchObject({ type: 'door', room: 'gang', edge: 0, offset: 1200, width: 900, height: 2000, entrance: true, measured: true, hinge: 'left' });
+
+  // Navn fra menyen; avtrekkeren måler ikke mens menyen er åpen.
+  await buildMenu(page, 'b:name:Entré');
+  expect((await builderDoc(page)).rooms[0].name).toBe('Entré');
+  expect((await buildState(page)).captures).toBe(s.captures);
+  await press(page, 'left', 'x-button');
+
+  await page.evaluate(() => (window as any).leilighet.xr.exit());
+  await page.waitForFunction(() => (window as any).leilighet.xr.presenting === false);
+  // Tilbake på siden: rommet og døra er i tegningen, og modellen er gyldig.
+  await expect(page.getByTestId('builder-summary')).toContainText('1 rom');
+  await expect(page.getByTestId('builder-issues')).toContainText('Modellen er gyldig');
+  expect(await page.evaluate(() => (window as any).leilighet.apartment.root.visible)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('gjennomsyn: angre, samme vegg, skrå vegg og hopp over gulv og tak', async ({ page }) => {
+  await openBuilder(page, './?emulator');
+  await page.getByTestId('builder-new').click();
+  await enterBuild(page, 'builder-capture-more');
+  await touch(page, 0, 1, -1);
+  // For nær første punkt.
+  await touch(page, 0.1, 1, -1);
+  let s = await buildState(page);
+  expect(s.status?.tone).toBe('error');
+  expect(s.walls).toEqual([1]);
+  await touch(page, 2, 1, -1);
+  // Skrå vegg: fra (3, −1) til (2.5, −4), berørt to steder (grep + avtrekker på den andre).
+  await touch(page, 2.9, 1, -1.6);
+  await touch(page, 2.6, 1, -3.4, true);
+  s = await buildState(page);
+  expect(s.walls).toEqual([2, 2]);
+  // Samme vegg igjen uten grep avvises.
+  await touch(page, 2.75, 1, -2.5);
+  expect((await buildState(page)).status?.text).toContain('samme vegg');
+  await touch(page, 1, 1, -4);
+  await touch(page, -1, 1, -2);
+  // B angrer siste berøring.
+  await press(page, 'right', 'b-button');
+  expect((await buildState(page)).walls).toEqual([2, 2, 1]);
+  await touch(page, -1, 1, -2);
+  await press(page, 'right', 'a-button');
+  // Hopp over gulv og tak (A): standardverdiene brukes.
+  await press(page, 'right', 'a-button');
+  await press(page, 'right', 'a-button');
+  s = await buildState(page);
+  expect(s.phase).toBe('ready');
+  const room = (await builderDoc(page)).rooms[0];
+  expect(room.ceiling).toBe(2400);
+  expect(room.floorMeasured).toBeUndefined();
+  // Den skrå veggen gir hjørnene (3000, −1000) og (2500, −4000).
+  const xs = room.polygon.map((p: any) => `${p.x},${p.z}`);
+  expect(xs).toContain('3000,-1000');
+  expect(xs).toContain('2500,-4000');
+});
+
+test('gjennomsyn igjen: tegningen justeres ved inngangsdøra, og et rom kan måles på nytt', async ({ page }) => {
+  await openBuilder(page, './?emulator');
+  await enterBuild(page);
+  await captureRoom(page);
+  await buildMenu(page, 'b:door');
+  await touch(page, 0.2, 1, -1.01);
+  await touch(page, 1.1, 1, -1.01);
+  await touch(page, 0.65, 2.004, -1.01);
+  await page.evaluate(() => (window as any).leilighet.xr.exit());
+  await page.waitForFunction(() => (window as any).leilighet.xr.presenting === false);
+
+  await enterBuild(page, 'builder-capture-more');
+  let s = await buildState(page);
+  expect(s.phase).toBe('align-0');
+  expect(s.panel?.body).toContain('inngangsdøra');
+  // Ny økt der referanserommet er flyttet og dreid 90° (uten speiling): tegningens punkt
+  // (x, z) ligger i (1.5 + (z + 1), 2 − (x + 1)). Hodet i (0, 0) står da midt i rommet.
+  const local = (x: number, z: number): [number, number] => [1.5 + (z + 1), 2 - (x + 1)];
+  const [cx, cz] = local(-1, -1);
+  await touch(page, cx, 0.004, cz);
+  expect((await buildState(page)).phase).toBe('align-1');
+  const [ax, az] = local(1.5, -1);
+  await touch(page, ax, 1.1, az);
+  s = await buildState(page);
+  expect(s.phase).toBe('ready');
+  expect(s.status?.text).toContain('lagt på plass');
+  // Hodet (0, 1.6, 0) er nå inne i rommet: «Mål «Gang» på nytt», 20 cm bredere mot øst.
+  await buildMenu(page, 'b:remeasure');
+  s = await buildState(page);
+  expect(s.target).toBe('gang');
+  const t = (x: number, y: number, z: number) => touch(page, ...(((p) => [p[0], y, p[1]])(local(x, z)) as [number, number, number]));
+  await t(0.5, 1, -1);
+  await t(2.5, 1, -1);
+  await t(3.2, 1, -2);
+  await t(1.5, 1, -4);
+  await t(-1, 1, -2.5);
+  await press(page, 'right', 'a-button');
+  await press(page, 'right', 'a-button');
+  await press(page, 'right', 'a-button');
+  const doc = await builderDoc(page);
+  expect(doc.rooms).toHaveLength(1);
+  const xs = doc.rooms[0].polygon.map((p: any) => p.x);
+  expect(Math.max(...xs)).toBe(3200);
+  expect(Math.min(...xs)).toBe(-1000);
+  // Døra ble med og sitter fortsatt på inngangsveggen.
+  expect(doc.openings[0]).toMatchObject({ room: 'gang', width: 900, entrance: true });
+});

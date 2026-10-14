@@ -19,10 +19,15 @@ export class Labels {
     this.root.name = 'etiketter';
   }
 
-  build(model: ApartmentModel): void {
+  /** Fjerner alle etiketter (f.eks. når en ny modell ikke har rom ennå). */
+  clear(): void {
     for (const list of this.byLayer.values()) for (const o of list) o.element.remove();
     this.root.clear();
     this.byLayer.clear();
+  }
+
+  build(model: ApartmentModel): void {
+    this.clear();
     const add = (layer: string, text: string, cls: string, x: number, y: number, z: number): void => {
       const el = document.createElement('div');
       el.className = `label ${cls}`;

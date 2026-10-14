@@ -99,6 +99,25 @@ function distanceToTarget(o: Observation, t: TaskInfo): { h: number; v: number }
   return { h, v };
 }
 
+/** Hvor langt (mm) en gammel måling kan ligge fra punktet i den nye fila og fortsatt brukes. */
+export const ADOPT_DISTANCE = 600;
+export const ADOPT_HEIGHT = 500;
+
+/** Er målingen nær nok punktet i fila til at den kan gjelde det samme? */
+export function nearTarget(o: Observation, t: { x: number; y: number; z: number }): boolean {
+  switch (o.kind) {
+    case 'room-floor':
+    case 'opening-top':
+    case 'opening-sill':
+      return Math.abs(o.y - t.y) <= ADOPT_HEIGHT;
+    case 'ceiling':
+      // Takpunktene kan stå litt hvor som helst i rommet: høyden teller mest.
+      return Math.abs(o.y - t.y) <= ADOPT_HEIGHT && Math.hypot(o.x - t.x, o.z - t.z) <= 2 * ADOPT_DISTANCE;
+    default:
+      return Math.hypot(o.x - t.x, o.z - t.z) <= ADOPT_DISTANCE;
+  }
+}
+
 const metres = (mm: number): string => `${(mm / 1000).toFixed(1).replace('.', ',')} m`;
 
 const today = (d: Date): string =>
@@ -122,6 +141,8 @@ export class MeasureSession {
   stale: StaleInfo | null = null;
   /** Målingene som lå lagret, er nå med i fila (den ble lastet opp). */
   published = false;
+  /** Gamle målinger som ikke ble tatt med sist (punktet er flyttet for langt i den nye fila). */
+  adoptSkipped = 0;
 
   private log: Action[] = [];
   private cursor: string | null = null;
@@ -285,14 +306,26 @@ export class MeasureSession {
     this.notify();
   }
 
-  /** Bruker målinger som ble laget mot en eldre versjon av fila. */
+  /**
+   * Bruker målinger som ble laget mot en eldre versjon av fila. En måling tas
+   * bare med når punktet i den nye fila fortsatt er i nærheten – ellers kan
+   * f.eks. «hjørne 1» nå være et annet hjørne (lagt om med «Lag ny modell»).
+   */
   adoptStale(): boolean {
     const saved = this.read(this.staleKey);
     if (!saved) return false;
-    const keys = new Set(this.tasks.map((t) => t.key));
-    const keep = (a: Action): boolean =>
-      a.t === 'revisit' || (a.t === 'skip' ? keys.has(a.key) : keys.has(taskKey(a.o)));
+    const tasks = new Map(this.tasks.map((t) => [t.key, t]));
+    let skipped = 0;
+    const keep = (a: Action): boolean => {
+      if (a.t === 'revisit') return true;
+      if (a.t === 'skip') return tasks.has(a.key);
+      const t = tasks.get(taskKey(a.o));
+      if (t && nearTarget(a.o, t.target)) return true;
+      skipped++;
+      return false;
+    };
     this.log = [...this.log, ...saved.log.filter(keep)];
+    this.adoptSkipped = skipped;
     this.stale = null;
     try {
       this.storage?.removeItem(this.staleKey);

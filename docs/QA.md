@@ -203,3 +203,43 @@ These fixes have **not** been re-scored by the judge. The round is merged at the
    - Try «Kurs for nye» for cables.
 3. X → «Lag» → «Elplan» / «Rørplan», then «Røntgen». Does the plan read well inside the walls?
 4. On the laptop: draw a cable in 2D (E, click, Enter). Look at the summary and the materials list in «Tegn el og vann».
+
+## Phase 2c – «Lag ny modell» – 2026-10-14
+
+The goal: a complete and detailed way to make a new model, as perfect as possible. The design and controls are in PLAN.md (phase 2c).
+
+### How it was tested
+- **Unit tests (Vitest)** for everything that can be tested without a browser:
+  - walls from rooms (property tests on 5 layouts plus the published apartment), compile, export frame and plan rotation, and import with wall ids kept;
+  - the edit operations (corners, edges, rooms, openings follow their edge), the Norwegian length parser and the session (undo, autosave, published detection);
+  - the passthrough maths: walls from touches with noise, slanted walls, an L-shaped room, the median filter, openings from frames, and alignment against an existing drawing (rigid, never mirrored);
+  - the new checks: unreachable rooms, a short entrance wall, and the entrance-door fixes;
+  - the VR menu layout.
+- **Browser tests (Playwright, Chromium):**
+  - drawing with the mouse (rectangle, «Rom inntil», door, window, then download a valid file with the origin at the entrance door);
+  - typed lengths (digits go straight into the field, Tab and Enter, + to add), and an L-shaped room with typed lengths and arrow buttons;
+  - dragging a corner and an edge (one undo step each), and arrow-key nudging;
+  - starting from the current model (fixtures, furniture and wall ids kept), and «Lukk» showing the file again;
+  - reload persistence, saving and opening a drawing file, and published detection;
+  - errors with «Vis», and «Lag ny modell i stedet» when `apartment.json` is broken;
+  - a background image: load it, set the scale with two clicks and a typed distance, drag it, and keep it after a reload;
+  - the Quest Browser (Quest user agent): no keyboard, big handles.
+- **Emulated Quest 3 (IWER) in passthrough:**
+  - a 4 × 3 m room from five wall touches, floor and ceiling, with exact corners;
+  - a door from three frame touches (width, height and hinge side), and naming from the menu;
+  - undo, «same wall» refusal, a slanted wall with grip, and skipping floor and ceiling;
+  - re-entering: alignment to the entrance corner in a turned reference space, then re-measuring a room with its door kept.
+- Every existing test still passes. Screenshots of the plan, the overlay and the VR menu were checked by eye.
+
+### Test on the Quest (phase 2c)
+1. **Laptop, background image:** in «Lag ny modell», open «Bakgrunnsbilde» and load the sketch or a floor plan. Set the scale with a known wall length, then trace the rooms on top of it.
+2. **Quest Browser, 2D:**
+   - Open the page and press «Lag ny modell …» → «Ny tom modell».
+   - Draw a room with the laser pointer, type a width with the system keyboard, and drag a corner. Are the handles easy to hit?
+3. **Passthrough:**
+   - «Lag ny modell …» → «Mål opp i gjennomsyn».
+   - In the hallway: touch the entrance wall twice, then each other wall once, then A, the floor and the ceiling.
+   - X → «Dør», then touch the hinge side of the frame, the other side, and the top.
+   - Do the corners land where the real corners are (within about 2 cm)?
+4. X → «Nytt rom» and measure the living room. Then look at the result on the laptop: «Fortsett på ny modell …».
+5. **«Gå gjennom i VR»:** does it feel like the real apartment?

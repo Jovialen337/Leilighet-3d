@@ -11,6 +11,14 @@ import { MM } from '../scene/geom';
 
 const PLAN_MARGIN = 1.2; // m rundt leiligheten i plan-visningen
 
+/** Et område i planet (mm). */
+export interface Extent {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+}
+
 export class DesktopView {
   readonly perspective = new THREE.PerspectiveCamera(50, 1, 0.05, 300);
   readonly ortho = new THREE.OrthographicCamera(-5, 5, 5, -5, 0.1, 300);
@@ -39,6 +47,10 @@ export class DesktopView {
     camera: THREE.Camera & { zoom: number };
   } | null = null;
   private lastModel: ApartmentModel | null = null;
+  /** Området og dreiingen fra sist `fit`/`fitBox` («Tilbakestill visning»). */
+  private lastBox: { e: Extent; rotation: number } | null = null;
+  /** Rutenettet går så mange meter utenfor modellen (mer mens man tegner ny modell). */
+  gridMargin = 2;
 
   constructor(private readonly dom: HTMLElement) {
     this.orbit = new OrbitControls(this.perspective, dom);
@@ -79,14 +91,24 @@ export class DesktopView {
 
   /** Plasserer kameraene så hele leiligheten synes. */
   fit(model: ApartmentModel): void {
-    const e = model.extent();
+    this.lastModel = model;
+    this.fitBox(model.extent(), model.settings.planRotation);
+    this.setSectionHeight(null, model);
+  }
+
+  /**
+   * Plasserer kameraene så området (mm) synes, med planen dreid `rotation`
+   * grader (settings.planRotation). Brukes også av «Lag ny modell», der det
+   * ikke alltid finnes en gyldig modell ennå.
+   */
+  fitBox(e: Extent, rotation = 0): void {
     const cx = ((e.minX + e.maxX) / 2) * MM;
     const cz = ((e.minZ + e.maxZ) / 2) * MM;
     const w = (e.maxX - e.minX) * MM;
     const d = (e.maxZ - e.minZ) * MM;
-    const r = Math.max(w, d);
+    const r = Math.max(w, d, 1);
     // Dreiing av planen (settings.planRotation): retningene «høyre» og «ned» på skjermen.
-    const rot = (model.settings.planRotation * Math.PI) / 180;
+    const rot = (rotation * Math.PI) / 180;
     const rx = Math.round(Math.cos(rot));
     const rz = Math.round(Math.sin(rot));
     const dx = -rz;
@@ -109,11 +131,10 @@ export class DesktopView {
     this.ortho.position.set(cx - rx * shift, 60, cz - rz * shift);
     this.ortho.lookAt(cx - rx * shift, 0, cz - rz * shift);
     this.ortho.zoom = 1;
+    this.ortho.updateProjectionMatrix();
     this.plan.target.set(cx - rx * shift, 0, cz - rz * shift);
     this.plan.update();
-
-    this.lastModel = model;
-    this.setSectionHeight(null, model);
+    this.lastBox = { e, rotation };
     this.emitChange();
   }
 
@@ -136,11 +157,8 @@ export class DesktopView {
     const cz = ((b.minZ + b.maxZ) / 2) * MM;
     const r = (Math.max(b.maxX - b.minX, b.maxZ - b.minZ) * MM) / 2 + 0.6;
     const floor = info.room.floorLevel * MM;
-    if (this.mode === 'top') {
-      const zoom = Math.min(this.plan.maxZoom, Math.max(this.plan.minZoom, this.planHalfHeight / (r * 1.15)));
-      const target = new THREE.Vector3(cx, 0, cz);
-      this.startTween(this.plan, this.ortho, new THREE.Vector3(cx, 60, cz), target, zoom);
-    } else {
+    if (this.mode === 'top') this.focusBox(b);
+    else {
       const target = new THREE.Vector3(cx, floor + 0.8, cz);
       const dir = this.perspective.position.clone().sub(this.orbit.target);
       dir.y = 0;
@@ -150,6 +168,15 @@ export class DesktopView {
       this.startTween(this.orbit, this.perspective, pos, target, 1);
     }
     return true;
+  }
+
+  /** 2D: flytter planen mykt så området (mm) fyller bildet. */
+  focusBox(b: Extent): void {
+    const cx = ((b.minX + b.maxX) / 2) * MM;
+    const cz = ((b.minZ + b.maxZ) / 2) * MM;
+    const r = (Math.max(b.maxX - b.minX, b.maxZ - b.minZ) * MM) / 2 + 0.6;
+    const zoom = Math.min(this.plan.maxZoom, Math.max(this.plan.minZoom, this.planHalfHeight / (r * 1.15)));
+    this.startTween(this.plan, this.ortho, new THREE.Vector3(cx, 60, cz), new THREE.Vector3(cx, 0, cz), zoom);
   }
 
   private startTween(
@@ -174,7 +201,8 @@ export class DesktopView {
 
   /** Tilbake til oversikten over hele leiligheten. */
   resetView(): void {
-    if (this.lastModel) this.fit(this.lastModel);
+    if (this.lastBox) this.fitBox(this.lastBox.e, this.lastBox.rotation);
+    else if (this.lastModel) this.fit(this.lastModel);
   }
 
   /** Høyde over laveste gulv (mm) som modellen kuttes i nå. */
@@ -253,18 +281,20 @@ export class DesktopView {
     return { x: ((v.x + 1) / 2) * this.width, y: ((1 - v.y) / 2) * this.height };
   }
 
-  private buildGrid(model: ApartmentModel): void {
+  /** Tegner rutenettet på nytt rundt modellen (eller et område i mm). */
+  buildGrid(model: ApartmentModel | Extent): void {
     for (const c of this.grid.children) {
       const l = c as THREE.LineSegments;
       l.geometry.dispose();
       (l.material as THREE.Material).dispose();
     }
     this.grid.clear();
-    const e = model.extent();
-    const x0 = Math.floor(e.minX * MM) - 2;
-    const x1 = Math.ceil(e.maxX * MM) + 2;
-    const z0 = Math.floor(e.minZ * MM) - 2;
-    const z1 = Math.ceil(e.maxZ * MM) + 2;
+    const e = 'extent' in model ? model.extent() : model;
+    const m = this.gridMargin;
+    const x0 = Math.floor(e.minX * MM) - m;
+    const x1 = Math.ceil(e.maxX * MM) + m;
+    const z0 = Math.floor(e.minZ * MM) - m;
+    const z1 = Math.ceil(e.maxZ * MM) + m;
     const y = this.cutPlane.constant - 0.01;
     const minor: number[] = [];
     const major: number[] = [];

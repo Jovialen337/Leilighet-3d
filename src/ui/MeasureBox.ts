@@ -46,6 +46,7 @@ export class MeasureBox {
   private readonly draftError: HTMLElement;
   private readonly stale: HTMLElement;
   private readonly staleText: HTMLElement;
+  private readonly adoptNote: HTMLElement;
   private readonly published: HTMLElement;
   private readonly planStale: HTMLElement;
   private readonly planStaleText: HTMLElement;
@@ -106,6 +107,7 @@ export class MeasureBox {
       if (confirm('Slette de gamle målingene? Dagens målinger og tegningene beholdes.')) actions.discardStale();
     });
     this.stale = h('div', { class: 'draft stale', 'data-testid': 'draft-stale', hidden: '' }, this.staleText, h('div', { class: 'actions' }, adopt, dropStale));
+    this.adoptNote = h('p', { class: 'hint', 'data-testid': 'stale-adopt-note', hidden: '' });
     this.planStaleText = h('p', {});
     const dropPlanStale = h('button', { class: 'link danger', 'data-testid': 'plan-stale-discard' }, 'Forkast dem');
     dropPlanStale.addEventListener('click', () => actions.discardPlanStale?.());
@@ -124,6 +126,7 @@ export class MeasureBox {
       this.hint,
       this.draft,
       this.stale,
+      this.adoptNote,
       this.planStale,
       this.published,
     );
@@ -165,6 +168,9 @@ export class MeasureBox {
     this.stale.hidden = !ms?.stale;
     if (ms?.stale)
       this.staleText.textContent = `Det finnes ${plural(ms.stale.count, 'måling', 'målinger')} laget mot en eldre versjon av apartment.json.`;
+    const skipped = ms?.adoptSkipped ?? 0;
+    this.adoptNote.hidden = skipped === 0;
+    this.adoptNote.textContent = `${plural(skipped, 'gammel måling', 'gamle målinger')} passet ikke med fila nå (punktet er flyttet langt) og ble ikke tatt med.`;
     const ps = s.planStale ?? 0;
     this.planStale.hidden = ps === 0;
     this.planStaleText.textContent = `${plural(ps, 'tegnet endring passer', 'tegnede endringer passer')} ikke med modellen nå (f.eks. er en vegg blitt kortere eller borte) og vises ikke. De er tatt vare på og kommer tilbake hvis modellen endres så de passer igjen.`;
