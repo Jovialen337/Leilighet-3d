@@ -76,7 +76,15 @@ export interface Settings<N = number> {
   defaultWallHeight?: N;
   /** Bakgrunnsfarge / himmel. */
   backgroundColor?: Color;
+  /**
+   * Dreiing av 2D-planen på skjermen, i grader mot klokka: 0 = x mot høyre
+   * (standard), 90 = x opp. Bare visning – koordinatene endres ikke.
+   */
+  planRotation?: PlanRotation;
 }
+
+export const PLAN_ROTATIONS = [0, 90, 180, 270] as const;
+export type PlanRotation = (typeof PLAN_ROTATIONS)[number];
 
 export interface Layer {
   id: LayerId;
