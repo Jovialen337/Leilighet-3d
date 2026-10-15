@@ -276,6 +276,51 @@ The goal: a complete and detailed way to make a new model, as perfect as possibl
   - The browser test's draw-call threshold uses the placeholder file.
   - The budget rule is 40 per eye; the gatekeeper measured 32 per eye on the real file.
 
+### Judge (round 1, scored at 6f8dc2b): **7.50 – not accepted**
+
+| # | Item | Verdict | What was missing |
+|---|---|---|---|
+| 1 | Builder core: walls, compile, import/export | 🟡 | Import → export lost room notes, the planterom's measured `dimensions`, a wall note and `swingDirection` on 3 doors. Skewed facing edges gave no warning. A 45° bay left an ~80 mm notch at the outside corner. |
+| 2 | 2D editor (PC and Quest Browser) | 🟡 | «-1100» in a coordinate field was taken as «subtract». Dimensions and labels cluttered the plan, and Quest handles could lie on top of each other. No partition thickness, typed move, copy or rotate. A 45° square snapped to 2998 × 2998. Selecting an edge did not name the edge. |
+| 3 | App integration | ✅ | – |
+| 4 | Passthrough capture | 🟡 | A room measured slightly skewed stayed skewed, with no warning. Still needs a test on a real Quest. |
+| 5 | Robustness | ✅ | – |
+| 6 | Tests and docs | 🟡 | Missing tests for these gaps. The Quest Browser test accepted two door offsets. PLAN did not say exactly what «Start fra nåværende modell» carries over. |
+
+Dimensions: visual 7, performance 8, options 8, intuitive 7, code 7, robustness 8. Weighted 7.50, below the 8.0 needed, and four items were 🟡. Another round was worth it.
+
+### Round 2 – the judge's list
+- **Import keeps every field.**
+  - Carried over: room notes, layers and control dimensions; wall notes, layers and fixed heights; opening notes, layers, opening angle, leaf and frame colours.
+  - `swingDirection` is worked out on every save.
+  - Control dimensions that no longer fit are shown on the room.
+  - Rooms and openings have a note field.
+- **Walls.**
+  - Warnings for skewed facing edges (under 3°: thickness at each end; 3–10°: two exterior walls may overlap), with «Rett opp alt».
+  - Outside corners are closed at every angle (bay, chamfer, slanted wall, acute corner).
+  - The common axis keeps straight rooms in place.
+- **Editor.**
+  - Signed coordinate and floor fields (relative with «+=» / «-=»).
+  - Partition thickness, «Flytt rommet», «Kopier rommet» and «Roter 90°».
+  - The 45° snap rounds the sides, and the selection message names the edge.
+  - Overlay: dimensions only where they fit, plus the selected and hovered rooms; handles drawn by priority and never overlapping; note and fixture labels hidden while building.
+- **Capture.** A room measured under 3° off the drawing is turned onto its axis about the first touch, and the panel says by how much.
+
+**How it was tested:**
+- **Unit tests:**
+  - no field lost in the published file (with extra fields added: wall height, door angle and colour, frame colour, room layer, plain-number control dimensions);
+  - `swingDirection` recomputed when the hinge changes;
+  - corner property tests (no hole, nothing outside the outer faces, nothing inside the room) for a 45° bay, a chamfer, a 30° wall and a 37° corner;
+  - skew warnings at 0°, 1.5°, 6° and 45°, and «Rett opp alt» leaving the straight room alone;
+  - the signed length parser;
+  - partition thickness, copy, rotate, and the 45° snap;
+  - `alignToAxis`, also on a drawing turned 30°.
+- **Browser tests:**
+  - copy, partition thickness, rotate, typed move, negative coordinates and floor level, «+=», a skewed corner with «Rett opp alt»;
+  - labels hidden while building;
+  - the exact door offset (200) in the Quest Browser test;
+  - emulated Quest: a second room measured 2° off ends up straight, with one 100 mm partition and no warning.
+
 ### Test on the Quest (phase 2c)
 1. **Laptop, background image:** in «Lag ny modell», open «Bakgrunnsbilde» and load the sketch or a floor plan. Set the scale with a known wall length, then trace the rooms on top of it.
 2. **Quest Browser, 2D:**
@@ -286,5 +331,7 @@ The goal: a complete and detailed way to make a new model, as perfect as possibl
    - In the hallway: touch the entrance wall twice, then each other wall once, then A, the floor and the ceiling.
    - X → «Dør», then touch the hinge side of the frame, the other side, and the top.
    - Do the corners land where the real corners are (within about 2 cm)?
-4. X → «Nytt rom» and measure the living room. Then look at the result on the laptop: «Fortsett på ny modell …».
+4. X → «Nytt rom» and measure the living room. Did the panel say «Rettet inn …°», and by how much? Then look at the result on the laptop: «Fortsett på ny modell …».
+   - Is there one partition between the hallway and the living room, with no skew warning in «Sjekk»?
+   - Measure one wall with a tape and compare. **Please report the difference; the target is at most 2 cm.**
 5. **«Gå gjennom i VR»:** does it feel like the real apartment?
