@@ -7,7 +7,7 @@
  *
  * Koordinater er i byggerens ramme: mm, x mot høyre og z nedover slik
  * planen tegnes. Ved eksport flyttes origo til hjørnet ved inngangsdøra
- * (se normalize.ts), slik oppmålingen forventer.
+ * (se transform.ts), slik oppmålingen forventer.
  */
 import type { Furniture, Fixture, Layer, Meta, Note, OutdoorArea, PipeRun, ScanReference, Settings, WallMaterial, WireRun, Zone, Circuit } from '../schema/types';
 

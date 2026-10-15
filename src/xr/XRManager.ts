@@ -80,6 +80,11 @@ export class XRManager {
   measure: MeasureMode | null = null;
   /** Oppmåling av ny modell («Lag ny modell»). */
   build: BuildMode | null = null;
+  /**
+   * Kan el og vann tegnes i VR nå? Ikke mens man går gjennom en ny modell:
+   * den har sin egen ramme, så tegningene ville havnet feil i fila.
+   */
+  canDraw: () => boolean = () => true;
   private requestedMode: XRMode = 'walk';
   private readonly slots: Slot[] = [];
   private readonly arc = new TeleportArc();
@@ -500,6 +505,7 @@ export class XRManager {
       circuits: model ? (model.data.circuits ?? []).map((c) => ({ id: c.id, name: c.name })) : [],
       drawCircuit: this.plan?.options.value.circuit ?? null,
       filterCircuit: this.view.circuit.value,
+      drawBlocked: !this.canDraw(),
       qualityNote:
         this.mode === 'walk' && this.presenting && (this.view.quality.value === 'high') !== this.sessionHigh
           ? 'Skarpheten endres neste gang du går inn i VR.'
@@ -569,7 +575,7 @@ export class XRManager {
 
   private drawAction(id: string): void {
     const p = this.plan;
-    if (!p) return;
+    if (!p || !this.canDraw()) return;
     const [, what = '', arg = ''] = id.split(':');
     if (what === 'status') {
       p.set({ status: p.options.value.status === 'planned' ? 'existing' : 'planned' });
@@ -619,6 +625,15 @@ export class XRManager {
     const p = this.plan;
     const edge = this.triggerEdge;
     this.triggerEdge = false;
+    if (this.drawTool && !this.canDraw()) {
+      // Tegning ble skrudd av (f.eks. byggeren tok over visningen): avslutt verktøyet.
+      this.drawTool = null;
+      if (p) {
+        p.set({ tool: 'select' });
+        p.hover = null;
+      }
+      this.updateWristHelp();
+    }
     if (!p || !this.drawTool || this.menu.open) {
       if (p && !this.drawTool) p.hover = null;
       return;

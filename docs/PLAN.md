@@ -286,6 +286,15 @@ Other details:
   - The export remembers its fingerprint. When that exact file is published, the drawing is removed by itself.
   - If you changed the drawing after exporting, it is kept.
 - «Lagre tegningen som fil» / «Åpne tegning …» move unfinished work between devices.
+- **Nothing is lost:**
+  - When a new drawing is started, opened from a file or discarded, the old one is kept as «forrige tegning». «Hent forrige tegning» brings it back, also after a reload.
+  - A stored drawing that cannot be read is set aside under its own key and reported; the app starts as normal.
+  - Drawing files are fully checked before they are opened.
+- **Local changes that went into the new model:**
+  - «Start fra nåværende modell» remembers which drawn cables, pipes and points, and which measurements, it took with it.
+  - When the exported file is published, exactly those are removed from the browser, because they are now in the file, in the new frame.
+  - Anything made on the old model afterwards is kept and reported, since it may now be in the wrong place.
+- While a new model is shown, drawing el/vann in VR is off; its coordinates would land wrongly in the file.
 - If `apartment.json` has errors, the error screen offers «Lag ny modell i stedet».
 
 ## Phase 3 – editing in VR (design principles)

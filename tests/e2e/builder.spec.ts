@@ -11,6 +11,7 @@ import {
   collectErrors,
   enterBuild,
   frames,
+  menuPress,
   openBuilder,
   placeholder,
   press,
@@ -578,4 +579,147 @@ test('gjennomsyn igjen: tegningen justeres ved inngangsdøra, og et rom kan mål
   expect(Math.min(...xs)).toBe(-1000);
   // Døra ble med og sitter fortsatt på inngangsveggen.
   expect(doc.openings[0]).toMatchObject({ room: 'gang', width: 900, entrance: true });
+});
+
+/* ------------------- Robusthet (funnet av portvakten) ------------------- */
+
+test('en ødelagt tegning – fra fil eller i lagringen – stopper aldri appen', async ({ page }) => {
+  const errors = collectErrors(page);
+  await openBuilder(page);
+  // Et rom uten navn: avvises med riktig forklaring, ingenting lagres.
+  const bad = { version: 1, doc: { version: 1, name: 'Ødelagt', rooms: [{ id: 'gang', polygon: [{ x: 0, z: 0 }, { x: 3000, z: 0 }, { x: 3000, z: 2000 }], floor: 0, ceiling: 2400 }], openings: [] } };
+  await page.getByTestId('builder-open-file').setInputFiles({ name: 'feil.tegning.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(bad)) });
+  await expect(page.getByTestId('builder-notice')).toContainText('mangler navn');
+  expect(await builderDoc(page)).toBeNull();
+  // Ligger en slik tegning i lagringen (f.eks. fra en eldre versjon), starter appen likevel.
+  await page.evaluate((v) => localStorage.setItem('leilighet:ny-modell:v1', JSON.stringify(v)), bad);
+  await page.reload();
+  await waitForModel(page);
+  await expect(page.getByTestId('status')).toContainText('rom');
+  await expect(page.getByTestId('builder-notice')).toContainText('kunne ikke leses');
+  expect(await page.evaluate(() => localStorage.getItem('leilighet:ny-modell:v1:ødelagt'))).toContain('Ødelagt');
+  expect(errors).toEqual([]);
+});
+
+test('tegnet el og vann som ble med i den nye modellen, legges ikke på igjen når den er publisert', async ({ page }) => {
+  await page.goto('./');
+  await waitForModel(page);
+  // En kabel tegnet på den gamle modellen.
+  await page.keyboard.press('2');
+  await page.keyboard.press('e');
+  for (const [x, z] of [
+    [3000, 1000],
+    [3000, 3000],
+  ]) {
+    const p = await page.evaluate(([a, b]) => (window as any).leilighet.desktop.screenOf(a, 1500, b), [x, z] as const);
+    await page.mouse.move(p.x, p.y);
+    await page.mouse.click(p.x, p.y);
+  }
+  await page.keyboard.press('Enter');
+  expect(await page.evaluate(() => (window as any).leilighet.plan.ops.length)).toBe(1);
+
+  // Ny modell fra den nåværende, med hjørnet ved inngangsdøra flyttet 50 mm (origo flyttes).
+  await page.getByTestId('builder-entry').click();
+  await page.getByTestId('builder-from-current').click();
+  await page.evaluate(() => {
+    const ed = (window as any).leilighet.builder.editor;
+    const d = ed.doc;
+    const door = d.openings.find((o: any) => o.entrance);
+    const room = d.rooms.find((r: any) => r.id === door.room);
+    const n = room.polygon.length;
+    const a = room.polygon[door.edge];
+    const b = room.polygon[(door.edge + 1) % n];
+    const len = Math.hypot(b.x - a.x, b.z - a.z);
+    const nearStart = door.offset <= len - (door.offset + door.width);
+    // Kanten vinkelrett på inngangsveggen i hjørnet ved døra.
+    const edge = nearStart ? (door.edge + n - 1) % n : (door.edge + 1) % n;
+    const ux = (b.x - a.x) / len;
+    const uz = (b.z - a.z) / len;
+    ed.selection.set({ kind: 'edge', room: room.id, edge });
+    ed.nudge(ux * 50, uz * 50);
+  });
+  const { text, doc: file } = await downloadExport(page);
+  const cable = file.wiring.find((w: any) => w.id === 'kabel-1');
+  expect(cable).toBeTruthy();
+  await page.route('**/apartment.json', (route) => route.fulfill({ body: text, contentType: 'application/json' }));
+  await page.reload();
+  await waitForModel(page);
+  // Byggeren var åpen: beskjeden står på startsiden i panelet.
+  await expect(page.getByTestId('builder-notice')).toContainText('lagt ut');
+  // Kabelen er med i fila (flyttet med rammen) og ligger ikke lenger som lokal endring.
+  expect(await page.evaluate(() => (window as any).leilighet.plan.ops.length)).toBe(0);
+  const shown = await page.evaluate(() => (window as any).leilighet.store.doc.wiring.find((w: any) => w.id === 'kabel-1').points);
+  expect(shown).toEqual(cable.points);
+  await expect(page.getByTestId('draft')).toBeHidden();
+});
+
+test('VR gjennom en ny modell: tegning av el og vann er av (den ville havnet feil)', async ({ page }) => {
+  await openBuilder(page, './?emulator');
+  await page.getByTestId('builder-from-current').click();
+  await expect(page.getByTestId('builder-vr')).toBeEnabled();
+  await page.getByTestId('builder-vr').click();
+  await page.waitForFunction(() => (window as any).leilighet.xr.presenting === true);
+  await page.waitForTimeout(400);
+  await page.evaluate(() => {
+    const d = (window as any).__iwer;
+    d.controllers.left.position.set(-0.2, 1.3, -0.3);
+    d.controllers.right.position.set(0.2, 1.3, -0.3);
+  });
+  await frames(page, 4);
+  await press(page, 'left', 'x-button');
+  await menuPress(page, 'tab:tegn');
+  const labels = await page.evaluate(() => (window as any).leilighet.xr.menuLabels().map((l: any) => l.text).join(' '));
+  expect(labels).toContain('Tegning av el og vann er av');
+  expect(await page.evaluate(() => (window as any).leilighet.xr.menuItemWorld('draw:pipe:cold'))).toBeNull();
+  await page.evaluate(() => (window as any).leilighet.xr.exit());
+  await page.waitForFunction(() => (window as any).leilighet.xr.presenting === false);
+  // Etter «Lukk» kan man tegne igjen (i VR vises verktøyene).
+  await page.getByTestId('builder-close').click();
+  expect(await page.evaluate(() => (window as any).leilighet.xr.canDraw())).toBe(true);
+});
+
+test('bakgrunnsbilde som ikke får plass i lagringen: et eldre bilde dukker ikke opp igjen', async ({ page }) => {
+  await openBuilder(page);
+  await page.getByTestId('builder-new').click();
+  await page.evaluate(() => {
+    localStorage.setItem('leilighet:ny-modell:bilde:v1', JSON.stringify({ src: 'data:image/png;base64,AAAA', w: 10, h: 10, x: 0, z: 0, mmPerPx: 100, opacity: 0.5, visible: true }));
+    const orig = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (k: string, v: string) {
+      if (k === 'leilighet:ny-modell:bilde:v1') throw new DOMException('full', 'QuotaExceededError');
+      return orig.call(this, k, v);
+    };
+  });
+  await page.getByTestId('builder-backdrop').locator('summary').click();
+  const b64 = await page.evaluate(() => {
+    const c = document.createElement('canvas');
+    c.width = 64;
+    c.height = 48;
+    c.getContext('2d')!.fillRect(0, 0, 10, 10);
+    return c.toDataURL('image/png').split(',')[1]!;
+  });
+  await page.getByTestId('builder-backdrop-file').setInputFiles({ name: 'skisse.png', mimeType: 'image/png', buffer: Buffer.from(b64, 'base64') });
+  await expect(page.getByTestId('builder-backdrop-image')).toBeVisible();
+  await expect(page.getByTestId('builder-message')).toContainText('for stort til å huskes');
+  expect(await page.evaluate(() => localStorage.getItem('leilighet:ny-modell:bilde:v1'))).toBeNull();
+  await page.reload();
+  await waitForModel(page);
+  expect(await page.evaluate(() => (window as any).leilighet.builder.backdrop.state)).toBeNull();
+});
+
+test('gjennomsyn: mister hodesettet sporingen, må tegningen justeres på nytt', async ({ page }) => {
+  await openBuilder(page, './?emulator');
+  await enterBuild(page);
+  await captureRoom(page);
+  // Begynt på neste rom når sporingen nullstilles (referanserommet flyttes).
+  await touch(page, 0.5, 1, -5);
+  expect((await buildState(page)).walls).toEqual([1]);
+  await page.evaluate(() => (window as any).leilighet.renderer.xr.getReferenceSpace().dispatchEvent(new Event('reset')));
+  await frames(page, 2);
+  const s = await buildState(page);
+  expect(s.phase).toBe('align-0');
+  expect(s.walls).toEqual([]);
+  expect(s.status).toEqual({ text: expect.stringContaining('Sporingen ble nullstilt'), tone: 'warn' });
+  expect(s.rig).toEqual({ x: 0, y: 0, z: 0, yaw: 0 });
+  // Rommet som var målt, er ikke rørt.
+  expect((await builderDoc(page)).rooms).toHaveLength(1);
 });

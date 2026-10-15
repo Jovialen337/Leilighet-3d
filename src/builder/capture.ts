@@ -267,10 +267,3 @@ export function composeRig(rig: RigPose, t: PlanTransform): RigPose {
     yaw: rig.yaw + phi,
   };
 }
-
-/** Et punkt i referanserommet (m) til verden (m) gitt riggen. */
-export function rigApply(rig: RigPose, p: P3): P3 {
-  const c = Math.cos(rig.yaw);
-  const s = Math.sin(rig.yaw);
-  return { x: p.x * c + p.z * s + rig.x, y: p.y + rig.y, z: -p.x * s + p.z * c + rig.z };
-}

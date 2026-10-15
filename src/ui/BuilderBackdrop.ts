@@ -3,16 +3,18 @@
  * salgsoppgaven) under planen, så rommene kan tegnes oppå den. Bildet får
  * riktig målestokk ved å klikke to punkter og skrive avstanden mellom dem.
  *
- * Bildet krympes til høyst 2048 px og lagres som JPEG i nettleseren (ikke i
- * apartment.json). Får det ikke plass, virker det likevel til siden lastes
- * på nytt.
+ * Bildet krympes til høyst 1600 px og lagres som JPEG i nettleseren (ikke i
+ * apartment.json). Er det for stort, eller får det ikke plass, virker det
+ * likevel til siden lastes på nytt (et eldre bilde blir da ikke hentet frem).
  */
 import type { KV } from '../state/persist';
 import { Observable } from '../state/Observable';
 import type { DesktopView } from '../views/DesktopView';
 
 export const BACKDROP_KEY = 'leilighet:ny-modell:bilde:v1';
-const MAX_PX = 2048;
+const MAX_PX = 1600;
+/** Større bilder huskes ikke (de deler lagringsplassen med målinger og tegninger). */
+const MAX_STORED = 1_500_000;
 
 export interface BackdropState {
   /** Bildet (data-URL). */
@@ -105,7 +107,7 @@ export class BuilderBackdrop {
     ctx.fillRect(0, 0, w, h);
     ctx.drawImage(bitmap, 0, 0, w, h);
     bitmap.close();
-    const src = c.toDataURL('image/jpeg', 0.85);
+    const src = c.toDataURL('image/jpeg', 0.8);
     const mmPerPx = 10_000 / w;
     this.state = { src, w, h, x: Math.round(center.x - (w * mmPerPx) / 2), z: Math.round(center.z - (h * mmPerPx) / 2), mmPerPx, opacity: 0.5, visible: true };
     this.img.src = src;
@@ -168,11 +170,18 @@ export class BuilderBackdrop {
   private changed(): void {
     this.unsaved = false;
     try {
-      if (this.state) this.storage?.setItem(BACKDROP_KEY, JSON.stringify(this.state));
-      else this.storage?.removeItem(BACKDROP_KEY);
+      if (!this.state) this.storage?.removeItem(BACKDROP_KEY);
+      else if (this.state.src.length > MAX_STORED) throw new Error('for stort');
+      else this.storage?.setItem(BACKDROP_KEY, JSON.stringify(this.state));
     } catch {
-      // For stort eller utilgjengelig: bildet virker til siden lastes på nytt.
+      // For stort eller full lagring: bildet virker til siden lastes på nytt.
+      // Et eldre bilde skal ikke dukke opp igjen da, så det fjernes.
       this.unsaved = true;
+      try {
+        this.storage?.removeItem(BACKDROP_KEY);
+      } catch {
+        /* lagring utilgjengelig */
+      }
     }
     this.place();
     this.version.set(this.version.value + 1);

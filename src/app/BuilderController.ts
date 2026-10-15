@@ -8,7 +8,7 @@
  * feil, vises den siste gyldige utgaven mens man retter.
  */
 import { BuilderEditor, TOOL_KEYS, type BuilderSelection } from '../builder/BuilderEditor';
-import { BuilderSession } from '../builder/BuilderSession';
+import { BuilderSession, type Consumed } from '../builder/BuilderSession';
 import type { BuildIssue } from '../builder/compile';
 import { importApartment } from '../builder/importDoc';
 import { emptyBuilderDoc } from '../builder/types';
@@ -34,8 +34,11 @@ export interface BuilderHost {
   readonly desktop: DesktopView;
   readonly xr: XRManager;
   readonly canvas: HTMLElement;
-  /** Modellen slik den vises nå (fila/utkastet med tegningene som passer). */
-  currentDoc(): ApartmentDoc | null;
+  /**
+   * Modellen slik den vises nå (fila/utkastet med tegningene som passer), og
+   * de lokale endringene som da blir med (se Consumed).
+   */
+  importSource(): { doc: ApartmentDoc; consumed: Consumed } | null;
   /** Vis tegningen som modell (allerede validert). */
   showPreview(result: ValidationResult): void;
   /** Ingen rom ennå: skjul modellen (rutenettet står). */
@@ -92,6 +95,18 @@ export class BuilderController {
     this.panel = new BuilderPanel(this.editor, {
       startBlank: () => this.startBlank(),
       startFromCurrent: () => this.startFromCurrent(),
+      previous: () => {
+        const p = this.session.previous();
+        return p ? { name: p.name, rooms: p.rooms.length } : null;
+      },
+      restorePrevious: () => {
+        if (!this.session.restorePrevious()) return;
+        this.fitPending = true;
+        this.refresh(true);
+        this.editor.tool.set('select');
+        this.editor.selection.set(null);
+        this.editor.message.set('Den forrige tegningen er hentet. «Angre» går tilbake til den du hadde.');
+      },
       openDraftFile: (f) => void this.openDraftFile(f),
       capture: () => this.capture(),
       arSupport: () => host.xr.arSupport.value,
@@ -131,6 +146,13 @@ export class BuilderController {
     this.entry = h('div', { class: 'builder-entry-wrap' }, this.entryButton, this.entryNotice);
 
     this.session.subscribe(() => this.onChanged());
+    if (this.session.recovered) {
+      // En lagret tegning kunne ikke leses: den er lagt til side, og appen starter som normalt.
+      this.publishedText = `En lagret tegning kunne ikke leses (${this.session.recovered}) og er lagt til side.`;
+      this.panel.showNotice(this.publishedText, 'error');
+      this.entryNotice.textContent = this.publishedText;
+      this.entryNotice.hidden = false;
+    }
     const view = host.view;
     view.cameraMode.subscribe(() => this.updateOverlay());
     view.inXR.subscribe(() => this.updateOverlay());
@@ -243,16 +265,43 @@ export class BuilderController {
   }
 
   /** Kalles når apartment.json er lastet: er vår eksport publisert, er arbeidet ferdig. */
-  checkPublished(file: ApartmentDoc | null): void {
-    if (!this.session.checkPublished(file)) return;
+  /**
+   * Kalles når apartment.json er lastet. Er det vår eksport som er publisert,
+   * er arbeidet ferdig; svaret er det tegningen tok med fra den gamle modellen
+   * (det skal ikke legges på en gang til), ellers null.
+   */
+  checkPublished(file: ApartmentDoc | null): { consumed: Consumed | null } | null {
+    if (!this.session.checkPublished(file)) return null;
     if (this.session.published === 'done') {
-      const text = '✓ Den nye modellen er lagt ut og vises nå. Tegningen er ryddet bort.';
-      this.panel.showNotice(text);
-      this.entryNotice.textContent = text;
-      this.entryNotice.hidden = this.open.value;
+      this.publishedText = '✓ Den nye modellen er lagt ut og vises nå. Tegningen er ryddet bort.';
+      this.showPublished();
       this.editor.selection.set(null);
     } else this.editor.message.set('Fila du lastet ned, er lagt ut. Tegningen er endret etterpå, så den er beholdt.');
     this.updateEntry();
+    return { consumed: this.session.takeConsumed() };
+  }
+
+  /**
+   * Etter publisering: lokale endringer på den gamle modellen som *ikke* kom
+   * med (laget etter at den nye modellen ble startet), er beholdt – si fra.
+   */
+  noteLeftovers(plan: number, measure: number): void {
+    if (!plan && !measure) return;
+    const parts = [
+      ...(plan ? [`${plan} ${plan === 1 ? 'tegnet endring' : 'tegnede endringer'} (el og vann)`] : []),
+      ...(measure ? [`${measure} ${measure === 1 ? 'måling' : 'målinger'}`] : []),
+    ];
+    const text = `${parts.join(' og ')} fra før er beholdt. De ble laget mot den gamle modellen og kan ligge feil nå – sjekk dem.`;
+    this.publishedText = this.publishedText ? `${this.publishedText} ${text}` : text;
+    this.showPublished();
+  }
+
+  private publishedText = '';
+
+  private showPublished(): void {
+    this.panel.showNotice(this.publishedText);
+    this.entryNotice.textContent = this.publishedText;
+    this.entryNotice.hidden = this.open.value || !this.publishedText;
   }
 
   private onChanged(): void {
@@ -363,24 +412,25 @@ export class BuilderController {
   }
 
   private startFromCurrent(): void {
-    const cur = this.host.currentDoc();
-    if (!cur) {
+    const src = this.host.importSource();
+    if (!src) {
       this.panel.showNotice('Ingen gyldig modell er lastet. Start med en tom modell i stedet.', 'error');
       return;
     }
-    const r = importApartment(cur);
+    const r = importApartment(src.doc);
     if (!r.ok) {
       this.panel.showNotice(r.message, 'error');
       return;
     }
-    this.session.start(r.doc);
+    // Tegnet el og vann og målinger blir med: når den nye fila er publisert, er de med i den.
+    this.session.start(r.doc, src.consumed);
     this.fitPending = true;
     this.refresh(true);
     this.editor.tool.set('select');
     this.editor.selection.set(null);
     const n = r.doc.rooms.length;
     this.editor.message.set(
-      `Modellen er hentet inn: ${n} ${n === 1 ? 'rom' : 'rom'} og ${r.doc.openings.length} dører/vinduer/åpninger. Klikk et rom, en kant eller et hjørne for å endre.`,
+      `Modellen er hentet inn: ${n} rom og ${r.doc.openings.length} dører/vinduer/åpninger. Klikk et rom, en kant eller et hjørne for å endre.`,
     );
   }
 
@@ -538,6 +588,8 @@ export class BuilderController {
       }
       return;
     }
+    // Verktøy, tall og piler bare når man tegner i 2D; i 3D virker de vanlige tastene (R, 1, 2 …).
+    if (!this.drawing) return;
     const tool = TOOL_KEYS[k.toLowerCase()];
     if (tool && !e.shiftKey) {
       consume();

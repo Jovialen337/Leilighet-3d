@@ -6,16 +6,32 @@
  * - Et drag (flytte hjørne/kant/rom) er ett angre-steg.
  * - Når den eksporterte fila er publisert (apartment.json er lik det som ble
  *   lastet ned), er arbeidet ferdig og tegningen ryddes bort.
+ * - En lagret tegning som ikke kan leses, legges til side (ikke slettet), og
+ *   den forrige tegningen huskes når en ny startes eller den forkastes.
+ * - Kompilering kaster aldri: en feil blir en melding i sjekklisten.
  */
 import { formatJson } from '../schema/format';
 import type { ApartmentDoc } from '../schema/types';
 import type { KV } from '../state/persist';
 import { hashDoc, hashText } from '../measure/MeasureSession';
-import { compileChecked, type CompileResult } from './compile';
-import { BUILDER_VERSION, DEFAULT_BUILDER_SETTINGS, type BuilderDoc } from './types';
+import { compileChecked, type CompileOptions, type CompileResult } from './compile';
+import { DEFAULT_BUILDER_SETTINGS, type BuilderDoc } from './types';
+import { builderDocProblem } from './validateDoc';
 
 export const BUILDER_KEY = 'leilighet:ny-modell:v1';
 const MAX_UNDO = 100;
+
+/**
+ * Lokale endringer på den gamle modellen (tegnet el og vann, målinger) som
+ * ble tatt med da tegningen startet fra den. Er eksporten publisert, er de
+ * med i fila og skal ikke legges på en gang til.
+ */
+export interface Consumed {
+  /** Fingeravtrykk av hver tegnede endring (planlagt el og vann) som kom med. */
+  plan: string[];
+  /** Fingeravtrykk av målingsloggen som kom med, eller null. */
+  measure: string | null;
+}
 
 interface Saved {
   version: 1;
@@ -23,25 +39,39 @@ interface Saved {
   exportedHash?: string;
   /** Fingeravtrykk av tegningen da fila ble eksportert. */
   exportedDraft?: string;
+  consumed?: Consumed;
 }
+
+const isConsumed = (v: unknown): v is Consumed => {
+  const c = v as Partial<Consumed> | null;
+  return !!c && Array.isArray(c.plan) && c.plan.every((x) => typeof x === 'string') && (c.measure === null || typeof c.measure === 'string');
+};
 
 const hashDraft = (doc: BuilderDoc): string => hashText(JSON.stringify(doc));
 
 const today = (d: Date): string =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-/** Grov sjekk av en lagret eller åpnet tegning (alt annet avvises). */
+/** Er dette en gyldig tegning (lagret eller åpnet fra fil)? Se validateDoc.ts. */
 export function isBuilderDoc(v: unknown): v is BuilderDoc {
-  if (!v || typeof v !== 'object') return false;
-  const d = v as Partial<BuilderDoc>;
-  return (
-    d.version === BUILDER_VERSION &&
-    typeof d.name === 'string' &&
-    Array.isArray(d.rooms) &&
-    Array.isArray(d.openings) &&
-    d.rooms.every((r) => r && typeof r.id === 'string' && Array.isArray(r.polygon) && r.polygon.every((p) => typeof p?.x === 'number' && typeof p?.z === 'number')) &&
-    d.openings.every((o) => o && typeof o.id === 'string' && typeof o.room === 'string' && typeof o.edge === 'number')
-  );
+  return builderDocProblem(v) === null;
+}
+
+const withDefaults = (doc: BuilderDoc): BuilderDoc => ({ ...doc, settings: { ...DEFAULT_BUILDER_SETTINGS, ...doc.settings } });
+
+/** Kompilerer uten å kaste: en uventet feil blir en melding i sjekklisten. */
+function safeCompile(doc: BuilderDoc, opts: CompileOptions): CompileResult {
+  try {
+    return compileChecked(doc, opts);
+  } catch (e) {
+    return {
+      doc: null,
+      issues: [{ severity: 'error', message: `Tegningen kunne ikke gjøres om til en modell: ${(e as Error).message}` }],
+      walls: { walls: [], open: [], notes: [] },
+      transform: null,
+      doorInto: new Map(),
+    };
+  }
 }
 
 export class BuilderSession {
@@ -49,6 +79,10 @@ export class BuilderSession {
   doc: BuilderDoc | null = null;
   /** Den eksporterte fila er publisert: 'done' = tegningen er ryddet bort, 'kept' = endret etterpå og beholdt. */
   published: 'done' | 'kept' | null = null;
+  /** En lagret tegning kunne ikke leses og er lagt til side (melding), eller null. */
+  recovered: string | null = null;
+  /** Det tegningen tok med fra den gamle modellen (se Consumed). */
+  consumed: Consumed | null = null;
   private exportedHash: string | undefined;
   private exportedDraft: string | undefined;
   private past: BuilderDoc[] = [];
@@ -61,16 +95,36 @@ export class BuilderSession {
     private readonly storage: KV | null = null,
     private readonly key = BUILDER_KEY,
   ) {
+    let text: string | null = null;
     try {
-      const text = storage?.getItem(key);
-      const saved = text ? (JSON.parse(text) as Partial<Saved>) : null;
-      if (saved?.version === 1 && isBuilderDoc(saved.doc)) {
-        this.doc = { ...saved.doc, settings: { ...DEFAULT_BUILDER_SETTINGS, ...saved.doc.settings } };
-        this.exportedHash = saved.exportedHash;
-        this.exportedDraft = saved.exportedDraft;
+      text = storage?.getItem(key) ?? null;
+    } catch {
+      text = null;
+    }
+    if (!text) return;
+    let problem: string | null = null;
+    try {
+      const saved = JSON.parse(text) as Partial<Saved>;
+      problem = saved?.version === 1 ? builderDocProblem(saved.doc) : 'Ukjent lagringsformat.';
+      if (!problem) {
+        this.doc = withDefaults(saved.doc!);
+        this.exportedHash = typeof saved.exportedHash === 'string' ? saved.exportedHash : undefined;
+        this.exportedDraft = typeof saved.exportedDraft === 'string' ? saved.exportedDraft : undefined;
+        this.consumed = isConsumed(saved.consumed) ? saved.consumed : null;
       }
     } catch {
+      problem = 'Lagringen er ikke gyldig JSON.';
+    }
+    if (problem) {
+      // Legg den til side (ikke slett den), så appen starter som normalt.
       this.doc = null;
+      this.recovered = problem;
+      try {
+        storage?.setItem(`${key}:ødelagt`, text);
+        storage?.removeItem(key);
+      } catch {
+        /* lagring utilgjengelig */
+      }
     }
   }
 
@@ -86,14 +140,22 @@ export class BuilderSession {
     return this.future.length > 0;
   }
 
-  /** Starter en ny tegning (den gamle kan angres tilbake). */
-  start(doc: BuilderDoc): void {
-    if (this.doc) this.push(this.doc);
+  /**
+   * Starter en ny tegning. Den gamle kan angres tilbake, og huskes som
+   * «forrige tegning» også etter omlasting. `consumed`: det den nye tegningen
+   * tok med fra den gamle modellen.
+   */
+  start(doc: BuilderDoc, consumed: Consumed | null = null): void {
+    if (this.doc) {
+      this.push(this.doc);
+      this.keepPrevious(this.doc);
+    }
     this.doc = structuredClone(doc);
     this.future = [];
     this.exportedHash = undefined;
     this.exportedDraft = undefined;
     this.published = null;
+    this.consumed = consumed;
     this.changed();
   }
 
@@ -155,22 +217,56 @@ export class BuilderSession {
     return true;
   }
 
-  /** Forkaster hele tegningen. */
+  /** Forkaster hele tegningen (den huskes som «forrige tegning»). */
   discard(): void {
+    if (this.doc) this.keepPrevious(this.doc);
     this.doc = null;
     this.past = [];
     this.future = [];
     this.exportedHash = undefined;
     this.exportedDraft = undefined;
+    this.consumed = null;
     this.changed();
   }
 
-  /** Kompilert og skjemasjekket tegning (mellomlagret per versjon av tegningen). */
+  /** Den forrige tegningen (før en ny ble startet eller denne ble forkastet), eller null. */
+  previous(): BuilderDoc | null {
+    try {
+      const text = this.storage?.getItem(`${this.key}:forrige`);
+      const doc: unknown = text ? JSON.parse(text) : null;
+      return doc && isBuilderDoc(doc) ? withDefaults(doc) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Henter den forrige tegningen (den som er åpen nå, blir «forrige» i stedet). */
+  restorePrevious(): boolean {
+    const prev = this.previous();
+    if (!prev) return false;
+    this.start(prev);
+    return true;
+  }
+
+  private keepPrevious(doc: BuilderDoc): void {
+    if (!doc.rooms.length) return;
+    try {
+      this.storage?.setItem(`${this.key}:forrige`, JSON.stringify(doc));
+    } catch {
+      /* lagring utilgjengelig */
+    }
+  }
+
+  /**
+   * Kompilert og skjemasjekket tegning (mellomlagret per versjon av
+   * tegningen). Under et drag brukes siste resultat, så ingenting kompileres
+   * for hver bevegelse; det gjøres når draget er ferdig.
+   */
   compiled(normalize = false): CompileResult | null {
     if (!this.doc) return null;
     const c = this.cache;
-    if (c && c.doc === this.doc && c.normalize === normalize) return c.result;
-    const result = compileChecked(this.doc, { normalize });
+    if (c && c.normalize === normalize && (c.doc === this.doc || this.gesture)) return c.result;
+    const result = safeCompile(this.doc, { normalize });
     this.cache = { doc: this.doc, normalize, result };
     return result;
   }
@@ -178,7 +274,7 @@ export class BuilderSession {
   /** Fila som tekst (origo ved inngangsdøra, dagens dato). Husker fingeravtrykket. */
   exportText(now = new Date()): string | null {
     if (!this.doc) return null;
-    const r = compileChecked(this.doc, { normalize: true, date: today(now) });
+    const r = safeCompile(this.doc, { normalize: true, date: today(now) });
     if (!r.doc) return null;
     const text = formatJson(r.doc);
     this.exportedHash = hashDoc(JSON.parse(text) as ApartmentDoc);
@@ -194,20 +290,28 @@ export class BuilderSession {
 
   /** Åpner en tegning fra fil. Returnerer en norsk feilmelding, eller null. */
   openDraft(text: string): string | null {
+    let v: unknown;
     try {
-      const v = JSON.parse(text) as Partial<Saved>;
-      const doc = v && typeof v === 'object' && 'doc' in v ? v.doc : v;
-      if (!isBuilderDoc(doc)) return 'Fila er ikke en tegning fra «Lag ny modell».';
-      this.start({ ...doc, settings: { ...DEFAULT_BUILDER_SETTINGS, ...doc.settings } });
-      return null;
+      v = JSON.parse(text);
     } catch {
       return 'Fila kunne ikke leses (ikke gyldig JSON).';
     }
+    const doc = v && typeof v === 'object' && 'doc' in v ? (v as { doc: unknown }).doc : v;
+    const problem = builderDocProblem(doc);
+    if (problem) return `Fila kan ikke åpnes: ${problem}`;
+    this.start(withDefaults(doc as BuilderDoc));
+    return null;
   }
 
-  /** Kalles når apartment.json er lastet: er det vår eksport som er publisert, er arbeidet ferdig. */
+  /**
+   * Kalles når apartment.json er lastet: er det vår eksport som er publisert,
+   * er arbeidet ferdig. Det som ble tatt med fra den gamle modellen, kan da
+   * hentes med `takeConsumed` (det er nå med i fila).
+   */
   checkPublished(file: ApartmentDoc | null): boolean {
     if (!file || !this.doc || !this.exportedHash || hashDoc(file) !== this.exportedHash) return false;
+    this.publishedConsumed = this.consumed;
+    this.consumed = null;
     if (this.exportedDraft && hashDraft(this.doc) !== this.exportedDraft) {
       // Tegningen er endret etter eksporten: behold den (bare markeringen ryddes).
       this.exportedHash = undefined;
@@ -219,6 +323,15 @@ export class BuilderSession {
     this.discard();
     this.published = 'done';
     return true;
+  }
+
+  private publishedConsumed: Consumed | null = null;
+
+  /** Det den publiserte fila tok med fra den gamle modellen (én gang), eller null. */
+  takeConsumed(): Consumed | null {
+    const c = this.publishedConsumed;
+    this.publishedConsumed = null;
+    return c;
   }
 
   subscribe(listener: () => void): () => void {
@@ -241,7 +354,13 @@ export class BuilderSession {
       if (this.doc)
         this.storage?.setItem(
           this.key,
-          JSON.stringify({ version: 1, doc: this.doc, exportedHash: this.exportedHash, exportedDraft: this.exportedDraft } satisfies Saved),
+          JSON.stringify({
+            version: 1,
+            doc: this.doc,
+            exportedHash: this.exportedHash,
+            exportedDraft: this.exportedDraft,
+            ...(this.consumed ? { consumed: this.consumed } : {}),
+          } satisfies Saved),
         );
       else this.storage?.removeItem(this.key);
     } catch {

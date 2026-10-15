@@ -8,6 +8,7 @@
  */
 import type { ApartmentDoc } from '../schema/types';
 import type { KV } from '../state/persist';
+import { hashText } from '../measure/MeasureSession';
 
 export type PlanCollection = 'wiring' | 'pipes' | 'fixtures' | 'circuits' | 'layers';
 export type PlanObject = { id: string } & Record<string, unknown>;
@@ -224,6 +225,9 @@ export class PlanEdits {
 
 /** Hvilket objekt en endring gjelder («samling:id»). */
 const keyOf = (o: PlanOp): string => `${o.c}:${o.op === 'put' ? o.obj.id : o.id}`;
+
+/** Fingeravtrykk av en endring (lik endring gir likt avtrykk, også etter omlasting). */
+export const opFingerprint = (o: PlanOp): string => hashText(JSON.stringify(o));
 
 /** Legger endringene inn i en kopi av fila. */
 export function applyOps(doc: ApartmentDoc, ops: readonly PlanOp[]): ApartmentDoc {

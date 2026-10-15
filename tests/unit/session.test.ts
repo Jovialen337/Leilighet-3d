@@ -226,6 +226,9 @@ describe('lagring lokalt', () => {
     expect(b.adoptStale()).toBe(true);
     expect(b.adoptSkipped).toBe(2);
     expect(b.progress().done).toBe(0);
+    // De som ikke passet, er ikke slettet: de ligger fortsatt til side (også etter omlasting).
+    expect(b.stale).toMatchObject({ count: 2 });
+    expect(new MeasureSession(changed, kv).stale).toMatchObject({ count: 2 });
   });
 
   it('«Forkast» på gamle målinger sletter bare dem – dagens målinger beholdes', () => {

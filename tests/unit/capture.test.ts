@@ -6,14 +6,21 @@ import {
   fitLine,
   medianPoint,
   placeOpening,
-  rigApply,
   wallLines,
   type P3,
+  type RigPose,
 } from '../../src/builder/capture';
 import { compile } from '../../src/builder/compile';
 import { addOpening, addRoom } from '../../src/builder/ops';
 import { entranceFrame } from '../../src/builder/transform';
 import { emptyBuilderDoc } from '../../src/builder/types';
+
+/** Et punkt i referanserommet (m) til verden (m) gitt riggen (three.js: rotation.y = yaw). */
+function rigApply(rig: RigPose, p: P3): P3 {
+  const c = Math.cos(rig.yaw);
+  const s = Math.sin(rig.yaw);
+  return { x: p.x * c + p.z * s + rig.x, y: p.y + rig.y, z: -p.x * s + p.z * c + rig.z };
+}
 
 /** Litt støy (deterministisk), som en hånd som ikke er helt stødig. */
 const jitter = (i: number, amp = 6): number => Math.sin(i * 12.9898) * amp;

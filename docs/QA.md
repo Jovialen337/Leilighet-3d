@@ -223,6 +223,12 @@ The goal: a complete and detailed way to make a new model, as perfect as possibl
   - reload persistence, saving and opening a drawing file, and published detection;
   - errors with «Vis», and «Lag ny modell i stedet» when `apartment.json` is broken;
   - a background image: load it, set the scale with two clicks and a typed distance, drag it, and keep it after a reload;
+  - robustness:
+    - a broken drawing from a file or in storage;
+    - cables taken into a new model not applied twice after publishing;
+    - no VR drawing on a new model;
+    - an image that cannot be saved;
+    - re-alignment after a tracking reset;
   - the Quest Browser (Quest user agent): no keyboard, big handles.
 - **Emulated Quest 3 (IWER) in passthrough:**
   - a 4 × 3 m room from five wall touches, floor and ceiling, with exact corners;
@@ -230,6 +236,33 @@ The goal: a complete and detailed way to make a new model, as perfect as possibl
   - undo, «same wall» refusal, a slanted wall with grip, and skipping floor and ceiling;
   - re-entering: alignment to the entrance corner in a turned reference space, then re-measuring a room with its door kept.
 - Every existing test still passes. Screenshots of the plan, the overlay and the VR menu were checked by eye.
+
+### Gatekeeper (pass 1 at f254688): **FAIL**
+- **Gates:**
+  - all green: 192 unit tests, 62 browser tests and no console errors;
+  - draw calls per eye: 32 when walking the real file (the same as before), at most 34 on a builder preview, 10 in passthrough capture;
+  - textures 4.7–8.0 MB.
+- **Blocking (all fixed):**
+  1. A drawing file where a room had no name passed the rough check. It was saved, and from then on the app could not start until site data was cleared.
+     - **Fix:** full validation of drawings, from file and from storage.
+     - A stored drawing that cannot be read is set aside under its own key, with a notice.
+     - Compiling never throws, and the builder panel and overlay can no longer stop the app.
+  2. Cables and pipes drawn on the old model that went into «Start fra nåværende modell» were laid on top of the published new file again, in the old frame. The same applied to measurements.
+     - **Fix:** the builder remembers what it took with it. When its export is published, exactly those changes are removed. Anything made later is kept and reported.
+  3. Drawing el/vann in VR while walking through a new model saved it in the drawing's own frame.
+     - **Fix:** «Tegn» in VR is off while a new model is shown, and the menu says why.
+- **Non-blocking (fixed):**
+  - dead code removed;
+  - hit-test is read only in point mode;
+  - nothing is compiled while dragging;
+  - background image: an image that cannot be saved also removes the older one (cap 1.5 MB, max 1600 px);
+  - old measurements that do not fit stay set aside instead of being deleted. Set-aside measurements now also show after more reloads, an older gap found while testing this;
+  - «Åpne tegning …» asks first, and «Hent forrige tegning» brings back the previous drawing;
+  - builder keys only work while drawing in 2D;
+  - new tests for re-alignment after a tracking reset, the image save failure, broken drawings, changes taken into a new model, and the VR drawing block.
+- **Not changed:**
+  - The browser test's draw-call threshold uses the placeholder file.
+  - The budget rule is 40 per eye; the gatekeeper measured 32 per eye on the real file.
 
 ### Test on the Quest (phase 2c)
 1. **Laptop, background image:** in «Lag ny modell», open «Bakgrunnsbilde» and load the sketch or a floor plan. Set the scale with a known wall length, then trace the rooms on top of it.

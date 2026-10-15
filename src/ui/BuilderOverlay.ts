@@ -147,6 +147,15 @@ export class BuilderOverlay {
   render(): void {
     const svg = this.svg;
     while (svg.firstChild) svg.firstChild.remove();
+    try {
+      this.draw();
+    } catch (e) {
+      // Overlegget skal aldri stoppe appen; tegningen kan fortsatt angres eller forkastes.
+      console.error('Overlegget for «Lag ny modell» kunne ikke tegnes', e);
+    }
+  }
+
+  private draw(): void {
     const doc = this.editor.doc;
     if (!this.visible || !doc) return;
     const ed = this.editor;

@@ -867,7 +867,8 @@ export class BuildMode {
 
   private readHit(frame: XRFrame | undefined, refSpace: XRReferenceSpace | null): void {
     this.hit = null;
-    if (!frame || !refSpace || !this.hitSource) return;
+    // Bare i pek-modus: ellers trengs ikke treffet, og det spares hver ramme.
+    if (this.method !== 'point' || !frame || !refSpace || !this.hitSource) return;
     const pose = frame.getHitTestResults(this.hitSource)[0]?.getPose(refSpace);
     if (!pose) return;
     const { position: p, orientation: o } = pose.transform;
@@ -934,7 +935,7 @@ export class BuildMode {
     const doc = this.doc;
     const rooms = doc?.rooms.length ?? 0;
     const badge = this.method === 'touch' ? 'Berør' : 'Pek';
-    const header = `Ny modell · ${rooms} ${rooms === 1 ? 'rom' : 'rom'} · ${doc?.openings.length ?? 0} dører/vinduer`;
+    const header = `Ny modell · ${rooms} rom · ${doc?.openings.length ?? 0} dører/vinduer`;
     const status = this.status;
     const roomLabel =
       this.target.kind === 'remeasure'

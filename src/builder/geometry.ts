@@ -43,20 +43,6 @@ export function edgeCoords(e: Edge, p: P2): { s: number; d: number } {
   return { s: dot(v, e.u), d: dot(v, e.out) };
 }
 
-/** Nærmeste kant i et polygon til et punkt: kanten, s langs den og avstanden. */
-export function nearestEdge(poly: readonly P2[], p: P2): { edge: Edge; s: number; dist: number } | null {
-  let best: { edge: Edge; s: number; dist: number } | null = null;
-  for (const e of edgesOf(poly)) {
-    if (e.length <= 0) continue;
-    const { s } = edgeCoords(e, p);
-    const t = Math.max(0, Math.min(e.length, s));
-    const q = alongEdge(e, t);
-    const d = dist(p, q);
-    if (!best || d < best.dist) best = { edge: e, s: t, dist: d };
-  }
-  return best;
-}
-
 /** Gyldig rompolygon: minst 3 hjørner, areal, ikke selvkryssende. Returnerer en norsk feilmelding eller null. */
 export function polygonProblem(poly: readonly P2[]): string | null {
   if (poly.length < 3) return 'trenger minst 3 hjørner.';
@@ -175,9 +161,6 @@ export function isAxisAligned(poly: readonly P2[], axisDeg = 0, tolDeg = 0.5): b
     return a < tolDeg || a > 90 - tolDeg;
   });
 }
-
-/** Avrunder til nærmeste `step` mm. */
-export const roundTo = (v: number, step = 1): number => Math.round(v / step) * step;
 
 export { dot, sub, add, scale, dist, len, p2, cross };
 export type { P2 };

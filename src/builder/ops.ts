@@ -32,14 +32,6 @@ export function nextRoomName(doc: BuilderDoc, wanted?: string): string {
   for (let i = 2; ; i++) if (!doc.rooms.some((r) => r.name === `${base} ${i}`)) return `${base} ${i}`;
 }
 
-/** Midtpunktet til en åpning (mm, i planen), eller null. */
-export function openingCenter(doc: BuilderDoc, o: BOpening): P2 | null {
-  const room = doc.rooms.find((r) => r.id === o.room);
-  const e = room ? edgesOf(room.polygon)[o.edge] : undefined;
-  if (!e || e.length <= 0) return null;
-  return alongEdge(e, o.offset + o.width / 2);
-}
-
 /**
  * Fester åpninger i et rom på nytt etter at polygonet er endret: nærmeste
  * kant med samme retning (helst samme nummer), målt fra der midten sto.

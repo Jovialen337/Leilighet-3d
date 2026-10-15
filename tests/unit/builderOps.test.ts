@@ -9,18 +9,25 @@ import {
   linkedEdges,
   moveCorner,
   moveEdge,
-  openingCenter,
   setEntrance,
   straighten,
 } from '../../src/builder/ops';
 import { BuilderSession, BUILDER_KEY } from '../../src/builder/BuilderSession';
 import { compile } from '../../src/builder/compile';
 import { deriveWalls } from '../../src/builder/walls';
-import { isAxisAligned } from '../../src/builder/geometry';
+import { alongEdge, edgesOf, isAxisAligned, type P2 } from '../../src/builder/geometry';
+import type { BOpening, BuilderDoc } from '../../src/builder/types';
 import { emptyBuilderDoc } from '../../src/builder/types';
 import { validateApartment } from '../../src/schema/validate';
 import type { ApartmentDoc } from '../../src/schema/types';
 import type { KV } from '../../src/state/persist';
+
+/** Midtpunktet til en åpning (mm, i planen), eller null. */
+function openingCenter(doc: BuilderDoc, o: BOpening): P2 | null {
+  const room = doc.rooms.find((r) => r.id === o.room);
+  const e = room ? edgesOf(room.polygon)[o.edge] : undefined;
+  return e && e.length > 0 ? alongEdge(e, o.offset + o.width / 2) : null;
+}
 
 class MemoryKV implements KV {
   readonly data = new Map<string, string>();
@@ -179,5 +186,109 @@ describe('arbeidsøkten', () => {
     expect(t.doc!.rooms[0]!.name).toBe('Gang');
     expect(t.openDraft('{"rooms": 3}')).toMatch(/ikke en tegning/);
     expect(t.openDraft('tull')).toMatch(/ikke gyldig JSON/);
+  });
+});
+
+describe('tegninger som er ødelagt eller tatt med fra den gamle modellen', () => {
+  /** En tegning der første rom mangler navn (slapp gjennom den gamle sjekken og krasjet oppstarten). */
+  const nameless = () => {
+    const d = structuredClone(start().d) as any;
+    delete d.rooms[0].name;
+    return d;
+  };
+
+  it('en lagret tegning som ikke kan leses, legges til side – oppstarten går som normalt', () => {
+    const kv = new MemoryKV();
+    kv.setItem(BUILDER_KEY, JSON.stringify({ version: 1, doc: nameless() }));
+    const s = new BuilderSession(kv);
+    expect(s.doc).toBeNull();
+    expect(s.recovered).toContain('mangler navn');
+    expect(s.compiled()).toBeNull();
+    // Ikke slettet: lagt til side under en egen nøkkel.
+    expect(kv.getItem(BUILDER_KEY)).toBeNull();
+    expect(JSON.parse(kv.getItem(`${BUILDER_KEY}:ødelagt`)!).doc.rooms).toHaveLength(1);
+    // Neste gang starter den helt rent.
+    expect(new BuilderSession(kv).recovered).toBeNull();
+  });
+
+  it('en fil der et rom mangler navn eller mål, avvises med riktig forklaring – tegningen er uendret', () => {
+    const kv = new MemoryKV();
+    const s = new BuilderSession(kv);
+    s.start(start().d);
+    const before = JSON.stringify(s.doc);
+    expect(s.openDraft(JSON.stringify({ version: 1, doc: nameless() }))).toMatch(/kan ikke åpnes.*mangler navn/);
+    const noCeiling = structuredClone(start().d) as any;
+    noCeiling.rooms[0].ceiling = 'høy';
+    expect(s.openDraft(JSON.stringify(noCeiling))).toMatch(/gulvnivå eller takhøyde/);
+    const badOpening = structuredClone(start().d) as any;
+    badOpening.openings[0].edge = 1.5;
+    expect(s.openDraft(JSON.stringify(badOpening))).toMatch(/sitter ikke på en kant/);
+    const badExtras = structuredClone(start().d) as any;
+    badExtras.extras = { wiring: [{ id: 'k', points: 'feil' }] };
+    expect(s.openDraft(JSON.stringify(badExtras))).toMatch(/ødelagt/);
+    expect(JSON.stringify(s.doc)).toBe(before);
+    expect(JSON.parse(kv.getItem(BUILDER_KEY)!).doc).toEqual(JSON.parse(before));
+  });
+
+  it('kompilering kaster aldri: en uventet feil blir en melding i sjekklisten', () => {
+    const s = new BuilderSession(new MemoryKV());
+    s.start(start().d);
+    s.apply((d) => void ((d.rooms[0] as any).polygon = null));
+    const r = s.compiled()!;
+    expect(r.doc).toBeNull();
+    expect(r.issues[0]).toMatchObject({ severity: 'error', message: expect.stringContaining('kunne ikke gjøres om') });
+    expect(s.exportText()).toBeNull();
+  });
+
+  it('den forrige tegningen huskes når en ny startes eller den forkastes, og kan hentes igjen', () => {
+    const kv = new MemoryKV();
+    const s = new BuilderSession(kv);
+    expect(s.previous()).toBeNull();
+    s.start(start().d);
+    s.apply((d) => void (d.name = 'Første'));
+    s.start(emptyBuilderDoc('Andre'));
+    expect(s.previous()?.name).toBe('Første');
+    // Også etter omlasting.
+    const t = new BuilderSession(kv);
+    expect(t.restorePrevious()).toBe(true);
+    expect(t.doc!.name).toBe('Første');
+    t.discard();
+    expect(new BuilderSession(kv).previous()?.name).toBe('Første');
+  });
+
+  it('det som ble tatt med fra den gamle modellen, huskes og gis tilbake én gang når eksporten er publisert', () => {
+    const kv = new MemoryKV();
+    const s = new BuilderSession(kv);
+    s.start(start().d, { plan: ['a1', 'b2'], measure: 'm3' });
+    const file = JSON.parse(s.exportText()!) as ApartmentDoc;
+    // Omlasting før publisering: fortsatt husket.
+    const t = new BuilderSession(kv);
+    expect(t.consumed).toEqual({ plan: ['a1', 'b2'], measure: 'm3' });
+    expect(t.checkPublished(file)).toBe(true);
+    expect(t.takeConsumed()).toEqual({ plan: ['a1', 'b2'], measure: 'm3' });
+    expect(t.takeConsumed()).toBeNull();
+    // En tom tegning tar ikke med noe.
+    const u = new BuilderSession(new MemoryKV());
+    u.start(start().d);
+    expect(u.checkPublished(JSON.parse(u.exportText()!))).toBe(true);
+    expect(u.takeConsumed()).toBeNull();
+  });
+});
+
+describe('en importert modell overlever lagring', () => {
+  it('«Start fra nåværende modell» med den publiserte fila og plassholderen gir en tegning som leses inn igjen', async () => {
+    const { importApartment } = await import('../../src/builder/importDoc');
+    const { loadDoc, PUBLISHED_PATH } = await import('./helpers');
+    const { readFileSync } = await import('node:fs');
+    for (const raw of [loadDoc(), JSON.parse(readFileSync(PUBLISHED_PATH, 'utf8'))]) {
+      const r = importApartment(raw);
+      if (!r.ok) throw new Error(r.message);
+      const kv = new MemoryKV();
+      new BuilderSession(kv).start(r.doc);
+      const again = new BuilderSession(kv);
+      expect(again.recovered).toBeNull();
+      expect(again.doc!.rooms).toHaveLength(r.doc.rooms.length);
+      expect(again.compiled()!.doc).not.toBeNull();
+    }
   });
 });

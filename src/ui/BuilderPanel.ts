@@ -23,6 +23,9 @@ import { h } from './dom';
 export interface BuilderActions {
   startBlank(): void;
   startFromCurrent(): void;
+  /** Den forrige tegningen (før en ny ble startet eller den ble forkastet), eller null. */
+  previous(): { name: string; rooms: number } | null;
+  restorePrevious(): void;
   openDraftFile(file: File): void;
   /** Oppmåling i gjennomsyn (Quest 3). */
   capture(): void;
@@ -152,6 +155,7 @@ export class BuilderPanel {
   private readonly settings: HTMLElement;
   private readonly backdropBox: HTMLElement;
   private readonly notice: HTMLElement;
+  private readonly previousBtn: HTMLButtonElement;
   private readonly viewBtn: HTMLButtonElement;
   private contextKey = '';
   private contextDoc: BuilderDoc | null = null;
@@ -177,6 +181,12 @@ export class BuilderPanel {
       file.value = '';
     });
     const openFile = (): void => file.click();
+    // Fra arbeidsflaten: den åpne tegningen byttes ut (den kan hentes igjen som «forrige tegning»).
+    const openFileReplacing = (): void => {
+      if (editor.doc?.rooms.length && !confirm('Åpne en annen tegning? Den du har nå, kan hentes igjen med «Hent forrige tegning».')) return;
+      file.click();
+    };
+    this.previousBtn = button('Hent forrige tegning', 'builder-previous', () => actions.restorePrevious(), 'small big');
 
     this.captureBtn = button('Mål opp i gjennomsyn (Quest)', 'builder-capture', () => actions.capture(), 'small big');
     this.notice = h('p', { class: 'draft-ok', 'data-testid': 'builder-notice', hidden: '' });
@@ -196,6 +206,7 @@ export class BuilderPanel {
         button('Start fra nåværende modell', 'builder-from-current', () => actions.startFromCurrent(), 'small big'),
         this.captureBtn,
         button('Åpne tegning fra fil …', 'builder-open', openFile, 'small big'),
+        this.previousBtn,
       ),
       h('p', { class: 'hint small-print' }, '«Start fra nåværende modell» tar med installasjoner, møbler, kabler og rør. Da kan du legge til og fjerne hjørner, rom, dører og vinduer – det oppmålingen ikke kan.'),
     );
@@ -251,7 +262,7 @@ export class BuilderPanel {
         'div',
         { class: 'row' },
         button('Lagre tegningen som fil', 'builder-save-draft', () => actions.saveDraftFile()),
-        button('Åpne tegning …', 'builder-open-2', openFile),
+        button('Åpne tegning …', 'builder-open-2', openFileReplacing),
       ),
     );
     this.settings = h('div', {});
@@ -394,6 +405,9 @@ export class BuilderPanel {
     this.captureBtn.disabled = ar !== true;
     this.captureBtn.textContent = ar === true ? 'Mål opp i gjennomsyn' : ar === null ? 'Mål opp i gjennomsyn (sjekker …)' : 'Mål opp i gjennomsyn (bare på Quest 3)';
     this.captureBtn.classList.toggle('primary-small', ar === true);
+    const prev = doc ? null : this.actions.previous();
+    this.previousBtn.hidden = !prev;
+    if (prev) this.previousBtn.textContent = `Hent forrige tegning («${prev.name}», ${prev.rooms} rom)`;
     this.lastDraftLen = ed.draft.length;
     if (!doc) return;
     this.notice.hidden = true;
@@ -409,9 +423,15 @@ export class BuilderPanel {
     this.captureMore.disabled = ar !== true;
     this.vrBtn.disabled = !this.actions.vrSupport();
     this.upload.href = this.actions.uploadUrl();
-    this.renderContext(doc);
-    this.renderCheck(doc);
-    this.renderSettings(doc);
+    try {
+      this.renderContext(doc);
+      this.renderCheck(doc);
+      this.renderSettings(doc);
+    } catch (e) {
+      // Panelet skal aldri ta med seg resten av appen: vis feilen og fortsett.
+      console.error('Panelet for «Lag ny modell» kunne ikke tegnes', e);
+      this.message.textContent = `Noe i tegningen kunne ikke vises: ${(e as Error).message}. «Angre» eller «Forkast tegningen» hjelper.`;
+    }
   }
 
   /* ---------------- egenskaper ---------------- */

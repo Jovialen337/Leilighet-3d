@@ -47,7 +47,6 @@ export class BuildOverlay {
   private readonly rooms: THREE.Mesh;
   private readonly capture: THREE.Mesh;
   readonly ghost: THREE.Mesh;
-  private triangles = 0;
 
   constructor() {
     this.root.name = 'ny-modell';
@@ -136,22 +135,7 @@ export class BuildOverlay {
   }
 
   private swap(mesh: THREE.Mesh, g: GeoBuilder): void {
-    const before = (mesh.geometry.getIndex()?.count ?? 0) / 3;
     mesh.geometry.dispose();
     mesh.geometry = g.build();
-    this.triangles += (mesh.geometry.getIndex()?.count ?? 0) / 3 - before;
-  }
-
-  stats(): { triangles: number } {
-    return { triangles: this.triangles };
-  }
-
-  dispose(): void {
-    this.rooms.geometry.dispose();
-    this.capture.geometry.dispose();
-    (this.rooms.material as THREE.Material).dispose();
-    (this.capture.material as THREE.Material).dispose();
-    this.ghost.geometry.dispose();
-    (this.ghost.material as THREE.Material).dispose();
   }
 }

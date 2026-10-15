@@ -24,7 +24,7 @@ import { repoFromLocation, uploadUrl } from '../ui/github';
 import { Labels } from '../ui/Labels';
 import { DesktopView } from '../views/DesktopView';
 import { XRManager } from '../xr/XRManager';
-import { applyOps, PlanEdits, type PlanOp } from '../plan/PlanEdits';
+import { applyOps, opFingerprint, PlanEdits, type PlanOp } from '../plan/PlanEdits';
 import { PlanController } from '../plan/PlanController';
 import { PlanOverlay } from '../plan/PlanOverlay';
 import { PlanBox } from '../ui/PlanBox';
@@ -33,6 +33,7 @@ import type { ApartmentDoc } from '../schema/types';
 import { validateApartment, type ValidationResult } from '../schema/validate';
 import type { DrawTool } from '../plan/draw';
 import { BuilderController } from './BuilderController';
+import type { Consumed } from '../builder/BuilderSession';
 
 /** Tegningene som passer (lagt inn), de som ikke passer nå, og valideringen av resultatet. */
 type PlanSplit = { doc: ApartmentDoc; hidden: PlanOp[]; result?: ValidationResult };
@@ -134,9 +135,17 @@ export class App {
         desktop: this.desktop,
         xr: this.xr,
         canvas: this.renderer.domElement,
-        currentDoc: () => {
+        importSource: () => {
           const base = this.baseDoc();
-          return base ? this.planOn(base) : null;
+          if (!base) return null;
+          const { doc, hidden } = this.splitPlan(base);
+          return {
+            doc,
+            consumed: {
+              plan: this.plan.ops.filter((o) => !hidden.includes(o)).map(opFingerprint),
+              measure: this.measure?.hasMeasurements ? this.measure.logHash() : null,
+            },
+          };
         },
         showPreview: (v) => this.showBuilderPreview(v),
         showEmpty: () => this.showBuilderEmpty(),
@@ -175,6 +184,8 @@ export class App {
       },
     });
     this.ui.panel.querySelector('.panel-toggle')?.addEventListener('click', () => this.resize());
+    // Ny modell vises: el og vann tegnes på fila, ikke på den (gjelder også i VR).
+    this.xr.canDraw = () => !this.builder.ownsView;
     this.builder.open.subscribe((on) => {
       this.ui.setBuilding(on);
       this.resize();
@@ -214,12 +225,13 @@ export class App {
       }
       return;
     }
-    this.builder.checkPublished(this.store.fileDoc);
+    const published = this.builder.checkPublished(this.store.fileDoc);
     this.measure = this.createMeasureSession();
     this.planHidden = [];
     this.planCache = null;
     this.planPending = null;
     if (this.store.fileDoc) this.plan.rebase(this.store.fileDoc);
+    if (published) this.dropConsumed(published.consumed);
     if (this.builder.ownsView) this.builder.refresh(true);
     else if (this.measure?.hasMeasurements || this.plan.size) this.showDraft(true);
     else {
@@ -228,6 +240,21 @@ export class App {
       this.ui.showModel(result.model, result.warnings);
     }
     this.updateMeasureUi();
+  }
+
+  /**
+   * Den publiserte fila kom fra «Lag ny modell», som tok med tegnet el og
+   * vann og målinger fra den gamle modellen: de er nå med i fila (i den nye
+   * rammen) og skal ikke legges på en gang til. Det som ble laget etterpå,
+   * beholdes, og byggeren sier fra om det.
+   */
+  private dropConsumed(c: Consumed | null): void {
+    if (c) {
+      const done = new Set(c.plan);
+      this.plan.removeOps(this.plan.ops.filter((o) => done.has(opFingerprint(o))));
+      if (c.measure && this.measure?.staleHash() === c.measure) this.measure.discardStale();
+    }
+    this.builder.noteLeftovers(this.plan.ops.length, this.measure?.stale?.count ?? 0);
   }
 
   /** Grunnlaget for tegning: oppmålingsutkastet eller fila (uten planendringene). */
