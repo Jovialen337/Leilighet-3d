@@ -227,7 +227,7 @@ You can also **open a drawing from a file** (`*.tegning.json`) to move work betw
 - **Typed dimensions** in Norwegian, all in mm:
   - «4,2» = 4,2 m; «420 cm» = 420 cm; «4200» = 4200 mm; a bare 1–9 = metres.
   - A sign («+150», «-150») adds to or subtracts from the current value.
-  - In **coordinate and floor-level fields** (corner x/z, «Gulvnivå») a minus is part of the value: «-1100» is −1100. Subtract there with «-=150». «+150» (and «+=150») always adds, since a positive value never needs a plus.
+  - In **coordinate and floor-level fields** (corner x/z, «Gulvnivå») a minus is part of the value: «-1100» is −1100, and «-3» is −3 m like «3» is 3 m. Subtract there with «-=150». «+150» (and «+=150») always adds, since a positive value never needs a plus.
   - In «Flytt rommet» the sign is only the direction; the number reads like any other length («-500» moves 500 mm left or up, «-3» moves 3 m like «3»). An empty field is 0, and Enter moves on to the next field and then moves the room.
   - While drawing, start typing and the number goes straight into the length field. Enter places it, and Tab moves to the next field.
   - In the polygon tool, the arrow buttons → ↓ ← ↑ give the direction without a mouse.
@@ -239,6 +239,11 @@ You can also **open a drawing from a file** (`*.tegning.json`) to move work betw
     - «Flytt rommet» by typed x/z distances;
     - «Kopier rommet»: the copy is placed beside the original with a partition, on the first free side (right, below, left, above), with its windows and doors but not the entrance door, and without their names and notes;
     - «Roter 90°»: clockwise about the middle; openings follow; four turns give exactly the same room back;
+    - «Del rommet»: a partition of the standard thickness straight through the room, vertical (at an x) or horizontal (at a z), suggested in the middle across the longer side.
+      - One side keeps the room's id and name; the other becomes «‹navn› 2» with the same floor, ceiling and colour.
+      - Windows and doors follow their side; an opening across the split is removed, and the message says so.
+      - Measured corners stay measured.
+      - A split that does not cross the room or leaves under 0.25 m² on a side is refused, and so is a room with a sloped ceiling;
   - edge: length; for an exterior wall, its thickness and material; for a partition, its **thickness** (the neighbouring room moves); add door, window or opening; «Fordel vinduer jevnt»;
   - corner: x and z (negative values allowed);
   - opening: type, from the left or right corner as seen from inside the room, width, height, sill, «går inn i», hinge side, swing, entrance door, note.
@@ -248,12 +253,14 @@ You can also **open a drawing from a file** (`*.tegning.json`) to move work betw
   - «Rett opp rommene» on a skew warning straightens only the two rooms it names, with edges up to 11° off the axis. «Rett opp rommet» straightens the selected room. Rooms that are not straightened stay where they are; the straightened room's nearly-aligned edges are moved onto theirs.
   - «Rett opp alt» (in the tools) straightens every room.
 - **The overlay stays readable:**
-  - dimensions are always shown on the selected room and the room under the pointer;
-  - other rooms show them when zoomed in, and only the ones that fit along their edge;
-  - handles are drawn by priority (selected opening, then the selected room's corners, move handle and edges, then other corners) and never on top of each other, so the Quest laser hits the handle you see;
+  - a dimension is drawn only where it covers no other dimension, room name or handle;
+  - the selected room and the room under the pointer come first. A label is tried near the middle of its edge, first horizontal and then running along the edge (narrow rooms). For the selected room it may also go just outside the edge;
+  - other rooms show dimensions when zoomed in, and only where the label lies completely inside the room;
+  - a label with no free spot is left out; every edge length is in the panel;
+  - handles are chosen by priority (selected opening, then the selected room's corners, move handle and edges, then other corners). A handle closer than the two radii to a more important one is left out, and the most important is drawn on top, so the Quest laser hits the handle you see;
   - when an opening is short on screen, its end handles are set a little outside its ends so all three fit. A drag counts from where you took hold, so the end does not jump;
   - note and fixture labels are hidden while the builder is open; room names stay.
-- **Undo/redo** keeps 100 steps (Ctrl+Z, Ctrl+Y). Everything is **saved in the browser** at once, so the drawing survives a reload.
+- **Undo/redo** keeps 100 steps (Ctrl+Z, Ctrl+Y), and the message says «Angret.» or «Gjort om.». Everything is **saved in the browser** at once, so the drawing survives a reload.
 - The **live preview** is the real model:
   - 2D plan cut at the section height, 3D («Se i 3D») and **VR** («Gå gjennom i VR»);
   - if the drawing has errors, the last valid version is shown until they are fixed.
@@ -289,9 +296,13 @@ Room by room, standing in the room:
    - For a slanted wall, hold the **grip** while touching to add a point to the same wall.
    - A ghost corner shows where the next corner will land.
 2. **A** closes the room. Corners are where the walls meet, and the room must not cross itself.
-   - If the room is under 3° off the drawing's common axis, it is turned onto the axis about the first touch. This is taken as tracking noise, and it avoids a wedge-shaped partition. The panel says how much it was turned and how far the farthest corner moved.
+   - **The drawing's axis.** The room's direction comes from only two touches on the first wall: 1 cm off over 60 cm is about 1°, which would skew the whole room and every dimension. So, when the first wall is within 3° of the drawing's common axis, the axis is used as the direction, and every wall line goes through its own touches. That keeps the dimensions right, not only the angle.
+     - In the emulated test, a second touch 1 cm off gives a partition of 100 ± 5 mm and a depth of 3000 ± 5 mm.
+     - Walls touched several times (grip) use the axis too when they are within 3°; deliberately slanted walls keep their own line.
+     - The panel says how many degrees came from the axis and how far the corners moved.
    - A room more than 3° off is kept as measured, since it is taken to be skewed on purpose.
-   - To keep a room that was turned in as measured, press **B** (back to the walls) and then **A**. B and A again turns it in after all.
+   - To keep a room as measured anyway, press **B** (back to the walls) and then **A**. B and A again uses the axis after all.
+   - With no axis to borrow (the first room, or one skewed on purpose), touches on the first wall less than 1 m apart get a warning that the direction will be inaccurate.
 3. **Floor.** Touch the floor. A skips it.
 4. **Ceiling.** Touch the ceiling, or press the right stick to point at it with the ray (hit-test). A skips it.
 5. The room goes straight into the drawing, with its corners marked as measured.

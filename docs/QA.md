@@ -364,6 +364,50 @@ Dimensions: visual 7, performance 8, options 8, intuitive 7, code 7, robustness 
     - very sharp tips are cut at 4 × the wall thickness;
     - corner overlap.
 
+### Judge (round 2, scored at 4c50135): **7.75 – not accepted**
+
+| # | Item | Verdict |
+|---|---|---|
+| 1 | Builder core | ✅ every field survives; skew warnings with a fix; corners closed at every angle |
+| 2 | 2D editor | 🟡 dimension labels still overlapped in the bathroom on the real plan; side labels under the selected room's handles; handles partly overlapping |
+| 3 | App integration | ✅ |
+| 4 | Passthrough capture | 🟡 turning the closed room fixed the angle but kept the dimension error. A second touch 1 cm off over 60 cm gave a 125 mm partition and a 2981 mm depth (target ±5 mm) |
+| 5 | Robustness | ✅ |
+| 6 | Tests and docs | ✅ |
+
+Dimensions: visual 7, performance 8, options 8, intuitive 8, code 8, robustness 8, weighted 7.75. Another round was worth it.
+
+### Round 3 – the judge's list
+- **Capture: solved on the drawing's axis.**
+  - When the first wall is within 3° of the axis, the axis is the room's direction, and each wall line goes through its own touches.
+  - The rigid turn is removed. B then A still keeps a room as measured.
+  - With no axis, a first-wall baseline under 1 m gets a warning.
+- **Labels:**
+  - placed without covering other dimensions, room names (measured from the label) or handles;
+  - horizontal, then along the edge, then (selected room only) outside the edge;
+  - for other rooms, only inside the room;
+  - text widths measured with the real font;
+  - left out when there is no spot.
+- **Handles:** left out by r1 + r2, and the most important is drawn on top.
+- **Small fixes:**
+  - «-3» is −3 m in coordinate fields;
+  - «Angre» and «Gjør om» update the message.
+- **Optional:** «Del rommet» (split a room with a partition).
+
+**How it was tested:**
+- **Unit tests:**
+  - the judge's noise case (partition 100 ± 5 mm, depth 3000 ± 5 mm), a straight room, the first room, a deliberately slanted room, a grip-touched slanted wall and a turned drawing;
+  - signed «-3»;
+  - splitting (openings, measured corners, refusals).
+- **Browser tests:**
+  - zero overlaps with every room selected, on PC and in the Quest Browser;
+  - undo and redo messages;
+  - «Del rommet».
+- **Emulated Quest:**
+  - the noise case end to end (partition 100 ± 5 mm, depth 3000 ± 5 mm, no skew warning), with B + A;
+  - the short-baseline warning.
+- **The published file:** zero overlaps at 1280×800, at 1920×1080 and in the Quest Browser, with nothing, the bathroom or the living room selected.
+
 ### Test on the Quest (phase 2c)
 1. **Laptop, background image:** in «Lag ny modell», open «Bakgrunnsbilde» and load the sketch or a floor plan. Set the scale with a known wall length, then trace the rooms on top of it.
 2. **Quest Browser, 2D:**
