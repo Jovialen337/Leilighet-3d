@@ -260,6 +260,18 @@ The goal: a complete and detailed way to make a new model, as perfect as possibl
   - «Åpne tegning …» asks first, and «Hent forrige tegning» brings back the previous drawing;
   - builder keys only work while drawing in 2D;
   - new tests for re-alignment after a tracking reset, the image save failure, broken drawings, changes taken into a new model, and the VR drawing block.
+### Gatekeeper (pass 2 at 55d84fa): **PASS**
+- **Gates:**
+  - all green: 198 unit tests and 67 browser tests;
+  - the three blockers re-checked in the browser and fixed;
+  - draw calls per eye: 32 when walking the file, at most 34 on a new-model preview, 10 in passthrough;
+  - textures 4.7–8.0 MB;
+  - while dragging, the compile result is reused (about 1 ms per move).
+- **Remarks, fixed afterwards:**
+  1. A new model published from *another* device could still leave drawn el/vann in the old frame. Drawn el/vann now remembers the rooms and walls it was drawn on and warns on any device when they change. There is a unit test and a browser test.
+  2. The «Forkast tegningen» text now says the drawing can be fetched back.
+  3. «Hent forrige tegning» also brings back what that drawing took from the old model.
+
 - **Not changed:**
   - The browser test's draw-call threshold uses the placeholder file.
   - The budget rule is 40 per eye; the gatekeeper measured 32 per eye on the real file.

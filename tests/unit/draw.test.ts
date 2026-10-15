@@ -236,3 +236,44 @@ describe('filtre og eldre filer', () => {
     expect(pickNearest(model, { x: 40, z: 3000 }, 100, (o) => o.layer !== 'wiring')).toBeNull();
   });
 });
+
+describe('tegninger laget mot en eldre fil', () => {
+  class KV {
+    readonly m = new Map<string, string>();
+    getItem(k: string): string | null {
+      return this.m.get(k) ?? null;
+    }
+    setItem(k: string, v: string): void {
+      this.m.set(k, v);
+    }
+    removeItem(k: string): void {
+      this.m.delete(k);
+    }
+  }
+  const cable = { id: 'kabel-x', kind: 'power', status: 'planned', layer: 'el-planlagt', points: [[1000, 300, 1000], [2000, 300, 1000]] };
+
+  it('blir rom og vegger byttet (f.eks. publisert fra en annen enhet), sier den fra – til man har sjekket dem', () => {
+    const kv = new KV();
+    const a = loadDoc();
+    new PlanEdits(a, kv).put('wiring', cable);
+    // Samme fil: ingenting å si fra om.
+    expect(new PlanEdits(a, kv).olderFile).toBe(0);
+    // Ny fil med et rom flyttet 50 mm.
+    const b = loadDoc();
+    b.rooms[0]!.polygon = b.rooms[0]!.polygon.map(([x, z]) => [(x as number) + 50, z]) as typeof b.rooms[0]['polygon'];
+    const e = new PlanEdits(b, kv);
+    expect(e.olderFile).toBe(1);
+    expect(e.size).toBe(1);
+    // Også etter omlasting, til man sier at de ligger riktig.
+    expect(new PlanEdits(b, kv).olderFile).toBe(1);
+    e.acceptOlder();
+    expect(e.olderFile).toBe(0);
+    expect(new PlanEdits(b, kv).olderFile).toBe(0);
+  });
+
+  it('eldre lagring uten avtrykk regnes som tegnet på fila slik den er', () => {
+    const kv = new KV();
+    kv.setItem('leilighet:plan:v1', JSON.stringify({ version: 1, ops: [{ op: 'put', c: 'wiring', obj: cable }] }));
+    expect(new PlanEdits(loadDoc(), kv).olderFile).toBe(0);
+  });
+});

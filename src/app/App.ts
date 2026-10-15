@@ -181,6 +181,8 @@ export class App {
           this.planCtrl.message.set('Tegningene som ikke passet, er slettet.');
         },
         adoptStale: () => this.measure?.adoptStale(),
+        keepPlanOlder: () => this.plan.acceptOlder(),
+        discardPlanOlder: () => this.plan.clear(),
       },
     });
     this.ui.panel.querySelector('.panel-toggle')?.addEventListener('click', () => this.resize());
@@ -267,6 +269,7 @@ export class App {
       planChanges: this.plan.changedObjects,
       planPublished: this.plan.published,
       planStale: this.planHidden.length,
+      planOlder: this.plan.olderFile,
     });
   }
 

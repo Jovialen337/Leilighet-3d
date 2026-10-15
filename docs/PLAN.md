@@ -294,6 +294,8 @@ Other details:
   - «Start fra nåværende modell» remembers which drawn cables, pipes and points, and which measurements, it took with it.
   - When the exported file is published, exactly those are removed from the browser, because they are now in the file, in the new frame.
   - Anything made on the old model afterwards is kept and reported, since it may now be in the wrong place.
+  - Drawn el/vann also remembers which rooms and walls it was drawn on. If the file changes underneath it, for example when a new model was published from another device, the measuring box warns that it may be wrong. «De ligger riktig – behold dem» clears the warning; «Forkast dem» deletes them.
+  - A drawing published from another device still shows «Fortsett på ny modell …» here. Discard it with «Forkast tegningen»; it is kept as «forrige tegning».
 - While a new model is shown, drawing el/vann in VR is off; its coordinates would land wrongly in the file.
 - If `apartment.json` has errors, the error screen offers «Lag ny modell i stedet».
 

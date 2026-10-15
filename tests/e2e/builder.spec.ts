@@ -723,3 +723,33 @@ test('gjennomsyn: mister hodesettet sporingen, må tegningen justeres på nytt',
   // Rommet som var målt, er ikke rørt.
   expect((await builderDoc(page)).rooms).toHaveLength(1);
 });
+
+test('el og vann tegnet mot en eldre fil (f.eks. publisert fra en annen enhet) får et varsel', async ({ page }) => {
+  await page.goto('./');
+  await waitForModel(page);
+  await page.keyboard.press('2');
+  await page.keyboard.press('e');
+  for (const [x, z] of [
+    [3000, 1000],
+    [3000, 3000],
+  ]) {
+    const p = await page.evaluate(([a, b]) => (window as any).leilighet.desktop.screenOf(a, 1500, b), [x, z] as const);
+    await page.mouse.move(p.x, p.y);
+    await page.mouse.click(p.x, p.y);
+  }
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('plan-older')).toBeHidden();
+  // Fila byttes (rom flyttet) uten at denne nettleseren eksporterte den.
+  const moved = placeholder();
+  moved.rooms[0].polygon = moved.rooms[0].polygon.map(([x, z]: [number, number]) => [x + 50, z]);
+  await page.route('**/apartment.json', (route) => route.fulfill({ json: moved }));
+  await page.reload();
+  await waitForModel(page);
+  await expect(page.getByTestId('plan-older')).toContainText('eldre utgave av rom og vegger');
+  await page.getByTestId('plan-older-keep').click();
+  await expect(page.getByTestId('plan-older')).toBeHidden();
+  await page.reload();
+  await waitForModel(page);
+  await expect(page.getByTestId('plan-older')).toBeHidden();
+  expect(await page.evaluate(() => (window as any).leilighet.plan.size)).toBe(1);
+});

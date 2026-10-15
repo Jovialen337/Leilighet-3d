@@ -231,27 +231,33 @@ export class BuilderSession {
 
   /** Den forrige tegningen (før en ny ble startet eller denne ble forkastet), eller null. */
   previous(): BuilderDoc | null {
+    return this.readPrevious()?.doc ?? null;
+  }
+
+  /** Henter den forrige tegningen (den som er åpen nå, blir «forrige» i stedet). */
+  restorePrevious(): boolean {
+    const prev = this.readPrevious();
+    if (!prev) return false;
+    this.start(prev.doc, prev.consumed);
+    return true;
+  }
+
+  private readPrevious(): { doc: BuilderDoc; consumed: Consumed | null } | null {
     try {
       const text = this.storage?.getItem(`${this.key}:forrige`);
-      const doc: unknown = text ? JSON.parse(text) : null;
-      return doc && isBuilderDoc(doc) ? withDefaults(doc) : null;
+      const v = text ? (JSON.parse(text) as { doc?: unknown; consumed?: unknown }) : null;
+      if (!v || !isBuilderDoc(v.doc)) return null;
+      return { doc: withDefaults(v.doc), consumed: isConsumed(v.consumed) ? v.consumed : null };
     } catch {
       return null;
     }
   }
 
-  /** Henter den forrige tegningen (den som er åpen nå, blir «forrige» i stedet). */
-  restorePrevious(): boolean {
-    const prev = this.previous();
-    if (!prev) return false;
-    this.start(prev);
-    return true;
-  }
-
+  /** Husker tegningen (og det den tok med fra den gamle modellen) som «forrige tegning». */
   private keepPrevious(doc: BuilderDoc): void {
     if (!doc.rooms.length) return;
     try {
-      this.storage?.setItem(`${this.key}:forrige`, JSON.stringify(doc));
+      this.storage?.setItem(`${this.key}:forrige`, JSON.stringify({ doc, ...(this.consumed ? { consumed: this.consumed } : {}) }));
     } catch {
       /* lagring utilgjengelig */
     }

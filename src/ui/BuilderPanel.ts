@@ -282,7 +282,7 @@ export class BuilderPanel {
       'Forkast tegningen',
       'builder-discard',
       () => {
-        if (confirm('Slette hele tegningen av den nye modellen? Dette kan ikke angres.')) editor.session.discard();
+        if (confirm('Forkaste tegningen av den nye modellen? Den kan hentes igjen med «Hent forrige tegning» (til en annen tegning forkastes).')) editor.session.discard();
       },
       'link danger',
     );
