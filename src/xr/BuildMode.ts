@@ -16,8 +16,9 @@
 import * as THREE from 'three';
 import type { BuilderSession } from '../builder/BuilderSession';
 import {
-  alignToAxis,
   closeRoom,
+  fitLine,
+  onAxis,
   composeRig,
   medianPoint,
   MIN_WALL_SPAN,
@@ -50,6 +51,8 @@ type HitTestState = 'none' | 'pending' | 'ready' | 'unavailable';
 const TIP_WINDOW_MS = 150;
 /** En ny vegg nærmere forrige veggs linje enn dette (mm) er nok samme vegg. */
 const SAME_WALL = 100;
+/** Avstand mellom berøringene på første vegg som gir nøyaktig nok retning (mm). */
+const GOOD_BASELINE = 1000;
 /** Plass til måletuppen så mange rammer tilbake (120 Hz × 0,5 s), i en fast ringbuffer. */
 const HISTORY = 64;
 const RAY_HIT = new THREE.Color('#18d4ff');
@@ -225,6 +228,17 @@ export class BuildMode {
     this.historyLen = 0;
   }
 
+  /**
+   * Tegningens akse som veggene legges langs (se wallLines), eller null:
+   * første rom, eller «behold som målt» (B + A).
+   */
+  private captureAxis(): number | null {
+    const d = this.doc;
+    if (!d || this.keepSkew) return null;
+    const t = this.target;
+    return commonAxis(d, 4, t.kind === 'remeasure' ? t.room : undefined);
+  }
+
   private resetCapture(): void {
     this.aligned = false;
     this.keepSkew = false;
@@ -277,7 +291,7 @@ export class BuildMode {
     }
     if (this.captureDirty) {
       this.captureDirty = false;
-      this.lines = wallLines(this.walls);
+      this.lines = wallLines(this.walls, this.captureAxis());
       this.overlay.buildCapture(this.captureView());
     }
 
@@ -434,7 +448,16 @@ export class BuildMode {
     if (walls.length === 1 && first.length === 1) {
       if (dist(first[0]!, p) < MIN_WALL_SPAN) return this.fail('For nær det første punktet. Berør den samme veggen minst 30 cm lenger bort.', right);
       first.push(p);
-      this.ok('Første vegg er målt. Gå videre rundt rommet og berør neste vegg.', right);
+      // Retningen til hele rommet kommer fra disse to punktene – med mindre tegningen har en
+      // akse den kan låne. Kort avstand gir unøyaktig retning (1 cm feil over 50 cm er over 1°).
+      const span = dist(first[0]!, p);
+      const fitted = fitLine(first);
+      if (span < GOOD_BASELINE && !(fitted && onAxis(fitted.u, this.captureAxis())))
+        this.say(
+          `Første vegg er målt, men punktene er bare ${Math.round(span / 10)} cm fra hverandre, så retningen blir unøyaktig. Angre (B) og berør lenger fra hverandre (over 1 m) – eller fortsett.`,
+          'warn',
+        );
+      else this.ok('Første vegg er målt. Gå videre rundt rommet og berør neste vegg.', right);
       return;
     }
     if (grip) {
@@ -443,7 +466,7 @@ export class BuildMode {
       this.ok(`Punkt lagt til vegg ${walls.length}.`, right);
       return;
     }
-    const lines = wallLines(walls);
+    const lines = wallLines(walls, this.captureAxis());
     const last = lines[lines.length - 1];
     if (last && distToLine(p, last) < SAME_WALL)
       return this.fail('Det ser ut som samme vegg som sist. Berør neste vegg – eller hold grepet inne for å legge punktet til denne.', right);
@@ -495,21 +518,18 @@ export class BuildMode {
   private onA(right: InputSlot | undefined): void {
     switch (this.phase) {
       case 'walls': {
-        const r = closeRoom(this.walls);
+        // Veggene legges langs tegningens akse når de er under 3° fra den (se wallLines).
+        const r = closeRoom(this.walls, this.captureAxis());
         if (!r.ok) return this.fail(r.message, right);
-        // Litt skjevt i forhold til resten av tegningen (sporingen): rett inn om første berøring.
-        const t = this.target;
-        const axis = this.doc && !this.keepSkew ? commonAxis(this.doc, 4, t.kind === 'remeasure' ? t.room : undefined) : null;
-        const al = alignToAxis(r.polygon, axis, this.walls[0]![0]!);
-        this.pending = { polygon: al.polygon, floor: null };
-        this.aligned = al.deg !== 0;
+        this.pending = { polygon: r.polygon, floor: null };
+        this.aligned = r.turned !== 0;
         this.phase = 'floor';
-        const fix = al.deg
-          ? ` Rettet inn ${Math.abs(al.deg).toFixed(1).replace('.', ',')}° etter de andre rommene (flyttet høyst ${formatLength(al.moved)}; B + A beholder det som målt).`
+        const fix = r.turned
+          ? ` Rettet inn ${Math.abs(r.turned).toFixed(1).replace('.', ',')}° etter de andre rommene (hjørnene flyttet høyst ${formatLength(r.moved)}; B + A beholder det som målt).`
           : this.keepSkew
             ? ' Beholdt slik det ble målt.'
             : '';
-        this.ok(`Rommet er lukket: ${r.polygon.length} hjørner, ${formatArea(polygonArea(al.polygon))}.${fix} Berør gulvet.`, right);
+        this.ok(`Rommet er lukket: ${r.polygon.length} hjørner, ${formatArea(polygonArea(r.polygon))}.${fix} Berør gulvet.`, right);
         break;
       }
       case 'floor':
@@ -1056,7 +1076,7 @@ export class BuildMode {
 
   debugState(): BuildDebugState {
     const tip = this.tip.getWorldPosition(new THREE.Vector3());
-    const lines = wallLines(this.walls);
+    const lines = wallLines(this.walls, this.captureAxis());
     return {
       phase: this.phase,
       method: this.method,

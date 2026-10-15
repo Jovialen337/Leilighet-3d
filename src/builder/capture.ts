@@ -12,7 +12,7 @@
  *
  * Alle mål i mm, i byggerens ramme (x, z i planet, y opp).
  */
-import { add, cross, dist, dominantAngle, dot, edgeCoords, edgesOf, polygonProblem, scale, sub, type P2 } from './geometry';
+import { add, cross, dist, dot, edgeCoords, edgesOf, polygonProblem, scale, sub, type P2 } from './geometry';
 import type { PlanTransform } from './transform';
 import type { BOpeningType, BuilderDoc } from './types';
 
@@ -72,15 +72,41 @@ export function intersect(a: Line, b: Line, minAngleDeg = MIN_CORNER_ANGLE): P2 
   return add(a.p, scale(a.u, t));
 }
 
-/** Linjene for veggene som er berørt så langt (første vegg trenger to punkter). */
-export function wallLines(walls: readonly (readonly P2[])[]): Line[] {
+/** En vegg som er under så mange grader fra tegningens akse, legges langs aksen. */
+export const AXIS_SNAP_DEG = 3;
+
+/**
+ * Retningen `u` lagt på tegningens akse (grader, modulo 90°), med samme
+ * fortegn – eller null hvis den er mer enn 3° unna (skrå med vilje) eller
+ * det ikke er noen akse.
+ */
+export function onAxis(u: P2, axisDeg: number | null | undefined): P2 | null {
+  if (axisDeg === null || axisDeg === undefined) return null;
+  const a = (Math.atan2(u.z, u.x) * 180) / Math.PI;
+  const d = ((((a - axisDeg + 45) % 90) + 90) % 90) - 45;
+  if (Math.abs(d) > AXIS_SNAP_DEG) return null;
+  const r = ((a - d) * Math.PI) / 180;
+  return { x: Math.cos(r), z: Math.sin(r) };
+}
+
+/**
+ * Linjene for veggene som er berørt så langt (første vegg trenger to punkter).
+ *
+ * `axisDeg`: tegningens felles akse (se `commonAxis`). Retningen til første
+ * vegg måles over bare et par berøringer, og en liten feil der (1 cm over
+ * 60 cm er 1°) ville gjort hele rommet skjevt. Er veggen under 3° fra aksen,
+ * brukes aksen som retning, og hver vegg legges gjennom sine egne
+ * berøringer – så målene blir riktige, ikke bare vinkelen.
+ */
+export function wallLines(walls: readonly (readonly P2[])[], axisDeg?: number | null): Line[] {
   const lines: Line[] = [];
   for (let i = 0; i < walls.length; i++) {
     const pts = walls[i]!;
     // Skrå vegg: berørt flere steder med god avstand – linja gjennom punktene.
     const fitted = pts.length >= 2 && spread(pts) >= MIN_WALL_SPAN ? fitLine(pts) : null;
     if (fitted) {
-      lines.push(fitted);
+      const snapped = onAxis(fitted.u, axisDeg);
+      lines.push(snapped ? { p: fitted.p, u: snapped } : fitted);
       continue;
     }
     const prev = lines[i - 1];
@@ -112,17 +138,19 @@ export function openCorners(lines: readonly Line[]): (P2 | null)[] {
   return out;
 }
 
-export type CloseResult = { ok: true; polygon: P2[] } | { ok: false; message: string };
+export type CloseResult =
+  | {
+      ok: true;
+      polygon: P2[];
+      /** Hvor mange grader første vegg ble dreid inn på tegningens akse (0 = ikke). */
+      turned: number;
+      /** Lengst et hjørne havnet fra der det ville vært uten aksen (mm). */
+      moved: number;
+    }
+  | { ok: false; message: string };
 
-/**
- * Lukker rommet: hjørnet mellom siste og første vegg blir hjørne 0, så
- * kant 0 går langs første vegg (der man begynte – ved inngangsdøra).
- */
-export function closeRoom(walls: readonly (readonly P2[])[]): CloseResult {
-  if (walls.length < 3) return { ok: false, message: 'Berør minst tre vegger før du lukker rommet.' };
-  if ((walls[0]?.length ?? 0) < 2 || spread(walls[0]!) < MIN_WALL_SPAN)
-    return { ok: false, message: 'Første vegg må berøres to steder, minst 30 cm fra hverandre.' };
-  const lines = wallLines(walls);
+/** Hjørnene fra veggene, eller en feilmelding. */
+function cornersOf(walls: readonly (readonly P2[])[], lines: readonly Line[]): { ok: true; polygon: P2[] } | { ok: false; message: string } {
   if (lines.length !== walls.length) return { ok: false, message: 'En vegg mangler berøring.' };
   const n = lines.length;
   const poly: P2[] = [];
@@ -137,6 +165,24 @@ export function closeRoom(walls: readonly (readonly P2[])[]): CloseResult {
     }
     poly.push({ x: Math.round(c.x), z: Math.round(c.z) });
   }
+  return { ok: true, polygon: poly };
+}
+
+/**
+ * Lukker rommet: hjørnet mellom siste og første vegg blir hjørne 0, så
+ * kant 0 går langs første vegg (der man begynte – ved inngangsdøra).
+ * `axisDeg`: tegningens akse (se `wallLines`).
+ */
+export function closeRoom(walls: readonly (readonly P2[])[], axisDeg?: number | null): CloseResult {
+  if (walls.length < 3) return { ok: false, message: 'Berør minst tre vegger før du lukker rommet.' };
+  if ((walls[0]?.length ?? 0) < 2 || spread(walls[0]!) < MIN_WALL_SPAN)
+    return { ok: false, message: 'Første vegg må berøres to steder, minst 30 cm fra hverandre.' };
+  const lines = wallLines(walls, axisDeg);
+  if (lines.length !== walls.length) return { ok: false, message: 'En vegg mangler berøring.' };
+  const r = cornersOf(walls, lines);
+  if (!r.ok) return r;
+  const poly = r.polygon;
+  const n = lines.length;
   const problem = polygonProblem(poly);
   if (problem) return { ok: false, message: `Rommet ${problem} Angre (B) og prøv igjen.` };
   // Hver berøring skal ligge på sin egen kant (ellers ble en vegg berørt utenfor rommet).
@@ -149,42 +195,16 @@ export function closeRoom(walls: readonly (readonly P2[])[]): CloseResult {
         return { ok: false, message: `Berøringen på vegg ${k + 1} havnet utenfor rommet. Angre (B) og berør veggen midt på.` };
     }
   }
-  return { ok: true, polygon: poly };
-}
-
-/** Et nytt rom som er så lite skjevt i forhold til tegningen, rettes inn automatisk (grader). */
-const AUTO_ALIGN_DEG = 3;
-
-export interface AlignResult {
-  polygon: P2[];
-  /** Hvor mye rommet ble dreid (grader, + = med klokka i planen; 0 = uendret). */
-  deg: number;
-  /** Lengst et hjørne ble flyttet (mm). */
-  moved: number;
-}
-
-/**
- * Et rom målt i gjennomsyn står sjelden helt parallelt med de andre: små
- * vinkelfeil i sporingen gir en skjev skillevegg. Er rommet under 3° fra
- * tegningens felles akse (se `commonAxis`), dreies det inn på aksen om
- * `pivot` – første berøring, så veggen man startet med blir stående der den
- * ble berørt. Er det mer, er det trolig skjevt med vilje, og det beholdes.
- */
-export function alignToAxis(poly: readonly P2[], axis: number | null, pivot: P2): AlignResult {
-  const same: AlignResult = { polygon: poly.map((p) => ({ x: p.x, z: p.z })), deg: 0, moved: 0 };
-  if (axis === null || poly.length < 3) return same;
-  const a = dominantAngle(poly);
-  const d = ((((a - axis + 45) % 90) + 90) % 90) - 45;
-  if (Math.abs(d) < 0.05 || Math.abs(d) > AUTO_ALIGN_DEG) return same;
-  const th = (-d * Math.PI) / 180;
-  const c = Math.cos(th);
-  const s = Math.sin(th);
-  const polygon = poly.map((p) => {
-    const x = p.x - pivot.x;
-    const z = p.z - pivot.z;
-    return { x: Math.round(pivot.x + x * c - z * s), z: Math.round(pivot.z + x * s + z * c) };
-  });
-  return { polygon, deg: -d, moved: Math.max(...polygon.map((q, i) => dist(q, poly[i]!))) };
+  // Hvor mye aksen endret: første veggs vinkel, og hvor langt hjørnene flyttet seg.
+  let turned = 0;
+  let moved = 0;
+  const own = fitLine(walls[0]!);
+  if (axisDeg !== null && axisDeg !== undefined && own) {
+    turned = (Math.atan2(cross(own.u, lines[0]!.u), dot(own.u, lines[0]!.u)) * 180) / Math.PI;
+    const free = cornersOf(walls, wallLines(walls, null));
+    if (free.ok && free.polygon.length === poly.length) moved = Math.max(...poly.map((q, i) => dist(q, free.polygon[i]!)));
+  }
+  return { ok: true, polygon: poly, turned: Math.abs(turned) < 0.01 ? 0 : turned, moved };
 }
 
 /**

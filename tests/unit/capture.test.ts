@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { alignFromTouches } from '../../src/measure/align';
 import {
-  alignToAxis,
   closeRoom,
   composeRig,
   fitLine,
   medianPoint,
+  onAxis,
   placeOpening,
   wallLines,
   type P3,
@@ -288,57 +288,87 @@ describe('justering mot en tegning som finnes', () => {
   });
 });
 
-describe('nye rom rettes inn etter tegningen', () => {
-  /** Rom på 3 × 2 m med hjørne i (3100, 0), dreid `deg` grader om det hjørnet. */
-  const skewed = (deg: number) => {
-    const a = (deg * Math.PI) / 180;
-    return [
-      [0, 0],
-      [3000, 0],
-      [3000, 2000],
-      [0, 2000],
-    ].map(([x, z]) => ({ x: Math.round(3100 + x! * Math.cos(a) - z! * Math.sin(a)), z: Math.round(x! * Math.sin(a) + z! * Math.cos(a)) }));
+describe('nye rom legges langs tegningens akse', () => {
+  /** Gang 0–3000 × 0–3000. Rom 2 er egentlig 3100–6000 × 0–3000 (100 mm skillevegg). */
+  const drawing = () => {
+    const d = emptyBuilderDoc();
+    addRect(d, { x: 0, z: 0 }, { x: 3000, z: 3000 }, 'Gang');
+    return d;
+  };
+  /** Berøringene i rom 2: første vegg (nord, z = 0) to steder med `err` mm feil på det andre. */
+  const touches = (err: number, span = 600): { x: number; z: number }[][] => [
+    [
+      { x: 3500, z: 0 },
+      { x: 3500 + span, z: err },
+    ],
+    [{ x: 6000, z: 1500 }],
+    [{ x: 4500, z: 3000 }],
+    [{ x: 3100, z: 1500 }],
+  ];
+  const size = (poly: { x: number; z: number }[]) => {
+    const xs = poly.map((p) => p.x);
+    const zs = poly.map((p) => p.z);
+    return { x0: Math.min(...xs), x1: Math.max(...xs), z0: Math.min(...zs), z1: Math.max(...zs) };
   };
 
-  it('under 3° skjevt: dreies inn på aksen om første berøring, og blir én skillevegg', () => {
-    const d = emptyBuilderDoc();
-    addRect(d, { x: 0, z: 0 }, { x: 3000, z: 2000 }, 'Gang');
-    const poly = skewed(1.8);
-    const pivot = { x: 3100, z: 1000 };
-    const r = alignToAxis(poly, commonAxis(d), pivot);
-    expect(Math.abs(r.deg)).toBeCloseTo(1.8, 1);
-    // Rett etterpå (innen avrundingen), og punktet man startet med står (nesten) stille.
-    const [p0, p1, p2, p3] = r.polygon;
-    for (const [a, b] of [[p0!.z, p1!.z], [p1!.x, p2!.x], [p2!.z, p3!.z], [p3!.x, p0!.x]]) expect(Math.abs(a! - b!)).toBeLessThanOrEqual(1);
-    expect(r.moved).toBeLessThan(120);
+  it('1 cm feil over 60 cm på første vegg: skilleveggen blir 100 ± 5 mm og dybden 3000 ± 5 mm', () => {
+    const d = drawing();
+    const free = closeRoom(touches(10));
+    const r = closeRoom(touches(10), commonAxis(d));
+    if (!free.ok || !r.ok) throw new Error('lukket ikke');
+    // Uten aksen blir rommet skjevt, og målene bommer.
+    const f = size(free.polygon);
+    expect(Math.abs(f.x0 - 3100) + Math.abs(f.z1 - f.z0 - 3000)).toBeGreaterThan(20);
+    // Med aksen: hver vegg gjennom sine egne berøringer.
+    const b = size(r.polygon);
+    expect(Math.abs(b.x0 - 3000 - 100)).toBeLessThanOrEqual(5);
+    expect(Math.abs(b.z1 - b.z0 - 3000)).toBeLessThanOrEqual(5);
+    expect(Math.abs(b.x1 - 6000)).toBeLessThanOrEqual(5);
+    expect(Math.abs(r.turned)).toBeCloseTo(0.95, 1);
+    expect(r.moved).toBeGreaterThan(20);
+    // Én skillevegg, ingen varsel om skjeve rom.
     addRoom(d, r.polygon, 'Stue');
     const walls = deriveWalls(d.rooms, d.settings);
     expect(walls.skewed).toEqual([]);
-    expect(walls.walls.filter((w) => w.kind === 'interior')).toHaveLength(1);
+    expect(walls.walls.filter((w) => w.kind === 'interior').map((w) => w.thickness)).toEqual([Math.round(b.x0 - 3000)]);
   });
 
-  it('over 3° skjevt (med vilje), eller første rom: beholdes som målt', () => {
-    const d = emptyBuilderDoc();
-    expect(alignToAxis(skewed(2), commonAxis(d), { x: 0, z: 0 }).deg).toBe(0);
-    addRect(d, { x: 0, z: 0 }, { x: 3000, z: 2000 }, 'Gang');
-    const r = alignToAxis(skewed(8), commonAxis(d), { x: 3100, z: 0 });
-    expect(r.deg).toBe(0);
-    expect(r.polygon).toEqual(skewed(8));
+  it('rett målt: ingenting endres', () => {
+    const r = closeRoom(touches(0), commonAxis(drawing()));
+    if (!r.ok) throw new Error('lukket ikke');
+    expect(r.turned).toBe(0);
+    expect(r.moved).toBe(0);
+    expect(size(r.polygon)).toEqual({ x0: 3100, x1: 6000, z0: 0, z1: 3000 });
+  });
+
+  it('første rom (ingen akse) og rom som er skrå med vilje (over 3°) måles som de er', () => {
+    expect(closeRoom(touches(10), null)).toMatchObject({ ok: true, turned: 0, moved: 0 });
+    const tilted = touches(Math.round(600 * Math.tan((6 * Math.PI) / 180)));
+    const r = closeRoom(tilted, commonAxis(drawing()));
+    expect(r).toMatchObject({ ok: true, turned: 0 });
+  });
+
+  it('en skrå vegg berørt flere steder (grep) beholder sin egen retning', () => {
+    const walls = touches(10);
+    // Vegg 2 (øst) er skrå (20°): to punkter med grep.
+    const a = (20 * Math.PI) / 180;
+    walls[1] = [
+      { x: 6000, z: 500 },
+      { x: 6000 + Math.sin(a) * 2000, z: 500 + Math.cos(a) * 2000 },
+    ];
+    const lines = wallLines(walls, commonAxis(drawing()));
+    expect(Math.abs(lines[0]!.u.z)).toBeLessThan(1e-9);
+    expect(Math.abs(lines[1]!.u.x)).toBeCloseTo(Math.sin(a), 6);
   });
 
   it('aksen følger tegningen også når den er dreid', () => {
     const d = emptyBuilderDoc();
     const a = (30 * Math.PI) / 180;
-    const rot = (x: number, z: number) => ({ x: Math.round(x * Math.cos(a) - z * Math.sin(a)), z: Math.round(x * Math.sin(a) + z * Math.cos(a)) });
+    const rot = (x: number, z: number) => ({ x: x * Math.cos(a) - z * Math.sin(a), z: x * Math.sin(a) + z * Math.cos(a) });
     addRoom(d, [rot(0, 0), rot(3000, 0), rot(3000, 2000), rot(0, 2000)], 'Gang');
     expect(commonAxis(d)).toBeCloseTo(30, 0);
-    const b = (31.5 * Math.PI) / 180;
-    const poly = [
-      [3100, 0],
-      [6100, 0],
-      [6100, 2000],
-      [3100, 2000],
-    ].map(([x, z]) => ({ x: x! * Math.cos(b) - z! * Math.sin(b), z: x! * Math.sin(b) + z! * Math.cos(b) }));
-    expect(alignToAxis(poly, commonAxis(d), poly[0]!).deg).toBeCloseTo(-1.5, 1);
+    const u = onAxis({ x: Math.cos((31.5 * Math.PI) / 180), z: Math.sin((31.5 * Math.PI) / 180) }, commonAxis(d))!;
+    expect((Math.atan2(u.z, u.x) * 180) / Math.PI).toBeCloseTo(30, 0);
+    expect(onAxis({ x: Math.cos((36 * Math.PI) / 180), z: Math.sin((36 * Math.PI) / 180) }, commonAxis(d))).toBeNull();
   });
 });
