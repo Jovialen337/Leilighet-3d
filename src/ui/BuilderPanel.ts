@@ -10,6 +10,7 @@
 import { TOOL_TEXT, type BuilderEditor, type BuilderSelection, type BuilderTool } from '../builder/BuilderEditor';
 import type { BuildIssue, CompileResult } from '../builder/compile';
 import { defaultInto } from '../builder/compile';
+import { SKEW_MAX_DEG } from '../builder/walls';
 import { edgesOf, type Edge } from '../builder/geometry';
 import { leftOf } from '../geometry/math2d';
 import { distributeEvenly, linkedEdges, setEdgeLength, setEntrance } from '../builder/ops';
@@ -892,6 +893,8 @@ export class BuilderPanel {
 
   /** Rettelsene i sjekklista (ett trykk). */
   private fix(id: NonNullable<BuildIssue['fix']>['id']): void {
+    // Skjeve rom: rett opp alle kanter som er nesten rette (opptil 10° skjeve).
+    if (id === 'straighten-all') return this.editor.straighten(true, SKEW_MAX_DEG + 1);
     this.apply((d) => {
       if (id === 'entrance') {
         // Helst en dør i en yttervegg.

@@ -533,13 +533,13 @@ export class BuilderEditor {
     return i >= 0;
   }
 
-  /** Retter opp valgt rom (eller alle). */
-  straighten(all: boolean): void {
+  /** Retter opp valgt rom (eller alle). `tolDeg`: hvor skjeve kanter som rettes (standard 4°). */
+  straighten(all: boolean, tolDeg?: number): void {
     const sel = this.selection.value;
     const ids = all || !sel || sel.kind === 'opening' ? undefined : [sel.room];
     let n = 0;
     this.session.apply((d) => {
-      n = straighten(d, ids);
+      n = straighten(d, ids, tolDeg);
       return n > 0;
     });
     this.message.set(n ? 'Rettet opp: vinklene er rette, og nesten like linjer ligger på linje.' : 'Alt var allerede rett.');

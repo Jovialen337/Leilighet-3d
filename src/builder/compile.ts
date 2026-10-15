@@ -30,7 +30,7 @@ export interface BuildIssue {
   message: string;
   target?: { kind: 'room' | 'opening'; id: string };
   /** En rettelse byggeren kan gjøre med ett trykk. */
-  fix?: { id: 'entrance' | 'one-entrance'; label: string };
+  fix?: { id: 'entrance' | 'one-entrance' | 'straighten-all'; label: string };
 }
 
 export interface CompileResult {
@@ -278,6 +278,19 @@ export function compile(doc: BuilderDoc, opts: CompileOptions = {}): CompileResu
   inheritWallIds(walls.walls, doc.extras?.walls);
   for (const n of walls.notes) warn(n);
   const rooms = new Map(doc.rooms.map((r) => [r.id, r]));
+  for (const k of walls.skewed) {
+    const a = rooms.get(k.a)?.name ?? k.a;
+    const b = rooms.get(k.b)?.name ?? k.b;
+    const deg = k.deg.toFixed(1).replace('.', ',');
+    issues.push({
+      severity: 'warning',
+      message: k.joined
+        ? `Kantene mellom «${a}» og «${b}» er ikke parallelle (${deg}°): skilleveggen blir ${k.gaps![0]} mm i den ene enden og ${k.gaps![1]} mm i den andre, og passer ikke helt.`
+        : `«${a}» og «${b}» står ${deg}° skjevt mot hverandre: det blir ikke én skillevegg mellom dem, men to yttervegger som kan gå inn i hverandre.`,
+      target: { kind: 'room', id: k.b },
+      fix: { id: 'straighten-all', label: 'Rett opp alt' },
+    });
+  }
   const openings: Opening<Num>[] = [];
   const doorInto = new Map<string, string>();
   const entrances = doc.openings.filter((o) => o.type === 'door' && o.entrance);

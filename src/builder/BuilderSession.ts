@@ -67,7 +67,7 @@ function safeCompile(doc: BuilderDoc, opts: CompileOptions): CompileResult {
     return {
       doc: null,
       issues: [{ severity: 'error', message: `Tegningen kunne ikke gjøres om til en modell: ${(e as Error).message}` }],
-      walls: { walls: [], open: [], notes: [] },
+      walls: { walls: [], open: [], notes: [], skewed: [] },
       transform: null,
       doorInto: new Map(),
     };

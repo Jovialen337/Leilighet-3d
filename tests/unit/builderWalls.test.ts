@@ -6,14 +6,15 @@
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { deriveWalls, type DerivedWall } from '../../src/builder/walls';
+import { SKEW_MAX_DEG, deriveWalls, type DerivedWall } from '../../src/builder/walls';
+import { edgesOf } from '../../src/builder/geometry';
 import { importApartment } from '../../src/builder/importDoc';
 import { pointInPolygon } from '../../src/geometry/math2d';
-import { DEFAULT_BUILDER_SETTINGS, type BRoom } from '../../src/builder/types';
+import { DEFAULT_BUILDER_SETTINGS, type BRoom, type BuilderDoc } from '../../src/builder/types';
 import { alignFromTouches, rigToWorld } from '../../src/measure/align';
 import { compile } from '../../src/builder/compile';
 import { emptyBuilderDoc } from '../../src/builder/types';
-import { addOpening, addRect, addRoomBeside } from '../../src/builder/ops';
+import { addOpening, addRect, addRoomBeside, straighten } from '../../src/builder/ops';
 import { validateApartment } from '../../src/schema/validate';
 import { PUBLISHED_PATH } from './helpers';
 import type { ApartmentDoc } from '../../src/schema/types';
@@ -98,6 +99,115 @@ describe('veggene: ingen vegg inne i rom, ingen hull', () => {
     const r = check(imp.doc.rooms);
     expect(r.intrusions.slice(0, 3)).toEqual([]);
     expect(r.holes.slice(0, 3)).toEqual([]);
+  });
+});
+
+/** Euklidsk avstand fra et punkt til kanten av et polygon. */
+function edgeDist(p: P, pts: readonly P[]): number {
+  let best = Infinity;
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i]!;
+    const b = pts[(i + 1) % pts.length]!;
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.z - a.z) * dz) / (dx * dx + dz * dz)));
+    best = Math.min(best, Math.hypot(p.x - a.x - t * dx, p.z - a.z - t * dz));
+  }
+  return best;
+}
+
+/** Polygonet forskjøvet `t` utover (kantlinjene flyttet ut og skåret med hverandre). */
+function offsetPoly(pts: readonly P[], t: number): P[] {
+  const es = edgesOf(pts);
+  return es.map((e, i) => {
+    const f = es[(i - 1 + es.length) % es.length]!;
+    // Linja til forrige kant og denne kanten, flyttet ut.
+    const a = { x: f.a.x + f.out.x * t, z: f.a.z + f.out.z * t };
+    const b = { x: e.a.x + e.out.x * t, z: e.a.z + e.out.z * t };
+    const den = f.u.x * e.u.z - f.u.z * e.u.x;
+    const k = ((b.x - a.x) * e.u.z - (b.z - a.z) * e.u.x) / den;
+    return { x: a.x + f.u.x * k, z: a.z + f.u.z * k };
+  });
+}
+
+describe('utvendige hjørner i alle vinkler: tette, og ingenting stikker ut', () => {
+  const T = DEFAULT_BUILDER_SETTINGS.exteriorThickness;
+  const shapes: Record<string, [number, number][]> = {
+    'karnapp på 45°': [[0, 0], [1500, 0], [2000, -500], [3000, -500], [3500, 0], [5000, 0], [5000, 3000], [0, 3000]],
+    'skrått hjørne (45°)': [[0, 0], [3000, 0], [4000, 1000], [4000, 3000], [0, 3000]],
+    'skjev vegg (30°)': [[0, 0], [4000, 0], [4000 + 1732, 3000], [0, 3000]],
+    'spiss vinkel (37°)': [[0, 0], [4000, 0], [0, 3000]],
+  };
+  for (const [name, pts] of Object.entries(shapes))
+    it(name, () => {
+      const r = room('r', pts);
+      const { walls } = deriveWalls([r], DEFAULT_BUILDER_SETTINGS);
+      const outer = offsetPoly(r.polygon, T + 15);
+      const xs = pts.map((p) => p[0]);
+      const zs = pts.map((p) => p[1]);
+      const holes: P[] = [];
+      const outside: P[] = [];
+      const intrusions: P[] = [];
+      for (let x = Math.min(...xs) - 600 + 7.5; x < Math.max(...xs) + 600; x += 15)
+        for (let z = Math.min(...zs) - 600 + 7.5; z < Math.max(...zs) + 600; z += 15) {
+          const p = { x, z };
+          const wall = walls.some((w) => inBody(w, p));
+          const inside = pointInPolygon(p, r.polygon);
+          const d = edgeDist(p, r.polygon);
+          if (inside && wall && d > 1) intrusions.push(p);
+          // Alt nærmere rommet enn veggtykkelsen er vegg (også rundt hjørnene) …
+          if (!inside && d > 10 && d < T - 10 && !wall) holes.push(p);
+          // … og ingen vegg går utenfor ytterflatene.
+          if (wall && !pointInPolygon(p, outer)) outside.push(p);
+        }
+      expect(intrusions.slice(0, 3)).toEqual([]);
+      expect(holes.slice(0, 3)).toEqual([]);
+      expect(outside.slice(0, 3)).toEqual([]);
+    });
+});
+
+describe('skjeve rom ved siden av hverandre', () => {
+  /** Rom B dreid `deg` grader rundt sitt eget hjørne, 100 mm fra A (og lenger unna i den andre enden). */
+  const pair = (deg: number): BuilderDoc => {
+    const d = emptyBuilderDoc('Test');
+    const a = (-deg * Math.PI) / 180;
+    const rot = (x: number, z: number): { x: number; z: number } => ({ x: Math.round(3100 + x * Math.cos(a) - z * Math.sin(a)), z: Math.round(x * Math.sin(a) + z * Math.cos(a)) });
+    d.rooms = [rect('a', 0, 0, 3000, 3000), { id: 'b', name: 'B', polygon: [rot(0, 0), rot(3000, 0), rot(3000, 3000), rot(0, 3000)], floor: 0, ceiling: 2400 }];
+    return d;
+  };
+  const skewIssues = (d: BuilderDoc) => compile(d).issues.filter((i) => i.fix?.id === 'straighten-all');
+
+  it('rette rom gir ingen advarsel', () => {
+    expect(skewIssues(pair(0))).toEqual([]);
+  });
+
+  it('1,5° skjevt: én skillevegg, men advarsel med tykkelsen i hver ende', () => {
+    const issues = skewIssues(pair(1.5));
+    expect(issues).toHaveLength(1);
+    expect(issues[0]!.message).toMatch(/«a» og «B» er ikke parallelle \(1,5°\): skilleveggen blir \d+ mm i den ene enden og \d+ mm i den andre/);
+    expect(issues[0]!.target).toEqual({ kind: 'room', id: 'b' });
+  });
+
+  it('6° skjevt: advarsel om to yttervegger som går inn i hverandre', () => {
+    const issues = skewIssues(pair(6));
+    expect(issues).toHaveLength(1);
+    expect(issues[0]!.message).toMatch(/«a» og «B» står 6,0° skjevt mot hverandre: det blir ikke én skillevegg/);
+  });
+
+  it('«Rett opp alt» retter det skjeve rommet og lar det rette ligge', () => {
+    for (const deg of [1.5, 6]) {
+      const d = pair(deg);
+      const before = structuredClone(d.rooms[0]!.polygon);
+      expect(straighten(d, undefined, SKEW_MAX_DEG + 1)).toBeGreaterThan(0);
+      expect(skewIssues(d)).toEqual([]);
+      expect(d.rooms[0]!.polygon).toEqual(before);
+      // Nå blir det én skillevegg mellom dem.
+      expect(compile(d).walls.walls.filter((w) => w.kind === 'interior')).toHaveLength(1);
+    }
+  });
+
+  it('et rom som er skrått med vilje (45°) gir ingen advarsel', () => {
+    expect(skewIssues(pair(45))).toEqual([]);
   });
 });
 

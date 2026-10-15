@@ -293,28 +293,43 @@ export function distributeEvenly(doc: BuilderDoc, roomId: string, edge: number, 
  * hele leiligheten, lengdevektet), og hjørner som nesten ligger på linje med
  * hjørner i andre rom, legges på linje (innen `align` mm).
  */
-export function straighten(doc: BuilderDoc, roomIds?: string[], tolDeg = 4, align = 30): number {
-  const targets = doc.rooms.filter((r) => !roomIds || roomIds.includes(r.id));
-  if (!targets.length) return 0;
-  // Felles akse: lengdevektet snitt av alle rommenes hovedretning (modulo 90°).
+/** Forskjellen mellom to retninger modulo 90° (grader, 0–45). */
+export const axisDiff = (a: number, b: number): number => Math.abs((((a - b + 45) % 90) + 90) % 90 - 45);
+
+/**
+ * Tegningens felles akse (grader, 0–90): lengdevektet snitt av rommenes
+ * hovedretning (modulo 90°). Er et rom allerede helt rett innen `tolDeg` fra
+ * snittet, brukes aksen til det største av dem (rom langs rutenettet teller
+ * mer) – rette rom skal ikke flyttes.
+ * `skip`: rom som ikke teller med (f.eks. et nytt rom som skal rettes inn).
+ */
+export function commonAxis(doc: BuilderDoc, tolDeg = 4, skip?: string): number | null {
+  const rooms = doc.rooms.filter((r) => r.id !== skip && r.polygon.length >= 3);
+  if (!rooms.length) return null;
   let sx = 0;
   let sz = 0;
-  for (const r of doc.rooms) {
+  const perim = (r: BRoom): number => edgesOf(r.polygon).reduce((s, e) => s + e.length, 0);
+  for (const r of rooms) {
     const a = (dominantAngle(r.polygon) * Math.PI * 4) / 180;
-    const w = edgesOf(r.polygon).reduce((s, e) => s + e.length, 0);
+    const w = perim(r);
     sx += Math.cos(a) * w;
     sz += Math.sin(a) * w;
   }
-  let axis = ((Math.atan2(sz, sx) / 4) * 180) / Math.PI;
-  // Er et rom allerede helt rett nær denne aksen, brukes dets akse (rette rom skal ikke flyttes).
-  for (const r of doc.rooms) {
+  const mean = ((Math.atan2(sz, sx) / 4) * 180) / Math.PI;
+  let best: { a: number; w: number } | null = null;
+  for (const r of rooms) {
     const a = dominantAngle(r.polygon);
-    const diff = Math.abs(((a - axis + 45 + 900) % 90) - 45);
-    if (diff < 1 && isAxisAligned(r.polygon, a, 0.05)) {
-      axis = a;
-      break;
-    }
+    // Rom som følger rutenettet (tegnet rett), går foran et like stort rom som er dreid.
+    const w = perim(r) * (axisDiff(a, 0) < 0.05 ? 1.5 : 1);
+    if (axisDiff(a, mean) < Math.max(1, tolDeg) && isAxisAligned(r.polygon, a, 0.05) && (!best || w > best.w)) best = { a, w };
   }
+  return best ? best.a : ((mean % 90) + 90) % 90;
+}
+
+export function straighten(doc: BuilderDoc, roomIds?: string[], tolDeg = 4, align = 30): number {
+  const targets = doc.rooms.filter((r) => !roomIds || roomIds.includes(r.id));
+  if (!targets.length) return 0;
+  const axis = commonAxis(doc, tolDeg) ?? 0;
   let changed = 0;
   for (const r of targets) {
     const next = orthogonalize(r.polygon, axis, tolDeg).map((p, i) => ({ ...r.polygon[i], x: p.x, z: p.z }));
