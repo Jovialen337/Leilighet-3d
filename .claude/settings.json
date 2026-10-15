@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/ps-report-check.sh\" check",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
