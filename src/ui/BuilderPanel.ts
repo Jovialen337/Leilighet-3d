@@ -252,8 +252,8 @@ export class BuilderPanel {
       this.toolButtons.set(t.tool, b);
       tools.append(b);
     }
-    this.undoBtn = button('Angre', 'builder-undo', () => editor.session.undo());
-    this.redoBtn = button('Gjør om', 'builder-redo', () => editor.session.redo());
+    this.undoBtn = button('Angre', 'builder-undo', () => editor.undo());
+    this.redoBtn = button('Gjør om', 'builder-redo', () => editor.redo());
     this.deleteBtn = button('Slett valgt', 'builder-delete', () => editor.deleteSelected(), 'small danger-small');
     this.freeBtn = button('Fri (uten festing)', 'builder-free', () => editor.free.set(!editor.free.value));
     const fit = button('Vis hele', 'builder-fit', () => actions.fit());

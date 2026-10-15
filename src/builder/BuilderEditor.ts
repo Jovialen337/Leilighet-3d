@@ -593,6 +593,19 @@ export class BuilderEditor {
     return i >= 0;
   }
 
+  /** Angre (og si fra, så meldingen ikke viser det som ble angret). */
+  undo(): boolean {
+    const ok = this.session.undo();
+    this.message.set(ok ? 'Angret.' : 'Ingenting å angre.');
+    return ok;
+  }
+
+  redo(): boolean {
+    const ok = this.session.redo();
+    this.message.set(ok ? 'Gjort om.' : 'Ingenting å gjøre om.');
+    return ok;
+  }
+
   /** Retter opp valgt rom (eller alle). */
   straighten(all: boolean): void {
     const sel = this.selection.value;

@@ -580,11 +580,11 @@ export class BuilderController {
     if (e.ctrlKey) {
       if (k === 'z' || k === 'Z') {
         consume();
-        if (e.shiftKey) this.session.redo();
-        else this.session.undo();
+        if (e.shiftKey) this.editor.redo();
+        else this.editor.undo();
       } else if (k === 'y' || k === 'Y') {
         consume();
-        this.session.redo();
+        this.editor.redo();
       }
       return;
     }

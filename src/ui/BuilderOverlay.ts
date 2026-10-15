@@ -9,11 +9,41 @@
 import type { BuilderEditor, DragHandle } from '../builder/BuilderEditor';
 import type { CompileResult } from '../builder/compile';
 import { alongEdge, edgesOf, scale, add, type P2 } from '../builder/geometry';
-import { centroid } from '../geometry/math2d';
+import { centroid, pointInPolygon, polygonArea } from '../geometry/math2d';
 import { formatLength } from '../builder/units';
 import type { DesktopView } from '../views/DesktopView';
 
 const NS = 'http://www.w3.org/2000/svg';
+
+/** Et rektangel på skjermen (px). */
+interface Rect {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+const overlaps = (a: Rect, b: Rect): boolean => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+
+/** Bredden på en tekst med fonten til målene (px), målt med et lerret; anslått uten. */
+let measureCtx: CanvasRenderingContext2D | null | undefined;
+function textWidth(text: string, strong: boolean): number {
+  if (measureCtx === undefined) measureCtx = document.createElement('canvas').getContext('2d');
+  const size = strong ? 13 : 11;
+  if (!measureCtx) return text.length * size * 0.62;
+  measureCtx.font = `600 ${size}px system-ui, sans-serif`;
+  return measureCtx.measureText(text).width;
+}
+
+/** Et håndtak som skal tegnes (skjermpunkt og radius). */
+interface PlannedHandle {
+  shape: 'circle' | 'rect';
+  p: { x: number; y: number };
+  r: number;
+  handle: DragHandle;
+  cls: string;
+  testid: string;
+  text?: string;
+}
 
 const SNAP_COLOR: Record<string, string> = {
   hjørne: '#ffd400',
@@ -90,8 +120,15 @@ export class BuilderOverlay {
     return e;
   }
 
-  private label(at: { x: number; y: number }, text: string, cls = 'bo-label'): void {
-    const t = this.el('text', { x: at.x, y: at.y, class: cls, 'text-anchor': 'middle', 'dominant-baseline': 'middle' });
+  private label(at: { x: number; y: number }, text: string, cls = 'bo-label', angle = 0): void {
+    const t = this.el('text', {
+      x: at.x,
+      y: at.y,
+      class: cls,
+      'text-anchor': 'middle',
+      'dominant-baseline': 'middle',
+      ...(angle ? { transform: `rotate(${angle.toFixed(1)} ${at.x.toFixed(1)} ${at.y.toFixed(1)})` } : {}),
+    });
     t.textContent = text;
   }
 
@@ -101,20 +138,31 @@ export class BuilderOverlay {
     return this.el('line', { x1: sa.x, y1: sa.y, x2: sb.x, y2: sb.y, ...attrs });
   }
 
-  /** Håndtak som er tegnet i denne runden (skjermpunkt og radius). */
-  private placed: { x: number; y: number; r: number }[] = [];
+  /** Håndtakene i denne runden, viktigst først. */
+  private planned: PlannedHandle[] = [];
 
   /**
-   * Et håndtak som kan dras. Ligger det oppå et håndtak som allerede er
-   * tegnet (f.eks. hjørner i to rom som nesten møtes, når man har zoomet ut),
-   * tegnes det ikke: håndtakene tegnes i viktighetsrekkefølge, og laserpekeren
-   * på Quest skal aldri treffe et annet håndtak enn det man ser.
+   * Planlegger et håndtak. Overlapper det et håndtak som allerede er
+   * planlagt (f.eks. hjørner i to rom som nesten møtes, når man har zoomet
+   * ut), droppes det: håndtakene planlegges i viktighetsrekkefølge, og
+   * laserpekeren på Quest skal aldri treffe et annet håndtak enn det man ser.
    */
   private handle(shape: 'circle' | 'rect', at: P2, handle: DragHandle, cls: string, testid: string, text?: string): void {
     const p = this.s(at);
     const r = this.coarse ? 16 : cls.includes('small') ? 6 : 9;
-    if (this.placed.some((q) => Math.hypot(q.x - p.x, q.y - p.y) < Math.max(q.r, r))) return;
-    this.placed.push({ x: p.x, y: p.y, r });
+    if (this.planned.some((q) => Math.hypot(q.p.x - p.x, q.p.y - p.y) < q.r + r)) return;
+    this.planned.push({ shape, p, r, handle, cls, testid, ...(text ? { text } : {}) });
+  }
+
+  /** Tegner de planlagte håndtakene, det viktigste sist (øverst). */
+  private drawHandles(): void {
+    for (let i = this.planned.length - 1; i >= 0; i--) {
+      const { shape, p, r, handle, cls, testid, text } = this.planned[i]!;
+      this.drawHandle(shape, p, r, handle, cls, testid, text);
+    }
+  }
+
+  private drawHandle(shape: 'circle' | 'rect', p: { x: number; y: number }, r: number, handle: DragHandle, cls: string, testid: string, text?: string): void {
     const g = this.el('g', { class: `bo-handle ${cls}`, 'data-testid': testid });
     if (shape === 'circle') this.el('circle', { cx: p.x, cy: p.y, r }, g);
     else this.el('rect', { x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r, rx: 3 }, g);
@@ -165,6 +213,134 @@ export class BuilderOverlay {
     }
   }
 
+  /** Håndtakene i Velg, viktigst først: valgt åpning, valgt rom (hjørner, flytt, kanter), andre rommenes hjørner. */
+  private planHandles(): void {
+    const ed = this.editor;
+    const doc = ed.doc!;
+    const sel = ed.selection.value;
+    const ppm = this.desktop.pixelsPerMeter();
+    if (sel?.kind === 'opening') {
+      const o = doc.openings.find((x) => x.id === sel.id);
+      const seg = o && ed.openingSegment(o);
+      if (o && seg) {
+        // Er åpningen kort på skjermen, settes endehåndtakene litt utenfor endene, så alle tre
+        // får plass (draget regner fra der man tok tak, så enden hopper ikke).
+        const r = this.coarse ? 16 : 9;
+        const lenPx = (o.width / 1000) * ppm;
+        const push = Math.max(0, (3 * r - lenPx / 2) / Math.max(ppm, 1e-6)) * 1000;
+        const a = alongEdge(seg.edge, o.offset - push);
+        const b = alongEdge(seg.edge, o.offset + o.width + push);
+        this.handle('rect', alongEdge(seg.edge, o.offset + o.width / 2), { kind: 'opening', id: o.id }, 'opening', `bo-opening-move-${o.id}`, '↔');
+        this.handle('circle', a, { kind: 'opening-end', id: o.id, end: 'start' }, 'opening-end', `bo-opening-start-${o.id}`);
+        this.handle('circle', b, { kind: 'opening-end', id: o.id, end: 'end' }, 'opening-end', `bo-opening-end-${o.id}`);
+      }
+    }
+    const current = sel && sel.kind !== 'opening' ? doc.rooms.find((r) => r.id === sel.room) : undefined;
+    const order = current ? [current, ...doc.rooms.filter((r) => r !== current)] : doc.rooms;
+    for (const r of order) {
+      const selectedRoom = r === current;
+      r.polygon.forEach((p, i) =>
+        this.handle('circle', p, { kind: 'corner', room: r.id, i }, `corner${selectedRoom ? '' : ' small'}${sel?.kind === 'corner' && sel.room === r.id && sel.i === i ? ' active' : ''}`, `bo-corner-${r.id}-${i}`),
+      );
+      if (!selectedRoom) continue;
+      // Flyttehåndtaket før kantene: et rom kan bare dras i det.
+      this.handle('circle', centroid(r.polygon), { kind: 'room', room: r.id }, 'move', `bo-move-${r.id}`, '✥');
+      for (const e of edgesOf(r.polygon)) {
+        if (e.length <= 0) continue;
+        this.handle('rect', alongEdge(e, e.length / 2), { kind: 'edge', room: r.id, edge: e.i }, `edge${sel?.kind === 'edge' && sel.edge === e.i ? ' active' : ''}`, `bo-edge-${r.id}-${e.i}`);
+      }
+    }
+  }
+
+  /**
+   * Målene langs kantene. Valgt rom og rommet under pekeren først, så de
+   * andre når man har zoomet inn. Et mål tegnes bare der det ikke dekker et
+   * annet mål, et romnavn eller et håndtak – vannrett eller langs kanten, og
+   * for valgt rom eventuelt utenfor kanten; for andre rom må det ligge helt
+   * inne i rommet. Finnes ingen ledig plass, står målet bare i panelet.
+   */
+  private drawDimensions(ppm: number): void {
+    const ed = this.editor;
+    const doc = ed.doc!;
+    const sel = ed.selection.value;
+    const taken: Rect[] = [];
+    // Romnavn og areal (etikettene i planen) midt i rommet: størrelsen fra etiketten selv når
+    // den vises, ellers anslått (navn + areal på to linjer).
+    for (const r of doc.rooms) {
+      if (r.polygon.length < 3) continue;
+      const c = this.s(centroid(r.polygon));
+      const el = document.querySelector<HTMLElement>(`.labels .label.room[data-room="${CSS.escape(r.id)}"]`);
+      const area = `${(polygonArea(r.polygon) / 1e6).toLocaleString('nb-NO', { maximumFractionDigits: 1 })} m²`;
+      const w = (el?.offsetWidth || Math.max(r.name.length, area.length) * 7.5 + 14) + 4;
+      const h = (el?.offsetHeight || 36) + 4;
+      taken.push({ x0: c.x - w / 2, y0: c.y - h / 2, x1: c.x + w / 2, y1: c.y + h / 2 });
+    }
+    for (const h of this.planned) taken.push({ x0: h.p.x - h.r, y0: h.p.y - h.r, x1: h.p.x + h.r, y1: h.p.y + h.r });
+    const isFocus = (id: string): boolean =>
+      (!!sel && sel.kind !== 'opening' && sel.room === id) || (!!ed.hover?.target && ed.hover.target.kind !== 'opening' && ed.hover.target.room === id);
+    const rooms = [...doc.rooms].sort((a, b) => Number(isFocus(b.id)) - Number(isFocus(a.id)));
+    for (const r of rooms) {
+      const focus = isFocus(r.id);
+      if (!focus && ppm < 70) continue;
+      const screenPoly = r.polygon.map((p) => {
+        const q = this.s(p);
+        return { x: q.x, z: q.y };
+      });
+      for (const e of edgesOf(r.polygon)) {
+        if (e.length <= 0) continue;
+        const text = formatLength(e.length);
+        // Med hvit kant rundt teksten (stroke 3 px) og litt luft.
+        const w = textWidth(text, focus) + 8;
+        const h = focus ? 16 : 14;
+        // Retningen inn i rommet og langs kanten, på skjermen.
+        const m0 = this.s(alongEdge(e, e.length / 2));
+        const m1 = this.s(add(alongEdge(e, e.length / 2), scale(e.out, -1000)));
+        const nl = Math.hypot(m1.x - m0.x, m1.y - m0.y) || 1;
+        const n = { x: (m1.x - m0.x) / nl, y: (m1.y - m0.y) / nl };
+        // Teksten langs kanten, lesbar (ikke opp ned): vinkel i (−90°, 90°].
+        let angle = (Math.atan2(-n.x, n.y) * 180) / Math.PI;
+        if (angle > 90) angle -= 180;
+        if (angle <= -90) angle += 180;
+        // Valgt rom: forbi kanthåndtaket midt på kanten, så målet ikke havner under det.
+        const clear = focus ? (this.coarse ? 16 : 9) + 4 : 6;
+        type Spot = { rect: Rect; angle: number };
+        const spot = (t: number, along: boolean, side: 1 | -1): Spot => {
+          const a = along ? (angle * Math.PI) / 180 : 0;
+          const bw = Math.abs(Math.cos(a)) * w + Math.abs(Math.sin(a)) * h;
+          const bh = Math.abs(Math.sin(a)) * w + Math.abs(Math.cos(a)) * h;
+          const ext = Math.abs(n.x) * (bw / 2) + Math.abs(n.y) * (bh / 2);
+          const b = this.s(alongEdge(e, e.length * t));
+          const cx = b.x + side * n.x * (clear + ext);
+          const cy = b.y + side * n.y * (clear + ext);
+          return { rect: { x0: cx - bw / 2, y0: cy - bh / 2, x1: cx + bw / 2, y1: cy + bh / 2 }, angle: along ? angle : 0 };
+        };
+        const inside = (q: Rect): boolean =>
+          [
+            { x: q.x0, z: q.y0 },
+            { x: q.x1, z: q.y0 },
+            { x: q.x1, z: q.y1 },
+            { x: q.x0, z: q.y1 },
+          ].every((c) => pointInPolygon(c, screenPoly));
+        const free = (q: Spot, mustBeInside: boolean): boolean => !taken.some((o) => overlaps(q.rect, o)) && (!mustBeInside || inside(q.rect));
+        // Nærmest midten først, vannrett før langs kanten (smale rom), inne i rommet før utenfor
+        // (bare valgt rom). Finnes ingen ledig plass, droppes målet – det står i panelet.
+        let best: Spot | undefined;
+        search: for (const side of focus ? ([1, -1] as const) : ([1] as const))
+          for (const t of [0.5, 0.35, 0.65, 0.2, 0.8])
+            for (const along of [false, true]) {
+              const q = spot(t, along, side);
+              if (free(q, side === 1)) {
+                best = q;
+                break search;
+              }
+            }
+        if (!best) continue;
+        taken.push(best.rect);
+        this.label({ x: (best.rect.x0 + best.rect.x1) / 2, y: (best.rect.y0 + best.rect.y1) / 2 }, text, `bo-dim${focus ? ' strong' : ''}`, best.angle);
+      }
+    }
+  }
+
   private draw(): void {
     const doc = this.editor.doc;
     if (!this.visible || !doc) return;
@@ -186,20 +362,12 @@ export class BuilderOverlay {
         class: `bo-room${selected ? ' selected' : ''}${hovered ? ' hovered' : ''}${bad.has(`room:${r.id}`) ? ' bad' : ''}`,
         'data-testid': `bo-room-${r.id}`,
       });
-      // Mål på kantene: valgt rom og rommet under pekeren alltid; andre rom når man har
-      // zoomet inn, og bare mål som får plass langs kanten (ellers blir det et virvar).
-      const focus = selected || hovered;
-      if (focus || ppm >= 70) {
-        for (const e of edgesOf(r.polygon)) {
-          if (e.length <= 0) continue;
-          const text = formatLength(e.length);
-          if (!focus && (e.length / 1000) * ppm < text.length * 7 + 10) continue;
-          const mid = alongEdge(e, e.length / 2);
-          const at = this.s(add(mid, scale(e.out, -Math.min(350, 22 / Math.max(ppm, 1) * 1000))));
-          this.label(at, text, `bo-dim${focus ? ' strong' : ''}`);
-        }
-      }
     }
+
+    // Håndtakene planlegges før målene, så målene kan holde seg unna dem.
+    this.planned = [];
+    if (tool === 'select') this.planHandles();
+    this.drawDimensions(ppm);
 
     // Åpne overganger (ingen vegg) – stiplet.
     for (const o of res?.walls.open ?? []) this.line(o.start, o.end, { class: 'bo-open' });
@@ -218,41 +386,7 @@ export class BuilderOverlay {
       if (o.entrance) this.label(this.s(add(alongEdge(seg.edge, o.offset + o.width / 2), scale(seg.edge.out, Math.max(450, (60 / Math.max(ppm, 1)) * 1000)))), 'Inngang', 'bo-tag');
     }
 
-    // Håndtak (bare i Velg). Viktigst først: valgt åpning, valgt rom, så de andre rommenes hjørner.
-    this.placed = [];
-    if (tool === 'select') {
-      if (sel?.kind === 'opening') {
-        const o = doc.openings.find((x) => x.id === sel.id);
-        const seg = o && ed.openingSegment(o);
-        if (o && seg) {
-          // Er åpningen kort på skjermen, settes endehåndtakene litt utenfor endene, så alle tre
-          // får plass (draget regner fra der man tok tak, så enden hopper ikke).
-          const r = this.coarse ? 16 : 9;
-          const lenPx = (o.width / 1000) * ppm;
-          const push = Math.max(0, (3 * r - lenPx / 2) / Math.max(ppm, 1e-6)) * 1000;
-          const a = alongEdge(seg.edge, o.offset - push);
-          const b = alongEdge(seg.edge, o.offset + o.width + push);
-          this.handle('rect', alongEdge(seg.edge, o.offset + o.width / 2), { kind: 'opening', id: o.id }, 'opening', `bo-opening-move-${o.id}`, '↔');
-          this.handle('circle', a, { kind: 'opening-end', id: o.id, end: 'start' }, 'opening-end', `bo-opening-start-${o.id}`);
-          this.handle('circle', b, { kind: 'opening-end', id: o.id, end: 'end' }, 'opening-end', `bo-opening-end-${o.id}`);
-        }
-      }
-      const current = sel && sel.kind !== 'opening' ? doc.rooms.find((r) => r.id === sel.room) : undefined;
-      const order = current ? [current, ...doc.rooms.filter((r) => r !== current)] : doc.rooms;
-      for (const r of order) {
-        const selectedRoom = r === current;
-        r.polygon.forEach((p, i) =>
-          this.handle('circle', p, { kind: 'corner', room: r.id, i }, `corner${selectedRoom ? '' : ' small'}${sel?.kind === 'corner' && sel.room === r.id && sel.i === i ? ' active' : ''}`, `bo-corner-${r.id}-${i}`),
-        );
-        if (!selectedRoom) continue;
-        // Flyttehåndtaket før kantene: et rom kan bare dras i det.
-        this.handle('circle', centroid(r.polygon), { kind: 'room', room: r.id }, 'move', `bo-move-${r.id}`, '✥');
-        for (const e of edgesOf(r.polygon)) {
-          if (e.length <= 0) continue;
-          this.handle('rect', alongEdge(e, e.length / 2), { kind: 'edge', room: r.id, edge: e.i }, `edge${sel?.kind === 'edge' && sel.edge === e.i ? ' active' : ''}`, `bo-edge-${r.id}-${e.i}`);
-        }
-      }
-    }
+    this.drawHandles();
 
     // Utkast og forhåndsvisning.
     const hv = ed.hover;

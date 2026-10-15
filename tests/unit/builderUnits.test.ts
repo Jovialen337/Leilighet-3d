@@ -36,6 +36,10 @@ describe('mål som skrives inn', () => {
     expect(parseLength('2400', true)).toEqual({ mm: 2400, relative: false });
     expect(parseLength('+=150', true)).toEqual({ mm: 150, relative: true });
     expect(parseLength('-=2 cm', true)).toEqual({ mm: -20, relative: true });
+    // Et helt tall fra 1 til 9 er meter, også med minus: «-3» som «3».
+    expect(parseLength('-3', true)).toEqual({ mm: -3000, relative: false });
+    expect(parseLength('3', true)).toEqual({ mm: 3000, relative: false });
+    expect(parseLength('-30', true)).toEqual({ mm: -30, relative: false });
     // += virker også i vanlige felt.
     expect(parseLength('+=150')).toEqual({ mm: 150, relative: true });
   });

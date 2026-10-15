@@ -402,6 +402,19 @@ test.describe('Quest-nettleseren (laserpeker, uten tastatur)', () => {
     expect((await builderDoc(page)).openings[0].offset).toBe(200);
     await expect(page.getByTestId('builder-issues')).toContainText('Modellen er gyldig');
   });
+
+  test('store håndtak og mål ligger aldri oppå hverandre', async ({ page }) => {
+    await openBuilder(page);
+    await page.getByTestId('builder-from-current').click();
+    await page.getByTestId('builder-tool-select').click();
+    const doc = await builderDoc(page);
+    for (const id of [null, ...doc.rooms.map((r: any) => r.id)]) {
+      await page.evaluate((rid) => (window as any).leilighet.builder.editor.select(rid ? { kind: 'room', room: rid } : null), id);
+      await frames(page, 3);
+      const o = await overlayOverlaps(page);
+      expect({ id, dimDim: o.dimDim, dimRoom: o.dimRoom, dimHandle: o.dimHandle, handleHandle: o.handleHandle }).toEqual({ id, dimDim: 0, dimRoom: 0, dimHandle: 0, handleHandle: 0 });
+    }
+  });
 });
 
 test('rom: kopier, skillevegg, roter, flytt med tall, negative koordinater og «Rett opp rommene»', async ({ page }) => {
@@ -446,6 +459,12 @@ test('rom: kopier, skillevegg, roter, flytt med tall, negative koordinater og «
   b = (await builderDoc(page)).rooms[1];
   expect(Math.max(...ax(b)) - Math.min(...ax(b))).toBe(2000);
   expect(Math.max(...az(b)) - Math.min(...az(b))).toBe(3000);
+  // Angre og gjør om: meldingen sier hva som skjedde (ikke «dreid» etter at det er angret).
+  await page.getByTestId('builder-undo').click();
+  await expect(page.getByTestId('builder-message')).toHaveText('Angret.');
+  await page.getByTestId('builder-redo').click();
+  await expect(page.getByTestId('builder-message')).toHaveText('Gjort om.');
+  expect((await builderDoc(page)).rooms[1].polygon).toEqual(b.polygon);
 
   // Flytt med tall (negative tall flytter mot venstre/opp): inntil A igjen, 100 mm luke.
   const dx = aRight + 100 - Math.min(...ax(b));
@@ -529,6 +548,48 @@ test('åpning: dra enden for å gjøre den bredere – håndtakene ligger aldri 
   const after = (await builderDoc(page)).openings[0];
   expect(after.offset).toBe(o.offset);
   expect(Math.abs(after.width - (o.width + 300))).toBeLessThanOrEqual(20);
+});
+
+/** Teller overlapp i planen: mål mot mål, mål mot romnavn, mål mot håndtak, og håndtak mot håndtak. */
+async function overlayOverlaps(page: Page): Promise<{ dims: number; dimDim: number; dimRoom: number; dimHandle: number; handleHandle: number }> {
+  return page.evaluate(() => {
+    const box = (el: Element) => {
+      const b = el.getBoundingClientRect();
+      return { x0: b.left, y0: b.top, x1: b.right, y1: b.bottom };
+    };
+    type B = ReturnType<typeof box>;
+    const ov = (a: B, b: B) => a.x0 < b.x1 - 0.5 && b.x0 < a.x1 - 0.5 && a.y0 < b.y1 - 0.5 && b.y0 < a.y1 - 0.5;
+    const dims = [...document.querySelectorAll('.builder-overlay text.bo-dim')].map(box);
+    const rooms = [...document.querySelectorAll<HTMLElement>('.labels .label.room')].filter((e) => e.style.display !== 'none').map(box);
+    const shapes = [...document.querySelectorAll('.builder-overlay .bo-handle')].map((g) => box(g.querySelector('circle,rect')!));
+    const circ = shapes.map((b) => ({ x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2, r: (b.x1 - b.x0) / 2 }));
+    let dimDim = 0;
+    let dimRoom = 0;
+    let dimHandle = 0;
+    let handleHandle = 0;
+    dims.forEach((d, i) => {
+      for (let j = i + 1; j < dims.length; j++) if (ov(d, dims[j]!)) dimDim++;
+      for (const r of rooms) if (ov(d, r)) dimRoom++;
+      for (const h of shapes) if (ov(d, h)) dimHandle++;
+    });
+    circ.forEach((a, i) => {
+      for (let j = i + 1; j < circ.length; j++) if (Math.hypot(a.x - circ[j]!.x, a.y - circ[j]!.y) < a.r + circ[j]!.r - 0.5) handleHandle++;
+    });
+    return { dims: dims.length, dimDim, dimRoom, dimHandle, handleHandle };
+  });
+}
+
+test('målene i planen dekker aldri hverandre, romnavnene eller håndtakene – uansett hvilket rom som er valgt', async ({ page }) => {
+  await openBuilder(page);
+  await page.getByTestId('builder-from-current').click();
+  await page.getByTestId('builder-tool-select').click();
+  const doc = await builderDoc(page);
+  for (const id of [null, ...doc.rooms.map((r: any) => r.id)]) {
+    await page.evaluate((rid) => (window as any).leilighet.builder.editor.select(rid ? { kind: 'room', room: rid } : null), id);
+    await frames(page, 3);
+    const o = await overlayOverlaps(page);
+    expect({ id, ...o, dims: o.dims > 0 }).toEqual({ id, dims: true, dimDim: 0, dimRoom: 0, dimHandle: 0, handleHandle: 0 });
+  }
 });
 
 test('notater og installasjonsetiketter skjules mens man lager ny modell', async ({ page }) => {

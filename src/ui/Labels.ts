@@ -34,7 +34,7 @@ export class Labels {
 
   build(model: ApartmentModel): void {
     this.clear();
-    const add = (layer: string, text: string, cls: string, x: number, y: number, z: number): void => {
+    const add = (layer: string, text: string, cls: string, x: number, y: number, z: number): HTMLElement => {
       const el = document.createElement('div');
       el.className = `label ${cls}`;
       el.textContent = text;
@@ -46,11 +46,12 @@ export class Labels {
       this.byLayer.set(layer, list);
       if (cls !== 'room') this.extra.add(obj);
       obj.visible = this.shows(layer, obj);
+      return el;
     };
     for (const info of model.rooms.values()) {
       const c = centroid(info.polygon);
       const area = (info.area / 1e6).toLocaleString('nb-NO', { maximumFractionDigits: 1 });
-      add(info.room.layer ?? 'structure', `${info.room.name}\n${area} m²`, 'room', c.x, info.room.floorLevel, c.z);
+      add(info.room.layer ?? 'structure', `${info.room.name}\n${area} m²`, 'room', c.x, info.room.floorLevel, c.z).dataset.room = info.room.id;
     }
     for (const n of model.data.notes) {
       const [x, h, z] = n.position;

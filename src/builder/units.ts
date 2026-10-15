@@ -20,7 +20,8 @@ export interface ParsedLength {
  * vanlig verdi, er minus en del av tallet («-1100» = −1100); der trekker man
  * fra med «-=150». «+150» og «+=150» legger alltid til (et positivt tall
  * trenger aldri pluss foran).
- * Små tall med fortegn er mm («-5» = −5 mm), så et lite trinn ikke blir meter.
+ * Små tall med fortegn er mm («+5» legger til 5 mm), så et lite trinn ikke blir
+ * meter – unntatt minus i koordinatfelt, der «-3» er −3 m som «3» er 3 m.
  */
 export function parseLength(text: string, signed = false): ParsedLength | null {
   const t = text.trim().toLowerCase().replace(/\s+/g, '').replace(/−/g, '-');
@@ -31,7 +32,9 @@ export function parseLength(text: string, signed = false): ParsedLength | null {
   const value = Number(m[2]!.replace(',', '.'));
   if (!Number.isFinite(value)) return null;
   let unit = m[3];
-  if (!unit) unit = (/[.,]/.test(m[2]!) && value < 100) || (!prefix && value >= 1 && value < 10 && /^\d$/.test(m[2]!)) ? 'm' : 'mm';
+  // Et helt tall fra 1 til 9 er meter – også negativt i felt der minus er en del av tallet («-3» som «3»).
+  const plain = !prefix || (signed && prefix === '-');
+  if (!unit) unit = (/[.,]/.test(m[2]!) && value < 100) || (plain && value >= 1 && value < 10 && /^\d$/.test(m[2]!)) ? 'm' : 'mm';
   const factor = unit === 'm' ? 1000 : unit === 'dm' ? 100 : unit === 'cm' ? 10 : 1;
   const relative = prefix.endsWith('=') || prefix === '+' || (!signed && prefix === '-');
   return { mm: Math.round(sign * value * factor), relative };
