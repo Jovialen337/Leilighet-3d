@@ -19,17 +19,20 @@ import {
   addRect,
   addRoom,
   addRoomBeside,
+  copyRoom,
   deleteCorner,
   insertCorner,
   moveCorner,
   moveEdge,
   moveRoom,
   removeRoom,
+  rotateRoom90,
+  setPartitionThickness,
   straighten,
 } from './ops';
 import { snapPoint, type SnapResult } from './snap';
 import { formatLength } from './units';
-import type { BOpening, BOpeningType, BuilderDoc } from './types';
+import type { BOpening, BOpeningType, BRoom, BuilderDoc } from './types';
 
 export type BuilderTool = 'select' | 'rect' | 'poly' | 'beside' | 'door' | 'window' | 'passage';
 
@@ -357,7 +360,13 @@ export class BuilderEditor {
     }
     this.drag = { handle, start: structuredClone(d), p0: p, grab };
     this.session.beginGesture();
-    if (handle.kind !== 'opening-end') this.selection.set(handle.kind === 'room' ? { kind: 'room', room: handle.room } : handle.kind === 'opening' ? { kind: 'opening', id: handle.id } : handle);
+    if (handle.kind !== 'opening-end') this.select(handle.kind === 'room' ? { kind: 'room', room: handle.room } : handle.kind === 'opening' ? { kind: 'opening', id: handle.id } : handle);
+  }
+
+  /** Velger noe og sier hva som er valgt. */
+  select(sel: BuilderSelection): void {
+    this.selection.set(sel);
+    if (sel) this.message.set(this.describe(sel));
   }
 
   dragTo(raw: P2, tol: number, free = false): void {
@@ -442,6 +451,54 @@ export class BuilderEditor {
   }
 
   /* ---------------- handlinger fra panelet ---------------- */
+
+  /** Kopierer valgt rom (med vinduer og dører), legger kopien inntil originalen og velger den. */
+  copySelected(): boolean {
+    const sel = this.selection.value;
+    if (!sel || sel.kind === 'opening') return false;
+    const made: { room: BRoom | null } = { room: null };
+    this.session.apply((d) => {
+      made.room = copyRoom(d, sel.room);
+      return !!made.room;
+    });
+    const copy = made.room;
+    if (!copy) return false;
+    this.selection.set({ kind: 'room', room: copy.id });
+    this.message.set(`Kopi: «${copy.name}», lagt inntil med skillevegg. Dra den dit den skal, eller skriv hvor langt den skal flyttes.`);
+    return true;
+  }
+
+  /** Dreier valgt rom 90° med klokka. */
+  rotateSelected(): boolean {
+    const sel = this.selection.value;
+    if (!sel || sel.kind === 'opening') return false;
+    const ok = this.session.apply((d) => rotateRoom90(d, sel.room));
+    if (ok) this.message.set('Rommet er dreid 90° med klokka. Vinduer og dører fulgte med.');
+    return ok;
+  }
+
+  /** Flytter valgt rom et bestemt stykke (mm). */
+  moveSelectedBy(dx: number, dz: number): boolean {
+    const sel = this.selection.value;
+    if (!sel || sel.kind === 'opening' || (!dx && !dz)) return false;
+    const ok = this.session.apply((d) => {
+      moveRoom(d, sel.room, dx, dz);
+      return true;
+    });
+    if (ok) this.message.set(`Rommet er flyttet ${formatLength(Math.hypot(dx, dz))}.`);
+    return ok;
+  }
+
+  /** Ny tykkelse på skilleveggen langs valgt kant (naborommet flyttes). */
+  setPartition(roomId: string, edge: number, thickness: number): boolean {
+    let n = 0;
+    this.session.apply((d) => {
+      n = setPartitionThickness(d, roomId, edge, thickness);
+      return n > 0;
+    });
+    this.message.set(n ? `Skilleveggen er nå ${formatLength(thickness)}. Naborommet ble flyttet.` : 'Skilleveggen har allerede den tykkelsen.');
+    return n > 0;
+  }
 
   deleteSelected(): boolean {
     const sel = this.selection.value;

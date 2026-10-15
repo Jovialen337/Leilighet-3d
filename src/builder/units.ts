@@ -12,20 +12,28 @@ export interface ParsedLength {
 
 /**
  * Leser et mål. Uten enhet: mm – men m når tallet har desimaler og er under
- * 100 («4,2»), eller er et helt tall fra 1 til 9 uten fortegn («3» = 3 m;
- * ingen vegg er 3 mm). Null hvis ugyldig.
+ * 100 («4,2»), eller er et helt tall fra 1 til 9 («3» = 3 m; ingen vegg er
+ * 3 mm). Null hvis ugyldig.
+ *
+ * Fortegn: «+150» og «-150» legger til / trekker fra den nåværende verdien.
+ * I felt for koordinater og nivåer (`signed`), der et negativt tall er en
+ * vanlig verdi, er fortegnet en del av tallet («-1100» = −1100); der legger
+ * man til med «+=150» og trekker fra med «-=150» (det virker i alle felt).
+ * Små tall med fortegn er mm («-5» = −5 mm), så et lite trinn ikke blir meter.
  */
-export function parseLength(text: string): ParsedLength | null {
-  const t = text.trim().toLowerCase().replace(/\s+/g, '').replace('−', '-');
-  const m = /^([+-]?)(\d+(?:[.,]\d+)?|[.,]\d+)(mm|cm|dm|m)?$/.exec(t);
+export function parseLength(text: string, signed = false): ParsedLength | null {
+  const t = text.trim().toLowerCase().replace(/\s+/g, '').replace(/−/g, '-');
+  const m = /^([+-]=?)?(\d+(?:[.,]\d+)?|[.,]\d+)(mm|cm|dm|m)?$/.exec(t);
   if (!m) return null;
-  const sign = m[1] === '-' ? -1 : 1;
+  const prefix = m[1] ?? '';
+  const sign = prefix.startsWith('-') ? -1 : 1;
   const value = Number(m[2]!.replace(',', '.'));
   if (!Number.isFinite(value)) return null;
   let unit = m[3];
-  if (!unit) unit = (/[.,]/.test(m[2]!) && value < 100) || (!m[1] && value >= 1 && value < 10 && /^\d$/.test(m[2]!)) ? 'm' : 'mm';
+  if (!unit) unit = (/[.,]/.test(m[2]!) && value < 100) || (!prefix && value >= 1 && value < 10 && /^\d$/.test(m[2]!)) ? 'm' : 'mm';
   const factor = unit === 'm' ? 1000 : unit === 'dm' ? 100 : unit === 'cm' ? 10 : 1;
-  return { mm: Math.round(sign * value * factor), relative: m[1] !== '' };
+  const relative = prefix.endsWith('=') || (!signed && prefix !== '');
+  return { mm: Math.round(sign * value * factor), relative };
 }
 
 /** «3,20 m» for lengder fra 1 m, ellers «850 mm». */

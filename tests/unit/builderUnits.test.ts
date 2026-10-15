@@ -29,8 +29,19 @@ describe('mål som skrives inn', () => {
     expect(parseLength('−2 cm')).toEqual({ mm: -20, relative: true });
   });
 
+  it('i felt for koordinater og nivåer er fortegnet en del av tallet; += og -= legger til', () => {
+    expect(parseLength('-1100', true)).toEqual({ mm: -1100, relative: false });
+    expect(parseLength('−1,1 m', true)).toEqual({ mm: -1100, relative: false });
+    expect(parseLength('+150', true)).toEqual({ mm: 150, relative: false });
+    expect(parseLength('2400', true)).toEqual({ mm: 2400, relative: false });
+    expect(parseLength('+=150', true)).toEqual({ mm: 150, relative: true });
+    expect(parseLength('-=2 cm', true)).toEqual({ mm: -20, relative: true });
+    // += virker også i vanlige felt.
+    expect(parseLength('+=150')).toEqual({ mm: 150, relative: true });
+  });
+
   it('avviser det som ikke er et mål', () => {
-    for (const t of ['', 'abc', '2,3,4', '3 km', '1e3', 'm']) expect(parseLength(t)).toBeNull();
+    for (const t of ['', 'abc', '2,3,4', '3 km', '1e3', 'm', '=5', '+-5', '==5']) expect(parseLength(t)).toBeNull();
   });
 
   it('viser mål og areal på norsk', () => {

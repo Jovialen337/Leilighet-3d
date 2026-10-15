@@ -3,15 +3,20 @@ import {
   addOpening,
   addRect,
   addRoomBeside,
+  copyRoom,
   deleteCorner,
   distributeEvenly,
   insertCorner,
   linkedEdges,
   moveCorner,
   moveEdge,
+  rotateRoom90,
   setEntrance,
+  setPartitionThickness,
   straighten,
 } from '../../src/builder/ops';
+import { snapPoint } from '../../src/builder/snap';
+import { roomsOverlap } from '../../src/builder/geometry';
 import { BuilderSession, BUILDER_KEY } from '../../src/builder/BuilderSession';
 import { compile } from '../../src/builder/compile';
 import { deriveWalls } from '../../src/builder/walls';
@@ -107,6 +112,54 @@ describe('redigering', () => {
     addOpening(d, 'window', stue.id, 0, 2600);
     expect(distributeEvenly(d, stue.id, 0)).toBe(2);
     expect(d.openings.map((o) => o.offset)).toEqual([400, 1800]);
+  });
+
+  it('skilleveggens tykkelse settes ved å flytte naborommet', () => {
+    const { d, gang } = start();
+    const stue = addRoomBeside(d, gang.id, 1, 4000, 'Stue')!;
+    expect(setPartitionThickness(d, gang.id, 1, 150)).toBe(1);
+    expect(Math.max(...d.rooms[0]!.polygon.map((p) => p.x))).toBe(3000);
+    expect(Math.min(...d.rooms.find((r) => r.id === stue.id)!.polygon.map((p) => p.x))).toBe(3150);
+    expect(deriveWalls(d.rooms, d.settings).walls.filter((w) => w.kind === 'interior').map((w) => w.thickness)).toEqual([150]);
+    // Samme tykkelse igjen: ingenting å gjøre.
+    expect(setPartitionThickness(d, gang.id, 1, 150)).toBe(0);
+  });
+
+  it('«Kopier rommet» legger kopien inntil originalen med skillevegg, med vinduene men uten inngangsdøra', () => {
+    const { d, gang } = start();
+    addOpening(d, 'window', gang.id, 0, 1500);
+    const copy = copyRoom(d, gang.id)!;
+    expect(copy.name).toBe('Gang 2');
+    expect(Math.min(...copy.polygon.map((p) => p.x))).toBe(3100);
+    expect(roomsOverlap(copy.polygon, gang.polygon)).toBe(false);
+    const mine = d.openings.filter((o) => o.room === copy.id);
+    expect(mine.map((o) => o.type).sort()).toEqual(['door', 'window']);
+    expect(mine.some((o) => o.entrance)).toBe(false);
+    expect(d.openings.filter((o) => o.entrance)).toHaveLength(1);
+    expect(deriveWalls(d.rooms, d.settings).walls.filter((w) => w.kind === 'interior')).toHaveLength(1);
+    // Er plassen til høyre tatt, havner neste kopi under.
+    const third = copyRoom(d, gang.id)!;
+    expect(Math.min(...third.polygon.map((p) => p.z))).toBe(2100);
+  });
+
+  it('«Roter 90°» dreier rommet om midten, og døra følger med', () => {
+    const { d, gang, door } = start();
+    rotateRoom90(d, gang.id);
+    const xs = gang.polygon.map((p) => p.x);
+    const zs = gang.polygon.map((p) => p.z);
+    expect(Math.max(...xs) - Math.min(...xs)).toBe(2000);
+    expect(Math.max(...zs) - Math.min(...zs)).toBe(3000);
+    // Døra satt på venstre vegg; etter dreiing med klokka sitter den på toppen.
+    const c = openingCenter(d, door)!;
+    expect(c.z).toBe(Math.min(...zs));
+  });
+
+  it('festing på skrå (45°) runder sidene, ikke diagonalen', () => {
+    const d = emptyBuilderDoc();
+    const s = snapPoint(d, { x: 2993, z: 3008 }, { tol: 20, prev: { x: 0, z: 0 } });
+    expect(s).toMatchObject({ p: { x: 3000, z: 3000 }, kind: 'vinkel' });
+    const t = snapPoint(d, { x: -1504, z: 1497 }, { tol: 20, prev: { x: 5, z: 0 } });
+    expect(t.p).toEqual({ x: -1495, z: 1500 });
   });
 
   it('«Rett opp» gir rette vinkler og legger nesten like linjer på linje', () => {

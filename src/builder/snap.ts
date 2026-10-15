@@ -117,6 +117,12 @@ export function snapPoint(doc: BuilderDoc, raw: P2, o: SnapOptions): SnapResult 
         else if (gz && Math.abs(dir.z) > 1e-6) l = (gz.z - o.prev.z) / dir.z;
         x = o.prev.x + dir.x * l;
         z = o.prev.z + dir.z * l;
+        if (k % 2 !== 0 && !gx && !gz) {
+          // På skrå (45°): sidene rundes til rutenettet, ikke diagonalen (3000 × 3000, ikke 2998 × 2998).
+          const side = Math.round((len * Math.SQRT1_2) / step) * step;
+          x = o.prev.x + Math.sign(dir.x) * side;
+          z = o.prev.z + Math.sign(dir.z) * side;
+        }
         kind = gx || gz ? 'linje' : 'vinkel';
       }
     }

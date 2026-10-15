@@ -101,10 +101,20 @@ export class BuilderOverlay {
     return this.el('line', { x1: sa.x, y1: sa.y, x2: sb.x, y2: sb.y, ...attrs });
   }
 
-  /** Et håndtak som kan dras. */
+  /** Håndtak som er tegnet i denne runden (skjermpunkt og radius). */
+  private placed: { x: number; y: number; r: number }[] = [];
+
+  /**
+   * Et håndtak som kan dras. Ligger det oppå et håndtak som allerede er
+   * tegnet (f.eks. hjørner i to rom som nesten møtes, når man har zoomet ut),
+   * tegnes det ikke: håndtakene tegnes i viktighetsrekkefølge, og laserpekeren
+   * på Quest skal aldri treffe et annet håndtak enn det man ser.
+   */
   private handle(shape: 'circle' | 'rect', at: P2, handle: DragHandle, cls: string, testid: string, text?: string): void {
     const p = this.s(at);
     const r = this.coarse ? 16 : cls.includes('small') ? 6 : 9;
+    if (this.placed.some((q) => Math.hypot(q.x - p.x, q.y - p.y) < Math.max(q.r, r))) return;
+    this.placed.push({ x: p.x, y: p.y, r });
     const g = this.el('g', { class: `bo-handle ${cls}`, 'data-testid': testid });
     if (shape === 'circle') this.el('circle', { cx: p.x, cy: p.y, r }, g);
     else this.el('rect', { x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r, rx: 3 }, g);
@@ -176,13 +186,17 @@ export class BuilderOverlay {
         class: `bo-room${selected ? ' selected' : ''}${hovered ? ' hovered' : ''}${bad.has(`room:${r.id}`) ? ' bad' : ''}`,
         'data-testid': `bo-room-${r.id}`,
       });
-      // Mål på kantene: valgt rom alltid, alle rom når man har zoomet inn.
-      if (selected || ppm >= 70) {
+      // Mål på kantene: valgt rom og rommet under pekeren alltid; andre rom når man har
+      // zoomet inn, og bare mål som får plass langs kanten (ellers blir det et virvar).
+      const focus = selected || hovered;
+      if (focus || ppm >= 70) {
         for (const e of edgesOf(r.polygon)) {
           if (e.length <= 0) continue;
+          const text = formatLength(e.length);
+          if (!focus && (e.length / 1000) * ppm < text.length * 7 + 10) continue;
           const mid = alongEdge(e, e.length / 2);
           const at = this.s(add(mid, scale(e.out, -Math.min(350, 22 / Math.max(ppm, 1) * 1000))));
-          this.label(at, formatLength(e.length), `bo-dim${selected ? ' strong' : ''}`);
+          this.label(at, text, `bo-dim${focus ? ' strong' : ''}`);
         }
       }
     }
@@ -204,10 +218,22 @@ export class BuilderOverlay {
       if (o.entrance) this.label(this.s(add(alongEdge(seg.edge, o.offset + o.width / 2), scale(seg.edge.out, Math.max(450, (60 / Math.max(ppm, 1)) * 1000)))), 'Inngang', 'bo-tag');
     }
 
-    // Håndtak (bare i Velg).
+    // Håndtak (bare i Velg). Viktigst først: valgt åpning, valgt rom, så de andre rommenes hjørner.
+    this.placed = [];
     if (tool === 'select') {
-      for (const r of doc.rooms) {
-        const selectedRoom = sel && sel.kind !== 'opening' && sel.room === r.id;
+      if (sel?.kind === 'opening') {
+        const o = doc.openings.find((x) => x.id === sel.id);
+        const seg = o && ed.openingSegment(o);
+        if (o && seg) {
+          this.handle('rect', alongEdge(seg.edge, o.offset + o.width / 2), { kind: 'opening', id: o.id }, 'opening', `bo-opening-move-${o.id}`, '↔');
+          this.handle('circle', seg.a, { kind: 'opening-end', id: o.id, end: 'start' }, 'opening-end', `bo-opening-start-${o.id}`);
+          this.handle('circle', seg.b, { kind: 'opening-end', id: o.id, end: 'end' }, 'opening-end', `bo-opening-end-${o.id}`);
+        }
+      }
+      const current = sel && sel.kind !== 'opening' ? doc.rooms.find((r) => r.id === sel.room) : undefined;
+      const order = current ? [current, ...doc.rooms.filter((r) => r !== current)] : doc.rooms;
+      for (const r of order) {
+        const selectedRoom = r === current;
         r.polygon.forEach((p, i) =>
           this.handle('circle', p, { kind: 'corner', room: r.id, i }, `corner${selectedRoom ? '' : ' small'}${sel?.kind === 'corner' && sel.room === r.id && sel.i === i ? ' active' : ''}`, `bo-corner-${r.id}-${i}`),
         );
@@ -218,15 +244,6 @@ export class BuilderOverlay {
         }
         const c = centroid(r.polygon);
         this.handle('circle', c, { kind: 'room', room: r.id }, 'move', `bo-move-${r.id}`, '✥');
-      }
-      if (sel?.kind === 'opening') {
-        const o = doc.openings.find((x) => x.id === sel.id);
-        const seg = o && ed.openingSegment(o);
-        if (o && seg) {
-          this.handle('rect', alongEdge(seg.edge, o.offset + o.width / 2), { kind: 'opening', id: o.id }, 'opening', `bo-opening-move-${o.id}`, '↔');
-          this.handle('circle', seg.a, { kind: 'opening-end', id: o.id, end: 'start' }, 'opening-end', `bo-opening-start-${o.id}`);
-          this.handle('circle', seg.b, { kind: 'opening-end', id: o.id, end: 'end' }, 'opening-end', `bo-opening-end-${o.id}`);
-        }
       }
     }
 

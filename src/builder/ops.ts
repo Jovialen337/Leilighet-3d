@@ -6,7 +6,7 @@
  * hjørner legges til, fjernes eller flyttes, festes åpningene på nytt ut fra
  * hvor de faktisk sto, så de ikke hopper til en annen vegg.
  */
-import { add, alongEdge, dist, dot, edgeCoords, edgesOf, isAxisAligned, orthogonalize, dominantAngle, scale, sub, type P2 } from './geometry';
+import { add, alongEdge, dist, dot, edgeCoords, edgesOf, isAxisAligned, orthogonalize, dominantAngle, roomsOverlap, scale, sub, type P2 } from './geometry';
 import { OPEN_GAP } from './walls';
 import { floorColorFor, ROOM_NAMES, type BEdge, type BOpening, type BOpeningType, type BPoint, type BRoom, type BuilderDoc } from './types';
 
@@ -172,6 +172,86 @@ export function moveRoom(doc: BuilderDoc, roomId: string, dx: number, dz: number
   const room = doc.rooms.find((r) => r.id === roomId);
   if (!room) return;
   room.polygon = room.polygon.map((p) => ({ ...p, x: Math.round(p.x + dx), z: Math.round(p.z + dz) }));
+}
+
+/**
+ * Gir skilleveggen langs en kant ny tykkelse ved å flytte kanten i
+ * naborommet(-ene). Gir antall naborom som ble flyttet.
+ */
+export function setPartitionThickness(doc: BuilderDoc, roomId: string, edge: number, thickness: number): number {
+  const room = doc.rooms.find((r) => r.id === roomId);
+  const e = room ? edgesOf(room.polygon)[edge] : undefined;
+  if (!room || !e || !(thickness >= OPEN_GAP)) return 0;
+  let n = 0;
+  for (const l of linkedEdges(doc, roomId, edge)) {
+    const other = doc.rooms.find((r) => r.id === l.room);
+    const f = other ? edgesOf(other.polygon)[l.edge] : undefined;
+    if (!f) continue;
+    const gap = (dot(sub(f.a, e.a), e.out) + dot(sub(f.b, e.a), e.out)) / 2;
+    const delta = Math.round(thickness - gap);
+    if (!delta) continue;
+    // Kanten i naborommet vender mot dette rommet: bort fra det er «inn» for naborommet.
+    moveEdge(doc, l.room, l.edge, -delta, false);
+    n++;
+  }
+  return n;
+}
+
+/** Hjørnenes ytterpunkter. */
+function boundsOf(poly: readonly P2[]): { x0: number; z0: number; x1: number; z1: number } {
+  const xs = poly.map((p) => p.x);
+  const zs = poly.map((p) => p.z);
+  return { x0: Math.min(...xs), z0: Math.min(...zs), x1: Math.max(...xs), z1: Math.max(...zs) };
+}
+
+/**
+ * Kopierer et rom med vinduer, dører og åpninger (ikke inngangsdøra), og
+ * legger kopien inntil originalen med en skillevegg imellom: til høyre,
+ * under, til venstre eller over – der det er ledig. Navnet får et nummer.
+ */
+export function copyRoom(doc: BuilderDoc, roomId: string): BRoom | null {
+  const room = doc.rooms.find((r) => r.id === roomId);
+  if (!room || room.polygon.length < 3) return null;
+  const b = boundsOf(room.polygon);
+  const gap = doc.settings.interiorThickness;
+  const w = b.x1 - b.x0 + gap;
+  const h = b.z1 - b.z0 + gap;
+  const tries: P2[] = [
+    { x: w, z: 0 },
+    { x: 0, z: h },
+    { x: -w, z: 0 },
+    { x: 0, z: -h },
+  ];
+  const shifted = (d: P2): P2[] => room.polygon.map((p) => ({ x: p.x + d.x, z: p.z + d.z }));
+  const free = tries.find((d) => !doc.rooms.some((r) => r.polygon.length >= 3 && roomsOverlap(r.polygon, shifted(d)))) ?? { x: w, z: h };
+  const base = room.name.replace(/\s+\d+$/, '');
+  const copy = addRoom(doc, shifted(free), base, room.floor);
+  copy.ceiling = room.ceiling;
+  if (room.ceilingCorners) copy.ceilingCorners = [...room.ceilingCorners];
+  if (room.edges) copy.edges = room.edges.map((e) => (e ? { ...e } : null));
+  if (room.floorColor) copy.floorColor = room.floorColor;
+  // Målt-flaggene gjelder originalen, ikke kopien.
+  copy.polygon = copy.polygon.map(({ x, z }) => ({ x, z }));
+  for (const o of doc.openings.filter((x) => x.room === roomId)) {
+    const c: BOpening = { ...structuredClone(o), id: uniqueId(doc, o.id), room: copy.id };
+    delete c.entrance;
+    delete c.measured;
+    delete c.into;
+    doc.openings.push(c);
+  }
+  return copy;
+}
+
+/** Dreier et rom 90° (med klokka i planen) om midten; vinduer og dører følger med. */
+export function rotateRoom90(doc: BuilderDoc, roomId: string): boolean {
+  const room = doc.rooms.find((r) => r.id === roomId);
+  if (!room || room.polygon.length < 3) return false;
+  const b = boundsOf(room.polygon);
+  const cx = (b.x0 + b.x1) / 2;
+  const cz = (b.z0 + b.z1) / 2;
+  // Med klokka på skjermen (x mot høyre, z nedover): (x, z) → (−z, x) om midten.
+  room.polygon = room.polygon.map((p) => ({ ...p, x: Math.round(cx - (p.z - cz)), z: Math.round(cz + (p.x - cx)) }));
+  return true;
 }
 
 /** Nytt rektangulært rom. */

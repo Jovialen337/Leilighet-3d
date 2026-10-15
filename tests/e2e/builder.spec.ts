@@ -398,10 +398,107 @@ test.describe('Quest-nettleseren (laserpeker, uten tastatur)', () => {
     // Fra venstre hjørne, sett fra rommet.
     await page.getByTestId('builder-op-left').fill('200');
     await page.getByTestId('builder-op-left').press('Enter');
-    const o = (await builderDoc(page)).openings[0];
-    expect(o.offset === 200 || o.offset === 2800 - 1000 - 200).toBe(true);
+    // Venstre kant går nedenfra og opp; sett fra rommet er venstre hjørne det nederste (kantens start).
+    expect((await builderDoc(page)).openings[0].offset).toBe(200);
     await expect(page.getByTestId('builder-issues')).toContainText('Modellen er gyldig');
   });
+});
+
+test('rom: kopier, skillevegg, roter, flytt med tall, negative koordinater og «Rett opp alt»', async ({ page }) => {
+  const errors = collectErrors(page);
+  await openBuilder(page);
+  await page.getByTestId('builder-new').click();
+  await page.getByTestId('builder-rect-w').fill('3000');
+  await page.getByTestId('builder-rect-d').fill('2000');
+  await page.getByTestId('builder-rect-make').click();
+  let doc = await builderDoc(page);
+  const a = doc.rooms[0];
+  const ax = (r: any) => r.polygon.map((p: any) => p.x);
+  const az = (r: any) => r.polygon.map((p: any) => p.z);
+  const right = Math.max(...ax(a));
+  const top = Math.min(...az(a));
+
+  // Kopier: kopien legges inntil, med standard skillevegg (100 mm), og blir valgt.
+  await page.getByTestId('builder-room-copy').click();
+  doc = await builderDoc(page);
+  expect(doc.rooms).toHaveLength(2);
+  let b = doc.rooms[1];
+  expect(Math.min(...ax(b))).toBe(right + 100);
+  await expect(page.getByTestId('builder-message')).toContainText('Kopi: «Gang 2»');
+
+  // Skilleveggens tykkelse på kopiens kant mot originalen: naborommet (originalen) flyttes.
+  await page.getByTestId('builder-tool-select').click();
+  await page.getByTestId(`bo-move-${b.id}`).click();
+  await page.getByTestId('builder-room-edge-3').click();
+  await expect(page.getByTestId('builder-message')).toContainText('Valgt: kant 4 i «Gang 2»');
+  await page.getByTestId('builder-edge-partition').fill('150');
+  await page.getByTestId('builder-edge-partition').press('Enter');
+  doc = await builderDoc(page);
+  expect(doc.rooms[1].polygon).toEqual(b.polygon);
+  const aRight = Math.max(...ax(doc.rooms[0]));
+  expect(aRight).toBe(right - 50);
+
+  // Roter 90°: 2 × 3 m i stedet for 3 × 2 m.
+  await page.getByTestId(`bo-move-${b.id}`).click();
+  await page.getByTestId('builder-room-rotate').click();
+  b = (await builderDoc(page)).rooms[1];
+  expect(Math.max(...ax(b)) - Math.min(...ax(b))).toBe(2000);
+  expect(Math.max(...az(b)) - Math.min(...az(b))).toBe(3000);
+
+  // Flytt med tall (negative tall flytter mot venstre/opp): inntil A igjen, 100 mm luke.
+  const dx = aRight + 100 - Math.min(...ax(b));
+  await page.getByTestId('builder-move-x').fill(String(dx));
+  await page.getByTestId('builder-move-x').press('Enter');
+  await expect(page.getByTestId('builder-move-z')).toBeFocused();
+  await page.getByTestId('builder-move-z').fill('0');
+  await page.getByTestId('builder-move-z').press('Enter');
+  b = (await builderDoc(page)).rooms[1];
+  expect(Math.min(...ax(b))).toBe(aRight + 100);
+  expect(dx).toBeLessThan(0);
+
+  // Negative koordinater og gulvnivå skrives som de er; «+=» legger til.
+  await clickPlan(page, (Math.min(...ax(a)) + aRight) / 2, top + 1000);
+  await expect(page.getByTestId('builder-room-name')).toHaveValue('Gang');
+  await page.getByTestId('builder-room-floor').fill('-150');
+  await page.getByTestId('builder-room-floor').press('Enter');
+  expect((await builderDoc(page)).rooms[0].floor).toBe(-150);
+  await page.getByTestId(`bo-corner-${a.id}-0`).click();
+  await page.getByTestId('builder-corner-x').fill('-1100');
+  await page.getByTestId('builder-corner-x').press('Enter');
+  expect((await builderDoc(page)).rooms[0].polygon[0].x).toBe(-1100);
+  await page.getByTestId('builder-corner-x').fill(`+=${a.polygon[0].x + 1100}`);
+  await page.getByTestId('builder-corner-x').press('Enter');
+  expect((await builderDoc(page)).rooms[0].polygon[0].x).toBe(a.polygon[0].x);
+
+  // Et skjevt rom (hjørnet 60 mm ut): varsel med «Rett opp alt», som retter det.
+  b = (await builderDoc(page)).rooms[1];
+  const tl = b.polygon.findIndex((p: any) => p.x === Math.min(...ax(b)) && p.z === Math.min(...az(b)));
+  await clickPlan(page, (Math.min(...ax(b)) + Math.max(...ax(b))) / 2, (Math.min(...az(b)) + Math.max(...az(b))) / 2 + 400);
+  await expect(page.getByTestId('builder-room-name')).toHaveValue('Gang 2');
+  await page.getByTestId(`bo-corner-${b.id}-${tl}`).click();
+  await page.getByTestId('builder-corner-x').fill(String(aRight + 160));
+  await page.getByTestId('builder-corner-x').press('Enter');
+  await expect(page.getByTestId('builder-issues')).toContainText('er ikke parallelle (1,1°)');
+  await page.getByTestId('builder-fix-straighten-all').first().click();
+  await expect(page.getByTestId('builder-issues')).not.toContainText('parallelle');
+  b = (await builderDoc(page)).rooms[1];
+  expect(new Set(b.polygon.map((p: any) => p.x)).size).toBe(2);
+  expect(top).toBe(Math.min(...az((await builderDoc(page)).rooms[0])));
+  expect(errors).toEqual([]);
+});
+
+test('notater og installasjonsetiketter skjules mens man lager ny modell', async ({ page }) => {
+  await page.goto('./');
+  await waitForModel(page);
+  await page.getByTestId('mode-top').click();
+  const notes = page.locator('.labels .label.note');
+  await expect(notes.first()).toBeVisible();
+  await openBuilder(page, null);
+  await expect(notes.first()).toBeHidden();
+  // Romnavnene vises fortsatt.
+  await expect(page.locator('.labels .label.room').first()).toBeVisible();
+  await page.getByTestId('builder-close').click();
+  await expect(notes.first()).toBeVisible();
 });
 
 /* ------------------- Oppmåling i gjennomsyn (emulert Quest 3) ------------------- */

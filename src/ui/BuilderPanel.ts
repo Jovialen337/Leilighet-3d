@@ -10,7 +10,7 @@
 import { TOOL_TEXT, type BuilderEditor, type BuilderSelection, type BuilderTool } from '../builder/BuilderEditor';
 import type { BuildIssue, CompileResult } from '../builder/compile';
 import { defaultInto } from '../builder/compile';
-import { SKEW_MAX_DEG } from '../builder/walls';
+import { OPEN_GAP, SKEW_MAX_DEG } from '../builder/walls';
 import { edgesOf, type Edge } from '../builder/geometry';
 import { leftOf } from '../geometry/math2d';
 import { distributeEvenly, linkedEdges, setEdgeLength, setEntrance } from '../builder/ops';
@@ -86,12 +86,16 @@ function lengthInput(
   placeholder = '',
   /** Etter Enter (når målet er godtatt): f.eks. gå til neste felt. */
   onEnter?: () => void,
+  /** Koordinat eller nivå: «-1100» er en verdi, ikke «trekk fra» (se parseLength). */
+  signed = false,
 ): HTMLInputElement {
-  const i = h('input', { type: 'text', inputmode: 'decimal', class: 'len-input', 'data-testid': testid, placeholder, autocomplete: 'off', enterkeyhint: onEnter ? 'next' : 'done' });
+  // Quest-tastaturet og mobiler: «decimal» har ikke minustegn, så koordinatfelt får vanlig tastatur.
+  const i = h('input', { type: 'text', inputmode: signed ? 'text' : 'decimal', class: 'len-input', 'data-testid': testid, placeholder, autocomplete: 'off', enterkeyhint: onEnter ? 'next' : 'done' });
+  if (signed) i.title = 'Negative tall er lov. Legg til med «+=150», trekk fra med «-=150».';
   if (value !== null) i.value = String(Math.round(value));
   let last = i.value;
   const go = (): boolean => {
-    const v = parseLength(i.value);
+    const v = parseLength(i.value, signed);
     if (!v) {
       i.classList.toggle('invalid', !!i.value.trim());
       return false;
@@ -132,6 +136,10 @@ function noteInput(testid: string, value: string | undefined, commit: (text: str
 }
 
 const DIM_TEXT = { length: 'lengde', width: 'bredde', height: 'takhøyde' } as const;
+
+/** Felt for en koordinat eller et nivå (negative tall er vanlige verdier). */
+const coordInput = (testid: string, value: number, commit: (mm: number, relative: boolean) => void): HTMLInputElement =>
+  lengthInput(testid, value, commit, '', undefined, true);
 
 const field = (label: string, el: HTMLElement, hint?: string): HTMLElement =>
   h('label', { class: 'field bfield' }, h('span', {}, label), el, ...(hint ? [h('small', { class: 'hint' }, hint)] : []));
@@ -614,7 +622,7 @@ export class BuilderPanel {
         h(
           'div',
           { class: 'edge-row' },
-          button(`Kant ${e.i + 1}`, `builder-room-edge-${e.i}`, () => ed.selection.set({ kind: 'edge', room: room.id, edge: e.i }), 'chip'),
+          button(`Kant ${e.i + 1}`, `builder-room-edge-${e.i}`, () => ed.select({ kind: 'edge', room: room.id, edge: e.i }), 'chip'),
           lengthInput(`builder-edge-len-${e.i}`, e.length, (v, rel) => this.apply((d) => setEdgeLength(d, room.id, e.i, rel ? e.length + v : v))),
           h('small', { class: 'hint' }, linked ? 'skillevegg' : 'yttervegg'),
         ),
@@ -653,8 +661,8 @@ export class BuilderPanel {
       field('Navn', name),
       field(
         'Gulvnivå (mm)',
-        lengthInput('builder-room-floor', room.floor, (v, rel) => this.apply((d) => void (d.rooms.find((x) => x.id === room.id)!.floor = rel ? room.floor + v : v))),
-        'Høyde over gulvet i det laveste rommet (f.eks. 180 for et trinn opp).',
+        coordInput('builder-room-floor', room.floor, (v, rel) => this.apply((d) => void (d.rooms.find((x) => x.id === room.id)!.floor = rel ? room.floor + v : v))),
+        'Høyde over gulvet i det laveste rommet (f.eks. 180 for et trinn opp, -150 for et trinn ned).',
       ),
       field(
         'Takhøyde (mm)',
@@ -676,12 +684,43 @@ export class BuilderPanel {
       ...this.dimensionsBlock(room),
       h('p', { class: 'hint' }, 'Kantene (lengde innvendig – skriv nytt mål og trykk Enter):'),
       edgeList,
+      this.moveRow(),
       h(
         'div',
         { class: 'row' },
         button('Rett opp rommet', 'builder-straighten', () => ed.straighten(false)),
+        button('Kopier rommet', 'builder-room-copy', () => ed.copySelected()),
+        button('Roter 90°', 'builder-room-rotate', () => ed.rotateSelected()),
         button('Slett rommet', 'builder-room-delete', () => ed.deleteSelected(), 'small danger-small'),
       ),
+    );
+  }
+
+  /** «Flytt rommet»: skriv hvor langt (mm, negative tall er lov) og trykk Enter eller «Flytt». */
+  private moveRow(): HTMLElement {
+    const ed = this.editor;
+    const dx = lengthInput('builder-move-x', null, () => undefined, 'x', () => dz.focus(), true);
+    const dz = lengthInput('builder-move-z', null, () => undefined, 'z', () => go(), true);
+    const go = (): void => {
+      const read = (i: HTMLInputElement): number | null => {
+        if (!i.value.trim()) return 0;
+        const v = parseLength(i.value, true);
+        i.classList.toggle('invalid', !v);
+        return v ? v.mm : null;
+      };
+      const x = read(dx);
+      const z = read(dz);
+      if (x === null || z === null) return;
+      if (ed.moveSelectedBy(x, z)) dx.value = dz.value = '';
+    };
+    return h(
+      'div',
+      { class: 'move-row' },
+      h('span', {}, 'Flytt rommet'),
+      dx,
+      dz,
+      button('Flytt', 'builder-move-go', go),
+      h('small', { class: 'hint' }, 'mm mot høyre (x) og nedover (z) i planen; negative tall flytter motsatt vei.'),
     );
   }
 
@@ -745,7 +784,16 @@ export class BuilderPanel {
       h('p', { class: 'builder-sel' }, `Kant ${edge + 1} i «${room.name}» · ${linked.length ? 'skillevegg mot nabo' : 'yttervegg'}`),
       field('Lengde', lengthInput('builder-edge-length', e.length, (v, rel) => this.apply((d) => setEdgeLength(d, room.id, edge, rel ? e.length + v : v)))),
       ...(linked.length
-        ? [h('p', { class: 'hint' }, `Skilleveggen er ${Math.round(this.gapTo(doc, room.id, edge))} mm. Dras kanten, følger naborommet med, så veggen beholder tykkelsen.`)]
+        ? [
+            field(
+              'Skilleveggens tykkelse',
+              lengthInput('builder-edge-partition', this.gapTo(doc, room.id, edge), (v, rel) => {
+                const now = this.gapTo(doc, room.id, edge);
+                ed.setPartition(room.id, edge, Math.max(OPEN_GAP, Math.min(doc.settings.maxWallGap, rel ? now + v : v)));
+              }),
+              `Naborommet flyttes. Dras kanten, følger naborommet med, så veggen beholder tykkelsen.`,
+            ),
+          ]
         : [
             field(
               'Ytterveggens tykkelse',
@@ -777,9 +825,9 @@ export class BuilderPanel {
     if (!p) return;
     c.append(
       h('p', { class: 'builder-sel' }, `Hjørne ${i + 1} i «${room.name}»${p.m ? ' · målt' : ''}`),
-      field('x (mm)', lengthInput('builder-corner-x', p.x, (v, rel) => this.apply((d) => void (d.rooms.find((r) => r.id === room.id)!.polygon[i]!.x = rel ? p.x + v : v)))),
-      field('z (mm)', lengthInput('builder-corner-z', p.z, (v, rel) => this.apply((d) => void (d.rooms.find((r) => r.id === room.id)!.polygon[i]!.z = rel ? p.z + v : v)))),
-      h('p', { class: 'hint' }, 'Dra hjørnet i planen, eller skriv koordinatene. Hjørnet fester seg til andre rom og hjelpelinjer.'),
+      field('x (mm)', coordInput('builder-corner-x', p.x, (v, rel) => this.apply((d) => void (d.rooms.find((r) => r.id === room.id)!.polygon[i]!.x = rel ? p.x + v : v)))),
+      field('z (mm)', coordInput('builder-corner-z', p.z, (v, rel) => this.apply((d) => void (d.rooms.find((r) => r.id === room.id)!.polygon[i]!.z = rel ? p.z + v : v)))),
+      h('p', { class: 'hint' }, 'Dra hjørnet i planen, eller skriv koordinatene (negative tall er lov; «+=150» flytter 150 mm). Hjørnet fester seg til andre rom og hjelpelinjer.'),
       h('div', { class: 'row' }, button('Fjern hjørnet', 'builder-corner-delete', () => this.editor.deleteSelected(), 'small danger-small')),
     );
   }
@@ -901,7 +949,7 @@ export class BuilderPanel {
         const door = d.openings.find((o) => o.type === 'door' && !linkedEdges(d, o.room, o.edge).length) ?? d.openings.find((o) => o.type === 'door');
         if (!door) return false;
         setEntrance(d, door.id);
-        this.editor.selection.set({ kind: 'opening', id: door.id });
+        this.editor.select({ kind: 'opening', id: door.id });
         return true;
       }
       const first = d.openings.find((o) => o.type === 'door' && o.entrance);

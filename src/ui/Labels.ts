@@ -12,6 +12,11 @@ export class Labels {
   readonly renderer = new CSS2DRenderer();
   readonly root = new THREE.Group();
   private readonly byLayer = new Map<string, CSS2DObject[]>();
+  /** Etiketter som ikke er romnavn (notater, installasjoner). */
+  private readonly extra = new Set<CSS2DObject>();
+  private readonly hiddenLayers = new Set<string>();
+  /** Mens man lager ny modell: bare romnavnene (resten dekker målene i tegningen). */
+  private building = false;
 
   constructor(container: HTMLElement) {
     this.renderer.domElement.className = 'labels';
@@ -24,6 +29,7 @@ export class Labels {
     for (const list of this.byLayer.values()) for (const o of list) o.element.remove();
     this.root.clear();
     this.byLayer.clear();
+    this.extra.clear();
   }
 
   build(model: ApartmentModel): void {
@@ -38,6 +44,8 @@ export class Labels {
       const list = this.byLayer.get(layer) ?? [];
       list.push(obj);
       this.byLayer.set(layer, list);
+      if (cls !== 'room') this.extra.add(obj);
+      obj.visible = this.shows(layer, obj);
     };
     for (const info of model.rooms.values()) {
       const c = centroid(info.polygon);
@@ -56,7 +64,19 @@ export class Labels {
   }
 
   setLayerVisible(layer: string, visible: boolean): void {
-    for (const o of this.byLayer.get(layer) ?? []) o.visible = visible;
+    if (visible) this.hiddenLayers.delete(layer);
+    else this.hiddenLayers.add(layer);
+    for (const o of this.byLayer.get(layer) ?? []) o.visible = this.shows(layer, o);
+  }
+
+  /** «Lag ny modell» er åpen: skjul notater og installasjonsetiketter. */
+  setBuilding(on: boolean): void {
+    this.building = on;
+    for (const [layer, list] of this.byLayer) for (const o of list) o.visible = this.shows(layer, o);
+  }
+
+  private shows(layer: string, o: CSS2DObject): boolean {
+    return !this.hiddenLayers.has(layer) && !(this.building && this.extra.has(o));
   }
 
   resize(w: number, h: number): void {

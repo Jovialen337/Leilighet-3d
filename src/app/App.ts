@@ -190,6 +190,7 @@ export class App {
     this.xr.canDraw = () => !this.builder.ownsView;
     this.builder.open.subscribe((on) => {
       this.ui.setBuilding(on);
+      this.labels.setBuilding(on);
       this.resize();
     });
 

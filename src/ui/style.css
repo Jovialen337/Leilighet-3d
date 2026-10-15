@@ -736,6 +736,25 @@ button.big {
 }
 
 .name-input,
+.move-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+.move-row > span {
+  flex: 1;
+  min-width: 0;
+}
+.move-row .len-input {
+  width: 72px;
+}
+.move-row > small.hint {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12px;
+}
 .note-input {
   font: inherit;
   font-size: 13px;
