@@ -103,6 +103,8 @@ test('hurtigtaster og hjelp', async ({ page }) => {
 });
 
 test('VR-menyen (X): pek og trykk for å skru av taket og gå til et rom', async ({ page }) => {
+  // Langt scenario i emulert Quest 3: tar 40–50 s på en treg maskin.
+  test.setTimeout(90_000);
   const errors = collectErrors(page);
   await enterVR(page);
   await press(page, 'left', 'x-button');

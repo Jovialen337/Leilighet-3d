@@ -672,6 +672,8 @@ async function captureRoom(page: Page): Promise<void> {
 }
 
 test('mål opp et rom i gjennomsyn: vegger, gulv, tak, dør og navn', async ({ page }) => {
+  // Lange scenarier i emulert Quest 3: tar 40–60 s på en treg maskin.
+  test.setTimeout(90_000);
   const errors = collectErrors(page);
   await openBuilder(page, './?emulator');
   await enterBuild(page);
@@ -747,6 +749,8 @@ test('mål opp et rom i gjennomsyn: vegger, gulv, tak, dør og navn', async ({ p
 });
 
 test('gjennomsyn: 1 cm feil på første vegg gir likevel riktig skillevegg og dybde (tegningens akse)', async ({ page }) => {
+  // Lange scenarier i emulert Quest 3: tar 40–60 s på en treg maskin.
+  test.setTimeout(90_000);
   const errors = collectErrors(page);
   await openBuilder(page, './?emulator');
   await page.getByTestId('builder-new').click();
@@ -817,6 +821,8 @@ test('gjennomsyn: første rom med kort avstand på første vegg får en advarsel
 });
 
 test('gjennomsyn: angre, samme vegg, skrå vegg og hopp over gulv og tak', async ({ page }) => {
+  // Lange scenarier i emulert Quest 3: tar 40–60 s på en treg maskin.
+  test.setTimeout(90_000);
   await openBuilder(page, './?emulator');
   await page.getByTestId('builder-new').click();
   await enterBuild(page, 'builder-capture-more');
@@ -857,6 +863,8 @@ test('gjennomsyn: angre, samme vegg, skrå vegg og hopp over gulv og tak', async
 });
 
 test('gjennomsyn igjen: tegningen justeres ved inngangsdøra, og et rom kan måles på nytt', async ({ page }) => {
+  // Lange scenarier i emulert Quest 3: tar 40–60 s på en treg maskin.
+  test.setTimeout(90_000);
   await openBuilder(page, './?emulator');
   await enterBuild(page);
   await captureRoom(page);
@@ -1030,6 +1038,8 @@ test('bakgrunnsbilde som ikke får plass i lagringen: et eldre bilde dukker ikke
 });
 
 test('gjennomsyn: mister hodesettet sporingen, må tegningen justeres på nytt', async ({ page }) => {
+  // Lange scenarier i emulert Quest 3: tar 40–60 s på en treg maskin.
+  test.setTimeout(90_000);
   await openBuilder(page, './?emulator');
   await enterBuild(page);
   await captureRoom(page);
