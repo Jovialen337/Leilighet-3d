@@ -243,6 +243,7 @@ You can also **open a drawing from a file** (`*.tegning.json`) to move work betw
       - One side keeps the room's id and name; the other becomes «‹navn› 2» with the same floor, ceiling and colour.
       - A sloped ceiling is kept: the old corners keep their heights, and the new corners at the split get theirs from the ceiling's plane (so the ceiling is no longer marked measured).
       - A partition flush with an existing wall (for example at an L's inside corner) gives clean rooms, with no zero-width spike along the old wall.
+      - The partition strip (centred on the line) is taken out across the whole room, also where only one side continues. In an L split at x = 1950 with the inside corner at x = 2000, the long leg becomes 100 mm narrower; split at x = 2050 to keep it. The panel hint says so.
       - Windows and doors follow their side. A door into the room (from the room itself or from a neighbour) goes into the part it stands against.
       - Measured corners stay measured.
       - The split is refused, with a message naming the reason, if:

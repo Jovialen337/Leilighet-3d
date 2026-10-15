@@ -729,7 +729,11 @@ export class BuilderPanel {
       { class: 'split-box' },
       h('summary', {}, 'Del rommet'),
       h('div', { class: 'row' }, dir, pos, button('Del', 'builder-split-go', go)),
-      h('small', { class: 'hint' }, 'En skillevegg tvers gjennom rommet (standard tykkelse). Vinduer og dører følger siden de står på.'),
+      h(
+        'small',
+        { class: 'hint' },
+        'En skillevegg (standard tykkelse) midt på linja, tvers gjennom hele rommet – også der bare den ene siden fortsetter, f.eks. langs beinet i en L. Vinduer og dører følger siden de står på.',
+      ),
     );
   }
 

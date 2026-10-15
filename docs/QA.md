@@ -444,6 +444,26 @@ Dimensions: visual 7, performance 8, options 8, intuitive 8, code 8, robustness 
 - **Sweep after the fix:** every 50 mm on both axes, in every room of both files, gives 317 allowed splits, all of which compile without errors. The other 891 positions are refused with a reason.
 - **Test timeouts:** after a container restart the long emulated-Quest scenarios took 49–58 s, also at the previous commit. They now have 90 s, like the long tests in plan.spec.
 
+### Gatekeeper (round 3, pass 3 at 8b88cdd): **PASS**
+- **Gates:**
+  - all green: 252 unit tests and 77 browser tests, with no console errors;
+  - draw calls per eye: 32 when walking the file, 32 on a builder preview, 10 in passthrough;
+  - textures about 4.7 MB.
+- **Needle fix:** the flush L split gives a clean 2 × 2 m room and a 2 m partition, with no phantom wall.
+- **Fuzz** (every room, both axes, 50 mm steps):
+
+  | Input | Allowed | Bad | Area error |
+  |---|---|---|---|
+  | Published file | 103 | 0 | 0 |
+  | Placeholder | 214 | 0 | 0 |
+  | Synthetic U, T, comb and L | 370 | 0 | 0 |
+
+  All other positions are refused with a reason.
+- **Remarks:**
+  - The partition strip is taken out across the whole room, so a flush split on the «wrong» side narrows the other leg of an L by 100 mm. This is now stated in the panel hint and in PLAN.
+  - A harmless leftover corner can stay in the middle of a straight edge.
+  - The overlay costs a little more per redraw, and more of the other rooms' corners are hidden when zoomed out. Both are by design.
+
 ### Test on the Quest (phase 2c)
 1. **Laptop, background image:** in «Lag ny modell», open «Bakgrunnsbilde» and load the sketch or a floor plan. Set the scale with a known wall length, then trace the rooms on top of it.
 2. **Quest Browser, 2D:**
