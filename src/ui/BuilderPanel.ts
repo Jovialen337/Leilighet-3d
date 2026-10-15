@@ -702,7 +702,7 @@ export class BuilderPanel {
     // Tomt felt = 0. Enter i x går videre til z; Enter i z flytter.
     const input = (testid: string, placeholder: string, onEnter: () => void): HTMLInputElement => {
       const i = h('input', { type: 'text', inputmode: 'text', class: 'len-input', 'data-testid': testid, placeholder, autocomplete: 'off', enterkeyhint: 'next' });
-      i.title = 'mm; negative tall flytter mot venstre/opp.';
+      i.title = 'Som andre mål («500», «1,2 m»); minus flytter mot venstre/opp.';
       i.addEventListener('keydown', (e) => {
         e.stopPropagation();
         if (e.key === 'Escape') i.blur();
@@ -715,10 +715,12 @@ export class BuilderPanel {
     };
     const read = (i: HTMLInputElement): number | null => {
       if (!i.value.trim()) return 0;
-      // Fortegnet er retningen her: «-500» = 500 mm mot venstre/opp, også med «-=».
-      const v = parseLength(i.value.replace('=', ''), true);
-      i.classList.toggle('invalid', !v);
-      return v ? v.mm : null;
+      // Fortegnet er bare retningen: tallet leses som et vanlig mål («-3» = 3 m mot venstre, som «3»).
+      const m = /^\s*([+\-−]?)=?\s*(.*)$/.exec(i.value)!;
+      const v = parseLength(m[2]!);
+      const ok = !!v && !v.relative;
+      i.classList.toggle('invalid', !ok);
+      return ok ? (m[1] === '-' || m[1] === '−' ? -v!.mm : v!.mm) : null;
     };
     const go = (): void => {
       const x = read(dx);
@@ -736,7 +738,7 @@ export class BuilderPanel {
       dx,
       dz,
       button('Flytt', 'builder-move-go', go),
-      h('small', { class: 'hint' }, 'mm mot høyre (x) og nedover (z) i planen; negative tall flytter motsatt vei.'),
+      h('small', { class: 'hint' }, 'Mot høyre (x) og nedover (z) i planen, som andre mål («500», «1,2 m»); minus flytter motsatt vei.'),
     );
   }
 

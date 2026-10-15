@@ -228,7 +228,7 @@ You can also **open a drawing from a file** (`*.tegning.json`) to move work betw
   - «4,2» = 4,2 m; «420 cm» = 420 cm; «4200» = 4200 mm; a bare 1–9 = metres.
   - A sign («+150», «-150») adds to or subtracts from the current value.
   - In **coordinate and floor-level fields** (corner x/z, «Gulvnivå») a minus is part of the value: «-1100» is −1100. Subtract there with «-=150». «+150» (and «+=150») always adds, since a positive value never needs a plus.
-  - In «Flytt rommet» the sign is the direction: «-500» moves 500 mm left or up. An empty field is 0, and Enter moves on to the next field and then moves the room.
+  - In «Flytt rommet» the sign is only the direction; the number reads like any other length («-500» moves 500 mm left or up, «-3» moves 3 m like «3»). An empty field is 0, and Enter moves on to the next field and then moves the room.
   - While drawing, start typing and the number goes straight into the length field. Enter places it, and Tab moves to the next field.
   - In the polygon tool, the arrow buttons → ↓ ← ↑ give the direction without a mouse.
 - **Handles.** Drag corners, edges (the neighbour room follows, so the wall keeps its thickness), whole rooms, and openings (along the wall, or their ends to resize).

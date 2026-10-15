@@ -349,6 +349,21 @@ Dimensions: visual 7, performance 8, options 8, intuitive 7, code 7, robustness 
 - **Not changed:**
   - Wall bodies overlap at closed corners with tops in the same plane. They are the same colour, so no flicker is visible.
 
+### Gatekeeper (round 2, pass 2 at 51c050a): **PASS**
+- **Gates:**
+  - all green: 239 unit tests and 72 browser tests, with no console errors;
+  - draw calls per eye: 32 when walking the real file, 32 on a builder preview, 10 in passthrough;
+  - textures about 4.7 MB;
+  - the published file compiles byte-identically to before.
+- **Corners:** checked on a 15 mm grid in 27 layouts at three versions. There are no holes, no intrusions and no far points.
+  - The gatekeeper's repros went from 1.1–2.6 m spikes to at most 349 mm from the room.
+- **Remarks:**
+  - In «Flytt rommet», «-3» moved 3 mm while «3» moved 3 m. **Fixed:** the sign is only the direction there.
+  - Accepted as designed and documented:
+    - «Rett opp rommene» can move one of the two rooms up to 30 mm onto a nearby room's line;
+    - very sharp tips are cut at 4 × the wall thickness;
+    - corner overlap.
+
 ### Test on the Quest (phase 2c)
 1. **Laptop, background image:** in «Lag ny modell», open «Bakgrunnsbilde» and load the sketch or a floor plan. Set the scale with a known wall length, then trace the rooms on top of it.
 2. **Quest Browser, 2D:**
