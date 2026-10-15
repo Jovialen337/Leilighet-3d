@@ -257,7 +257,7 @@ describe('redigering', () => {
     if (!r.ok) expect(r.message).toContain('formet som en U');
     expect(d.rooms).toHaveLength(1);
     // Under U-en (der den er hel) går det fint.
-    expect(splitRoom(d, u.id, 'z', 3500).ok).toBe(true);
+    expect(splitRoom(d, u.id, 'z', 3400).ok).toBe(true);
     // Og en L kan deles gjennom det innvendige hjørnet.
     const e = emptyBuilderDoc();
     const l = addRoom(e, [
@@ -269,6 +269,105 @@ describe('redigering', () => {
       { x: 0, z: 4000 },
     ]);
     expect(splitRoom(e, l.id, 'x', 2000).ok).toBe(true);
+  });
+
+  describe('«Del rommet» i rom med innhakk (L, U, T, kam), skillet hvor som helst', () => {
+    const shapes: Record<string, [number, number][]> = {
+      L: [[0, 0], [4000, 0], [4000, 2000], [2000, 2000], [2000, 4000], [0, 4000]],
+      U: [[0, 0], [1500, 0], [1500, 3000], [2500, 3000], [2500, 0], [4000, 0], [4000, 4000], [0, 4000]],
+      T: [[0, 0], [6000, 0], [6000, 1000], [4000, 1000], [4000, 4000], [2000, 4000], [2000, 1000], [0, 1000]],
+      kam: [[0, 0], [1000, 0], [1000, 2000], [1500, 2000], [1500, 0], [2500, 0], [2500, 2000], [3000, 2000], [3000, 0], [4000, 0], [4000, 3000], [0, 3000]],
+    };
+    const make = (pts: [number, number][]) => {
+      const d = emptyBuilderDoc();
+      const r = addRoom(d, pts.map(([x, z]) => ({ x, z })), 'Stue');
+      return { d, r };
+    };
+    /** Snur polygonet rett tilbake på seg selv noe sted (en «nål»)? */
+    const needle = (poly: { x: number; z: number }[]): boolean =>
+      poly.some((b, i) => {
+        const a = poly[(i - 1 + poly.length) % poly.length]!;
+        const c = poly[(i + 1) % poly.length]!;
+        const u = { x: b.x - a.x, z: b.z - a.z };
+        const v = { x: c.x - b.x, z: c.z - b.z };
+        return Math.abs(u.x * v.z - u.z * v.x) < 1 && u.x * v.x + u.z * v.z < 0;
+      });
+    const area = (poly: { x: number; z: number }[]) => Math.abs(poly.reduce((s, p, i) => s + p.x * poly[(i + 1) % poly.length]!.z - poly[(i + 1) % poly.length]!.x * p.z, 0) / 2);
+
+    it('skillevegg som flukter med en vegg som er der fra før, gir ingen «nål»', () => {
+      for (const [name, axis, at] of [
+        ['L', 'x', 1950],
+        ['L', 'z', 1950],
+        ['U', 'x', 1450],
+        ['U', 'x', 2550],
+        ['T', 'x', 1950],
+        ['T', 'z', 1050],
+      ] as const) {
+        const { d, r } = make(shapes[name]!);
+        const res = splitRoom(d, r.id, axis, at);
+        if (!res.ok) throw new Error(`${name} ${axis}=${at}: ${res.message}`);
+        expect({ name, axis, at, a: needle(res.a.polygon), b: needle(res.b.polygon) }).toEqual({ name, axis, at, a: false, b: false });
+      }
+      // L flukt med det innvendige hjørnet: delen til høyre er et rent rektangel.
+      const { d, r } = make(shapes.L!);
+      const res = splitRoom(d, r.id, 'x', 1950);
+      if (!res.ok) throw new Error(res.message);
+      expect(res.b.polygon.map(({ x, z }) => [x, z])).toEqual([
+        [2000, 0],
+        [4000, 0],
+        [4000, 2000],
+        [2000, 2000],
+      ]);
+      // Skilleveggen stopper ved hjørnet (ikke 4 m lang), og det blir ingen yttervegg langs en «nål».
+      const walls = deriveWalls(d.rooms, d.settings).walls;
+      const inner = walls.filter((w) => w.kind === 'interior');
+      expect(inner).toHaveLength(1);
+      expect(Math.hypot(inner[0]!.end.x - inner[0]!.start.x, inner[0]!.end.z - inner[0]!.start.z)).toBeCloseTo(2000, -1);
+    });
+
+    it('hver tillatte deling, i steg på 50 mm, gir to enkle rom uten nåler, og arealet går opp', () => {
+      let allowed = 0;
+      for (const [name, pts] of Object.entries(shapes)) {
+        const xs = pts.map((p) => p[0]);
+        const zs = pts.map((p) => p[1]);
+        for (const axis of ['x', 'z'] as const) {
+          const v = axis === 'x' ? xs : zs;
+          for (let at = Math.min(...v); at <= Math.max(...v); at += 50) {
+            const { d, r } = make(pts);
+            const before = area(r.polygon);
+            const res = splitRoom(d, r.id, axis, at);
+            if (!res.ok) continue;
+            allowed++;
+            for (const part of [res.a, res.b]) {
+              expect({ name, axis, at, needle: needle(part.polygon) }).toEqual({ name, axis, at, needle: false });
+            }
+            // Delene + skilleveggens stripe = hele rommet (stripa er høyst 100 mm × rommets bredde).
+            const lost = before - area(res.a.polygon) - area(res.b.polygon);
+            expect(lost).toBeGreaterThan(0);
+            expect(lost).toBeLessThanOrEqual(100 * Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs)) + 1);
+          }
+        }
+      }
+      expect(allowed).toBeGreaterThan(100);
+    });
+
+    it('en stripe smalere enn 50 cm avvises', () => {
+      const { d, r } = make(shapes.L!);
+      const res = splitRoom(d, r.id, 'x', 3700);
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.message).toContain('minst 50 cm');
+    });
+  });
+
+  it('«Del rommet» av et målt skrått tak: de nye høydene er regnet ut, ikke målt', () => {
+    const d = emptyBuilderDoc();
+    const r0 = addRect(d, { x: 0, z: 0 }, { x: 4000, z: 3000 }, 'Stue');
+    r0.ceilingCorners = [2400, 2800, 2800, 2400];
+    r0.ceilingMeasured = true;
+    const r = splitRoom(d, r0.id, 'x', 2000);
+    if (!r.ok) throw new Error(r.message);
+    expect(r.a.ceilingMeasured).toBeUndefined();
+    expect(r.b.ceilingMeasured).toBeUndefined();
   });
 
   it('«Del rommet» utenfor rommet eller for nær kanten avvises', () => {

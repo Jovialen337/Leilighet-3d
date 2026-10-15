@@ -217,9 +217,41 @@ function clipPolygon(poly: readonly BPoint[], axis: 'x' | 'z', at: number, side:
       out.push({ x: Math.round(a.x + (b.x - a.x) * t), z: Math.round(a.z + (b.z - a.z) * t) });
     }
   }
-  // Like punkter etter hverandre (kuttet gikk gjennom et hjørne) slås sammen.
-  return out.filter((p, i) => dist(p, out[(i + 1) % out.length]!) >= 1);
+  return removeNeedles(out);
 }
+
+/**
+ * Fjerner «nåler» fra et polygon: hjørner der kanten snur rett tilbake på
+ * seg selv (to kanter oppå hverandre, null bredde), og like hjørner etter
+ * hverandre. Det skjer når et kutt går langs en vegg som er der fra før
+ * (f.eks. skilleveggen flukter med det innvendige hjørnet i en L).
+ */
+function removeNeedles(poly: BPoint[]): BPoint[] {
+  let pts = poly;
+  for (let changed = true; changed && pts.length >= 3; ) {
+    changed = false;
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[(i - 1 + pts.length) % pts.length]!;
+      const b = pts[i]!;
+      const c = pts[(i + 1) % pts.length]!;
+      const u = { x: b.x - a.x, z: b.z - a.z };
+      const v = { x: c.x - b.x, z: c.z - b.z };
+      const lu = Math.hypot(u.x, u.z);
+      const lv = Math.hypot(v.x, v.z);
+      // Snur tilbake: neste hjørne ligger (innen 1 mm) på linja inn, og kanten går motsatt vei.
+      const back = lu >= 1 && lv >= 1 && Math.abs(u.x * v.z - u.z * v.x) < lu && u.x * v.x + u.z * v.z < 0;
+      if (lu < 1 || back) {
+        pts = pts.filter((_, k) => k !== i);
+        changed = true;
+        break;
+      }
+    }
+  }
+  return pts;
+}
+
+/** Minste bredde på hver del ved «Del rommet» (mm, målt fra skillet). */
+const MIN_SPLIT_DEPTH = 500;
 
 export type SplitResult = { ok: true; a: BRoom; b: BRoom; dropped: number } | { ok: false; message: string };
 
@@ -291,6 +323,11 @@ export function splitRoom(doc: BuilderDoc, roomId: string, axis: 'x' | 'z', at: 
     if (problem || Math.abs(polygonArea(p)) < 250_000)
       return { ok: false, message: 'Skillet må gå tvers gjennom rommet, med minst 0,25 m² på hver side.' };
   }
+  // Hver del må være minst 50 cm bred målt fra skillet (ellers en stripe som ikke er et rom).
+  const depthA = at - half - Math.min(...pa.map((p) => p[axis]));
+  const depthB = Math.max(...pb.map((p) => p[axis])) - (at + half);
+  if (Math.min(depthA, depthB) < MIN_SPLIT_DEPTH)
+    return { ok: false, message: `Den ene delen blir bare ${Math.round(Math.max(0, Math.min(depthA, depthB)) / 10)} cm bred. Flytt skillet, så hver del blir minst 50 cm.` };
   if (runsOnLine(pa, axis, at - half) > 1 || runsOnLine(pb, axis, at + half) > 1)
     return {
       ok: false,
@@ -358,6 +395,11 @@ export function splitRoom(doc: BuilderDoc, roomId: string, axis: 'x' | 'z', at: 
   room.polygon = pa;
   if (ca) room.ceilingCorners = ca;
   else delete room.ceilingCorners;
+  // Skrått tak: høydene i de nye hjørnene er regnet ut, ikke målt.
+  if (sloped) {
+    delete room.ceilingMeasured;
+    delete b.ceilingMeasured;
+  }
   const ea = edgeOpts(pa);
   if (ea) room.edges = ea;
   else delete room.edges;

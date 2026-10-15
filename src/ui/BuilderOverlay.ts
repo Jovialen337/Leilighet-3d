@@ -273,7 +273,8 @@ export class BuilderOverlay {
       if (r.polygon.length < 3) continue;
       const c = this.s(centroid(r.polygon));
       const area = `${(polygonArea(r.polygon) / 1e6).toLocaleString('nb-NO', { maximumFractionDigits: 1 })} m²`;
-      const key = `${r.id}|${r.name}|${area}`;
+      // Arealet endres mens et hjørne dras, men sjelden antall tegn – det er det som gir bredden.
+      const key = `${r.id}|${r.name}|${area.length}`;
       let size = this.labelSizes.get(key);
       if (!size) {
         // Én lesing fra siden per ny etikett (ikke hver gang overlegget tegnes, f.eks. under et drag).

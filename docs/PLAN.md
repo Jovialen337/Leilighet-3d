@@ -241,12 +241,13 @@ You can also **open a drawing from a file** (`*.tegning.json`) to move work betw
     - «Roter 90°»: clockwise about the middle; openings follow; four turns give exactly the same room back;
     - «Del rommet»: a partition of the standard thickness straight through the room, vertical (at an x) or horizontal (at a z), suggested in the middle across the longer side.
       - One side keeps the room's id and name; the other becomes «‹navn› 2» with the same floor, ceiling and colour.
-      - A sloped ceiling is kept: the old corners keep their heights, and the new corners at the split get theirs from the ceiling's plane.
+      - A sloped ceiling is kept: the old corners keep their heights, and the new corners at the split get theirs from the ceiling's plane (so the ceiling is no longer marked measured).
+      - A partition flush with an existing wall (for example at an L's inside corner) gives clean rooms, with no zero-width spike along the old wall.
       - Windows and doors follow their side. A door into the room (from the room itself or from a neighbour) goes into the part it stands against.
       - Measured corners stay measured.
       - The split is refused, with a message naming the reason, if:
         - it would cut through an opening, in the room or in the wall facing it from a neighbour;
-        - it does not cross the room, or leaves under 0.25 m² on a side;
+        - it does not cross the room, or leaves under 0.25 m² or under 50 cm (measured from the partition) on a side;
         - it crosses the room more than once (a U-shape), which would make one side two rooms;
   - edge: length; for an exterior wall, its thickness and material; for a partition, its **thickness** (the neighbouring room moves); add door, window or opening; «Fordel vinduer jevnt»;
   - corner: x and z (negative values allowed);

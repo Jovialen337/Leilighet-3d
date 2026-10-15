@@ -427,6 +427,23 @@ Dimensions: visual 7, performance 8, options 8, intuitive 8, code 8, robustness 
   - The «Velg» hint says that selecting a room shows all its corners and dimensions.
   - A grip-touched wall uses the drawing's axis only when the first wall does. B + A is offered whenever the axis changed anything.
 
+### Gatekeeper (round 3, pass 2 at ad0c276): **FAIL**
+- **Gates:** all green (248 unit tests, 77 browser tests); 32 draw calls per eye; textures about 4.7 MB.
+- **Pass 1's blockers:**
+  - The door fix holds: 557 splits of the published file and the placeholder (every 50 mm) left no door pointing at the wrong room.
+  - The U refusal holds.
+- **Blocking (fixed):**
+  - A partition flush with an existing wall (for example at x = 1950 in an L whose inside corner is at x = 2000) left a zero-width «needle» along the old wall. That gave a phantom exterior wall and a 4 m partition, and the file still exported as valid.
+  - **Fix:** after clipping, corners where the outline doubles straight back are removed, and the checks run again.
+  - New tests: flush partitions in L, U and T rooms, and a sweep of every 50 mm split in L, U, T and comb-shaped rooms. Every allowed split gives two simple rooms with no needle, and the areas add up.
+- **Remarks, fixed:**
+  - Slivers are refused: each part must be at least 50 cm wide from the partition.
+  - A measured sloped ceiling is no longer marked measured after a split, because the new corners are interpolated.
+  - The label-size cache key no longer changes on every corner drag.
+  - When only a grip wall was snapped, the panel no longer says «Rettet inn 0,0°».
+- **Sweep after the fix:** every 50 mm on both axes, in every room of both files, gives 317 allowed splits, all of which compile without errors. The other 891 positions are refused with a reason.
+- **Test timeouts:** after a container restart the long emulated-Quest scenarios took 49–58 s, also at the previous commit. They now have 90 s, like the long tests in plan.spec.
+
 ### Test on the Quest (phase 2c)
 1. **Laptop, background image:** in «Lag ny modell», open «Bakgrunnsbilde» and load the sketch or a floor plan. Set the scale with a known wall length, then trace the rooms on top of it.
 2. **Quest Browser, 2D:**
