@@ -109,6 +109,10 @@ export class BuildMode {
   private heights: number[] = [];
   /** Lukket rom som venter på gulv og tak. */
   private pending: { polygon: P2[]; floor: number | null } | null = null;
+  /** Rommet ble rettet inn da det ble lukket (B går tilbake og lar en beholde det som målt). */
+  private aligned = false;
+  /** Lukk neste gang uten å rette inn (valgt med B rett etter en innretting). */
+  private keepSkew = false;
   private target: { kind: 'new' } | { kind: 'remeasure'; room: string } = { kind: 'new' };
   private opening: { type: BOpeningType; touches: P3[] } | null = null;
   private lastRoom: string | null = null;
@@ -222,6 +226,8 @@ export class BuildMode {
   }
 
   private resetCapture(): void {
+    this.aligned = false;
+    this.keepSkew = false;
     this.walls = [];
     this.heights = [];
     this.pending = null;
@@ -493,13 +499,16 @@ export class BuildMode {
         if (!r.ok) return this.fail(r.message, right);
         // Litt skjevt i forhold til resten av tegningen (sporingen): rett inn om første berøring.
         const t = this.target;
-        const axis = this.doc ? commonAxis(this.doc, 4, t.kind === 'remeasure' ? t.room : undefined) : null;
+        const axis = this.doc && !this.keepSkew ? commonAxis(this.doc, 4, t.kind === 'remeasure' ? t.room : undefined) : null;
         const al = alignToAxis(r.polygon, axis, this.walls[0]![0]!);
         this.pending = { polygon: al.polygon, floor: null };
+        this.aligned = al.deg !== 0;
         this.phase = 'floor';
         const fix = al.deg
-          ? ` Rettet inn ${Math.abs(al.deg).toFixed(1).replace('.', ',')}° etter de andre rommene (flyttet høyst ${formatLength(al.moved)}).`
-          : '';
+          ? ` Rettet inn ${Math.abs(al.deg).toFixed(1).replace('.', ',')}° etter de andre rommene (flyttet høyst ${formatLength(al.moved)}; B + A beholder det som målt).`
+          : this.keepSkew
+            ? ' Beholdt slik det ble målt.'
+            : '';
         this.ok(`Rommet er lukket: ${r.polygon.length} hjørner, ${formatArea(polygonArea(al.polygon))}.${fix} Berør gulvet.`, right);
         break;
       }
@@ -553,7 +562,16 @@ export class BuildMode {
       case 'floor':
         this.pending = null;
         this.phase = 'walls';
-        this.say('Tilbake til veggene. Trykk A for å lukke rommet igjen.', 'info');
+        if (this.aligned) {
+          // Rett etter en innretting: neste A lukker rommet slik det ble målt.
+          this.keepSkew = true;
+          this.aligned = false;
+          this.say('Tilbake til veggene. A lukker rommet slik det ble målt (uten å rette det inn).', 'info');
+        } else if (this.keepSkew) {
+          // Ombestemt seg: rett inn likevel.
+          this.keepSkew = false;
+          this.say('Tilbake til veggene. A lukker rommet og retter det inn etter de andre.', 'info');
+        } else this.say('Tilbake til veggene. Trykk A for å lukke rommet igjen.', 'info');
         break;
       case 'ceiling':
         this.pending!.floor = null;
@@ -629,6 +647,8 @@ export class BuildMode {
     this.walls = [];
     this.heights = [];
     this.pending = null;
+    this.aligned = false;
+    this.keepSkew = false;
     this.target = { kind: 'new' };
     this.phase = 'ready';
     this.roomsDirty = true;

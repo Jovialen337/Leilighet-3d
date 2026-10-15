@@ -404,13 +404,15 @@ test.describe('Quest-nettleseren (laserpeker, uten tastatur)', () => {
   });
 });
 
-test('rom: kopier, skillevegg, roter, flytt med tall, negative koordinater og «Rett opp alt»', async ({ page }) => {
+test('rom: kopier, skillevegg, roter, flytt med tall, negative koordinater og «Rett opp rommene»', async ({ page }) => {
   const errors = collectErrors(page);
   await openBuilder(page);
   await page.getByTestId('builder-new').click();
   await page.getByTestId('builder-rect-w').fill('3000');
   await page.getByTestId('builder-rect-d').fill('2000');
   await page.getByTestId('builder-rect-make').click();
+  // Navnefeltene har samme stil som målefeltene (ikke nettleserens standard).
+  for (const id of ['builder-name', 'builder-room-name']) await expect(page.getByTestId(id)).toHaveCSS('border-radius', '6px');
   let doc = await builderDoc(page);
   const a = doc.rooms[0];
   const ax = (r: any) => r.polygon.map((p: any) => p.x);
@@ -466,11 +468,11 @@ test('rom: kopier, skillevegg, roter, flytt med tall, negative koordinater og «
   await page.getByTestId('builder-corner-x').fill('-1100');
   await page.getByTestId('builder-corner-x').press('Enter');
   expect((await builderDoc(page)).rooms[0].polygon[0].x).toBe(-1100);
-  await page.getByTestId('builder-corner-x').fill(`+=${a.polygon[0].x + 1100}`);
+  await page.getByTestId('builder-corner-x').fill(`+${a.polygon[0].x + 1100}`);
   await page.getByTestId('builder-corner-x').press('Enter');
   expect((await builderDoc(page)).rooms[0].polygon[0].x).toBe(a.polygon[0].x);
 
-  // Et skjevt rom (hjørnet 60 mm ut): varsel med «Rett opp alt», som retter det.
+  // Et skjevt rom (hjørnet 60 mm ut): varsel med «Rett opp rommene», som retter det.
   b = (await builderDoc(page)).rooms[1];
   const tl = b.polygon.findIndex((p: any) => p.x === Math.min(...ax(b)) && p.z === Math.min(...az(b)));
   await clickPlan(page, (Math.min(...ax(b)) + Math.max(...ax(b))) / 2, (Math.min(...az(b)) + Math.max(...az(b))) / 2 + 400);
@@ -479,12 +481,54 @@ test('rom: kopier, skillevegg, roter, flytt med tall, negative koordinater og «
   await page.getByTestId('builder-corner-x').fill(String(aRight + 160));
   await page.getByTestId('builder-corner-x').press('Enter');
   await expect(page.getByTestId('builder-issues')).toContainText('er ikke parallelle (1,1°)');
-  await page.getByTestId('builder-fix-straighten-all').first().click();
+  await page.getByTestId('builder-fix-straighten').first().click();
   await expect(page.getByTestId('builder-issues')).not.toContainText('parallelle');
   b = (await builderDoc(page)).rooms[1];
   expect(new Set(b.polygon.map((p: any) => p.x)).size).toBe(2);
   expect(top).toBe(Math.min(...az((await builderDoc(page)).rooms[0])));
   expect(errors).toEqual([]);
+});
+
+test('åpning: dra enden for å gjøre den bredere – håndtakene ligger aldri oppå hverandre', async ({ page }) => {
+  await openBuilder(page);
+  await page.getByTestId('builder-new').click();
+  await page.getByTestId('builder-rect-w').fill('4000');
+  await page.getByTestId('builder-rect-d').fill('3000');
+  await page.getByTestId('builder-rect-make').click();
+  await page.getByTestId('builder-room-edge-0').click();
+  await page.getByTestId('builder-edge-window').click();
+  await page.getByTestId('builder-tool-select').click();
+  const o = (await builderDoc(page)).openings[0];
+  await page.evaluate((id) => (window as any).leilighet.builder.editor.select({ kind: 'opening', id }), o.id);
+  // Overlegget tegnes på nytt mens visningen glir på plass: vent til håndtakene står stille.
+  const measure = async () => {
+    const out = [];
+    for (const k of ['move', 'start', 'end']) out.push(await page.getByTestId(`bo-opening-${k}-${o.id}`).boundingBox());
+    return out;
+  };
+  let boxes: any[] = [];
+  await expect
+    .poll(async () => {
+      const prev = boxes;
+      boxes = await measure();
+      return boxes.every((b) => b) && JSON.stringify(prev) === JSON.stringify(boxes);
+    })
+    .toBe(true);
+  const overlap = (a: any, b: any) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+  expect(overlap(boxes[0], boxes[1]) || overlap(boxes[0], boxes[2]) || overlap(boxes[1], boxes[2])).toBe(false);
+  // Dra høyre ende 300 mm mot høyre (kant 0 går mot +x): bredden øker, venstre ende står.
+  const p0 = await screenOf(page, 0, 0, 0);
+  const p1 = await screenOf(page, 1000, 0, 0);
+  const pxPerMm = (p1.x - p0.x) / 1000;
+  const e = boxes[2];
+  const from = { x: e.x + e.width / 2, y: e.y + e.height / 2 };
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  for (let i = 1; i <= 6; i++) await page.mouse.move(from.x + (300 * pxPerMm * i) / 6, from.y);
+  await page.mouse.up();
+  const after = (await builderDoc(page)).openings[0];
+  expect(after.offset).toBe(o.offset);
+  expect(Math.abs(after.width - (o.width + 300))).toBeLessThanOrEqual(20);
 });
 
 test('notater og installasjonsetiketter skjules mens man lager ny modell', async ({ page }) => {
@@ -612,9 +656,25 @@ test('gjennomsyn: et rom målt litt skjevt (2°) rettes inn etter rommet ved sid
     await touch(page, p.x, 1, p.z);
   }
   await press(page, 'right', 'a-button');
-  const s = await buildState(page);
+  let s = await buildState(page);
   expect(s.phase).toBe('floor');
   expect(s.status?.text).toContain('Rettet inn 2,0° etter de andre rommene');
+  // B + A: behold rommet slik det ble målt.
+  await press(page, 'right', 'b-button');
+  s = await buildState(page);
+  expect(s.phase).toBe('walls');
+  expect(s.status?.text).toContain('slik det ble målt');
+  await press(page, 'right', 'a-button');
+  s = await buildState(page);
+  expect(s.status?.text).toContain('Beholdt slik det ble målt');
+  const kept = await page.evaluate(() => (window as any).leilighet.xr.buildDebug());
+  expect(kept.phase).toBe('floor');
+  // Ombestemt: B + A igjen retter det inn.
+  await press(page, 'right', 'b-button');
+  expect((await buildState(page)).status?.text).toContain('retter det inn');
+  await press(page, 'right', 'a-button');
+  s = await buildState(page);
+  expect(s.status?.text).toContain('Rettet inn 2,0°');
   await touch(page, 4.5, 0.004, -2.5);
   await touch(page, 4.5, 2.45, -2.5);
   const doc = await builderDoc(page);

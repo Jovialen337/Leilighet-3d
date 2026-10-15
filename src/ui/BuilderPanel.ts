@@ -91,7 +91,7 @@ function lengthInput(
 ): HTMLInputElement {
   // Quest-tastaturet og mobiler: «decimal» har ikke minustegn, så koordinatfelt får vanlig tastatur.
   const i = h('input', { type: 'text', inputmode: signed ? 'text' : 'decimal', class: 'len-input', 'data-testid': testid, placeholder, autocomplete: 'off', enterkeyhint: onEnter ? 'next' : 'done' });
-  if (signed) i.title = 'Negative tall er lov. Legg til med «+=150», trekk fra med «-=150».';
+  if (signed) i.title = 'Negative tall er lov. Legg til med «+150», trekk fra med «-=150».';
   if (value !== null) i.value = String(Math.round(value));
   let last = i.value;
   const go = (): boolean => {
@@ -699,20 +699,36 @@ export class BuilderPanel {
   /** «Flytt rommet»: skriv hvor langt (mm, negative tall er lov) og trykk Enter eller «Flytt». */
   private moveRow(): HTMLElement {
     const ed = this.editor;
-    const dx = lengthInput('builder-move-x', null, () => undefined, 'x', () => dz.focus(), true);
-    const dz = lengthInput('builder-move-z', null, () => undefined, 'z', () => go(), true);
+    // Tomt felt = 0. Enter i x går videre til z; Enter i z flytter.
+    const input = (testid: string, placeholder: string, onEnter: () => void): HTMLInputElement => {
+      const i = h('input', { type: 'text', inputmode: 'text', class: 'len-input', 'data-testid': testid, placeholder, autocomplete: 'off', enterkeyhint: 'next' });
+      i.title = 'mm; negative tall flytter mot venstre/opp.';
+      i.addEventListener('keydown', (e) => {
+        e.stopPropagation();
+        if (e.key === 'Escape') i.blur();
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (read(i) !== null) onEnter();
+        }
+      });
+      return i;
+    };
+    const read = (i: HTMLInputElement): number | null => {
+      if (!i.value.trim()) return 0;
+      // Fortegnet er retningen her: «-500» = 500 mm mot venstre/opp, også med «-=».
+      const v = parseLength(i.value.replace('=', ''), true);
+      i.classList.toggle('invalid', !v);
+      return v ? v.mm : null;
+    };
     const go = (): void => {
-      const read = (i: HTMLInputElement): number | null => {
-        if (!i.value.trim()) return 0;
-        const v = parseLength(i.value, true);
-        i.classList.toggle('invalid', !v);
-        return v ? v.mm : null;
-      };
       const x = read(dx);
       const z = read(dz);
       if (x === null || z === null) return;
       if (ed.moveSelectedBy(x, z)) dx.value = dz.value = '';
+      else if (!x && !z) ed.message.set('Skriv hvor langt rommet skal flyttes (mm) i x og/eller z.');
     };
+    const dx = input('builder-move-x', 'x', () => dz.focus());
+    const dz = input('builder-move-z', 'z', go);
     return h(
       'div',
       { class: 'move-row' },
@@ -827,7 +843,7 @@ export class BuilderPanel {
       h('p', { class: 'builder-sel' }, `Hjørne ${i + 1} i «${room.name}»${p.m ? ' · målt' : ''}`),
       field('x (mm)', coordInput('builder-corner-x', p.x, (v, rel) => this.apply((d) => void (d.rooms.find((r) => r.id === room.id)!.polygon[i]!.x = rel ? p.x + v : v)))),
       field('z (mm)', coordInput('builder-corner-z', p.z, (v, rel) => this.apply((d) => void (d.rooms.find((r) => r.id === room.id)!.polygon[i]!.z = rel ? p.z + v : v)))),
-      h('p', { class: 'hint' }, 'Dra hjørnet i planen, eller skriv koordinatene (negative tall er lov; «+=150» flytter 150 mm). Hjørnet fester seg til andre rom og hjelpelinjer.'),
+      h('p', { class: 'hint' }, 'Dra hjørnet i planen, eller skriv koordinatene (negative tall er lov; «+150» og «-=150» flytter). Hjørnet fester seg til andre rom og hjelpelinjer.'),
       h('div', { class: 'row' }, button('Fjern hjørnet', 'builder-corner-delete', () => this.editor.deleteSelected(), 'small danger-small')),
     );
   }
@@ -931,7 +947,7 @@ export class BuilderPanel {
     for (const i of issues) {
       const li = h('li', { class: i.severity }, i.severity === 'error' ? '✗ ' : '⚠ ', i.message);
       if (i.target) li.append(' ', button('Vis', `builder-issue-show-${i.target.id}`, () => this.actions.show(i.target!), 'link'));
-      if (i.fix) li.append(' ', button(i.fix.label, `builder-fix-${i.fix.id}`, () => this.fix(i.fix!.id), 'link'));
+      if (i.fix) li.append(' ', button(i.fix.label, `builder-fix-${i.fix.id}`, () => this.fix(i.fix!), 'link'));
       this.issues.append(li);
     }
     this.downloadBtn.disabled = errors.length > 0 || !res?.doc;
@@ -940,9 +956,10 @@ export class BuilderPanel {
   }
 
   /** Rettelsene i sjekklista (ett trykk). */
-  private fix(id: NonNullable<BuildIssue['fix']>['id']): void {
-    // Skjeve rom: rett opp alle kanter som er nesten rette (opptil 10° skjeve).
-    if (id === 'straighten-all') return this.editor.straighten(true, SKEW_MAX_DEG + 1);
+  private fix(f: NonNullable<BuildIssue['fix']>): void {
+    const id = f.id;
+    // Skjeve rom: rett opp kantene i de to rommene som er nesten rette (opptil 10° skjeve).
+    if (id === 'straighten') return this.editor.straightenRooms(f.rooms ?? [], SKEW_MAX_DEG + 1);
     this.apply((d) => {
       if (id === 'entrance') {
         // Helst en dør i en yttervegg.

@@ -166,6 +166,51 @@ describe('utvendige hjørner i alle vinkler: tette, og ingenting stikker ut', ()
     });
 });
 
+describe('slak knekk mellom en tynn og en tykk yttervegg: ingen tupp ut av huset eller inn i rommet', () => {
+  /** Rom med en knekk på `deg` grader etter en kort kant; `thick` = kanten som er 300 mm. */
+  const shapes = (deg: number): Record<string, { pts: [number, number][]; thick: number[] }> => {
+    const a = (deg * Math.PI) / 180;
+    const bx = Math.round(800 + 3000 * Math.cos(a));
+    const bz = Math.round(3000 * Math.sin(a));
+    const lx = Math.round(1000 + 3000 * Math.cos(a));
+    const lz = Math.round(3000 * Math.sin(a));
+    const plain: [number, number][] = [[0, 0], [800, 0], [bx, bz], [bx, 3000], [0, 3000]];
+    const ell: [number, number][] = [[-2000, -1000], [0, -1000], [0, 0], [1000, 0], [lx, lz], [lx, 3000], [-2000, 3000]];
+    return {
+      'kort tykk kant før knekken': { pts: plain, thick: [0] },
+      'tykk kant etter knekken': { pts: plain, thick: [1] },
+      'kort tykk kant etter et innvendig hjørne': { pts: ell, thick: [2] },
+      'tynn kant etter et innvendig hjørne, tykk etter knekken': { pts: ell, thick: [3] },
+    };
+  };
+  for (const deg of [3, 5, 10, 30])
+    for (const [name, { pts, thick }] of Object.entries(shapes(deg)))
+      it(`${deg}°: ${name}`, () => {
+        const r = room('r', pts);
+        r.edges = pts.map((_, i) => (thick.includes(i) ? { thickness: 300 } : null));
+        const { walls } = deriveWalls([r], DEFAULT_BUILDER_SETTINGS);
+        const xs = pts.map((p) => p[0]);
+        const zs = pts.map((p) => p[1]);
+        const holes: P[] = [];
+        const far: P[] = [];
+        const intrusions: P[] = [];
+        for (let x = Math.min(...xs) - 1500 + 7.5; x < Math.max(...xs) + 1500; x += 15)
+          for (let z = Math.min(...zs) - 1500 + 7.5; z < Math.max(...zs) + 1500; z += 15) {
+            const p = { x, z };
+            const wall = walls.some((w) => inBody(w, p));
+            const inside = pointInPolygon(p, r.polygon);
+            const d = edgeDist(p, r.polygon);
+            if (inside && wall && d > 1) intrusions.push(p);
+            if (!inside && d > 10 && d < 190 && !wall) holes.push(p);
+            // Ingen vegg lenger ut enn hjørnet på den tykkeste veggen.
+            if (wall && !inside && d > 300 * Math.SQRT2 + 15) far.push(p);
+          }
+        expect(intrusions.slice(0, 3)).toEqual([]);
+        expect(holes.slice(0, 3)).toEqual([]);
+        expect(far.slice(0, 3)).toEqual([]);
+      });
+});
+
 describe('skjeve rom ved siden av hverandre', () => {
   /** Rom B dreid `deg` grader rundt sitt eget hjørne, 100 mm fra A (og lenger unna i den andre enden). */
   const pair = (deg: number): BuilderDoc => {
@@ -175,10 +220,20 @@ describe('skjeve rom ved siden av hverandre', () => {
     d.rooms = [rect('a', 0, 0, 3000, 3000), { id: 'b', name: 'B', polygon: [rot(0, 0), rot(3000, 0), rot(3000, 3000), rot(0, 3000)], floor: 0, ceiling: 2400 }];
     return d;
   };
-  const skewIssues = (d: BuilderDoc) => compile(d).issues.filter((i) => i.fix?.id === 'straighten-all');
+  const skewIssues = (d: BuilderDoc) => compile(d).issues.filter((i) => i.fix?.id === 'straighten');
 
   it('rette rom gir ingen advarsel', () => {
     expect(skewIssues(pair(0))).toEqual([]);
+  });
+
+  it('korte kanter som bare er avrundet skjeve (1–2 mm), gir ingen advarsel', () => {
+    const d = emptyBuilderDoc('Test');
+    d.rooms = [
+      room('a', [[0, 0], [3000, 0], [3000, 100], [0, 100]]),
+      room('b', [[0, 200], [3000, 202], [3000, 300], [0, 300]]),
+      room('c', [[3100, 0], [3300, 0], [3300, 3000], [3101, 3000]]),
+    ];
+    expect(skewIssues(d)).toEqual([]);
   });
 
   it('1,5° skjevt: én skillevegg, men advarsel med tykkelsen i hver ende', () => {
@@ -194,7 +249,7 @@ describe('skjeve rom ved siden av hverandre', () => {
     expect(issues[0]!.message).toMatch(/«a» og «B» står 6,0° skjevt mot hverandre: det blir ikke én skillevegg/);
   });
 
-  it('«Rett opp alt» retter det skjeve rommet og lar det rette ligge', () => {
+  it('«Rett opp rommene» retter det skjeve rommet og lar det rette ligge', () => {
     for (const deg of [1.5, 6]) {
       const d = pair(deg);
       const before = structuredClone(d.rooms[0]!.polygon);

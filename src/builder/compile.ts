@@ -30,7 +30,7 @@ export interface BuildIssue {
   message: string;
   target?: { kind: 'room' | 'opening'; id: string };
   /** En rettelse byggeren kan gjøre med ett trykk. */
-  fix?: { id: 'entrance' | 'one-entrance' | 'straighten-all'; label: string };
+  fix?: { id: 'entrance' | 'one-entrance' | 'straighten'; label: string; /** Rommene rettelsen gjelder. */ rooms?: string[] };
 }
 
 export interface CompileResult {
@@ -288,7 +288,7 @@ export function compile(doc: BuilderDoc, opts: CompileOptions = {}): CompileResu
         ? `Kantene mellom «${a}» og «${b}» er ikke parallelle (${deg}°): skilleveggen blir ${k.gaps![0]} mm i den ene enden og ${k.gaps![1]} mm i den andre, og passer ikke helt.`
         : `«${a}» og «${b}» står ${deg}° skjevt mot hverandre: det blir ikke én skillevegg mellom dem, men to yttervegger som kan gå inn i hverandre.`,
       target: { kind: 'room', id: k.b },
-      fix: { id: 'straighten-all', label: 'Rett opp alt' },
+      fix: { id: 'straighten', label: 'Rett opp rommene', rooms: [k.a, k.b] },
     });
   }
   const openings: Opening<Num>[] = [];

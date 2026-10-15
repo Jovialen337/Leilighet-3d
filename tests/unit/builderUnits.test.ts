@@ -29,10 +29,10 @@ describe('mål som skrives inn', () => {
     expect(parseLength('−2 cm')).toEqual({ mm: -20, relative: true });
   });
 
-  it('i felt for koordinater og nivåer er fortegnet en del av tallet; += og -= legger til', () => {
+  it('i felt for koordinater og nivåer er minus en del av tallet; -= trekker fra, + legger til', () => {
     expect(parseLength('-1100', true)).toEqual({ mm: -1100, relative: false });
     expect(parseLength('−1,1 m', true)).toEqual({ mm: -1100, relative: false });
-    expect(parseLength('+150', true)).toEqual({ mm: 150, relative: false });
+    expect(parseLength('+150', true)).toEqual({ mm: 150, relative: true });
     expect(parseLength('2400', true)).toEqual({ mm: 2400, relative: false });
     expect(parseLength('+=150', true)).toEqual({ mm: 150, relative: true });
     expect(parseLength('-=2 cm', true)).toEqual({ mm: -20, relative: true });

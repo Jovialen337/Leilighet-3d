@@ -225,9 +225,16 @@ export class BuilderOverlay {
         const o = doc.openings.find((x) => x.id === sel.id);
         const seg = o && ed.openingSegment(o);
         if (o && seg) {
+          // Er åpningen kort på skjermen, settes endehåndtakene litt utenfor endene, så alle tre
+          // får plass (draget regner fra der man tok tak, så enden hopper ikke).
+          const r = this.coarse ? 16 : 9;
+          const lenPx = (o.width / 1000) * ppm;
+          const push = Math.max(0, (3 * r - lenPx / 2) / Math.max(ppm, 1e-6)) * 1000;
+          const a = alongEdge(seg.edge, o.offset - push);
+          const b = alongEdge(seg.edge, o.offset + o.width + push);
           this.handle('rect', alongEdge(seg.edge, o.offset + o.width / 2), { kind: 'opening', id: o.id }, 'opening', `bo-opening-move-${o.id}`, '↔');
-          this.handle('circle', seg.a, { kind: 'opening-end', id: o.id, end: 'start' }, 'opening-end', `bo-opening-start-${o.id}`);
-          this.handle('circle', seg.b, { kind: 'opening-end', id: o.id, end: 'end' }, 'opening-end', `bo-opening-end-${o.id}`);
+          this.handle('circle', a, { kind: 'opening-end', id: o.id, end: 'start' }, 'opening-end', `bo-opening-start-${o.id}`);
+          this.handle('circle', b, { kind: 'opening-end', id: o.id, end: 'end' }, 'opening-end', `bo-opening-end-${o.id}`);
         }
       }
       const current = sel && sel.kind !== 'opening' ? doc.rooms.find((r) => r.id === sel.room) : undefined;
@@ -238,12 +245,12 @@ export class BuilderOverlay {
           this.handle('circle', p, { kind: 'corner', room: r.id, i }, `corner${selectedRoom ? '' : ' small'}${sel?.kind === 'corner' && sel.room === r.id && sel.i === i ? ' active' : ''}`, `bo-corner-${r.id}-${i}`),
         );
         if (!selectedRoom) continue;
+        // Flyttehåndtaket før kantene: et rom kan bare dras i det.
+        this.handle('circle', centroid(r.polygon), { kind: 'room', room: r.id }, 'move', `bo-move-${r.id}`, '✥');
         for (const e of edgesOf(r.polygon)) {
           if (e.length <= 0) continue;
           this.handle('rect', alongEdge(e, e.length / 2), { kind: 'edge', room: r.id, edge: e.i }, `edge${sel?.kind === 'edge' && sel.edge === e.i ? ' active' : ''}`, `bo-edge-${r.id}-${e.i}`);
         }
-        const c = centroid(r.polygon);
-        this.handle('circle', c, { kind: 'room', room: r.id }, 'move', `bo-move-${r.id}`, '✥');
       }
     }
 

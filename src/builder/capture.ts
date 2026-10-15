@@ -153,7 +153,7 @@ export function closeRoom(walls: readonly (readonly P2[])[]): CloseResult {
 }
 
 /** Et nytt rom som er så lite skjevt i forhold til tegningen, rettes inn automatisk (grader). */
-export const AUTO_ALIGN_DEG = 3;
+const AUTO_ALIGN_DEG = 3;
 
 export interface AlignResult {
   polygon: P2[];

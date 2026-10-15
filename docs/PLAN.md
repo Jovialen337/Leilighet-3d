@@ -175,10 +175,12 @@ The guided measuring in phase 2 can only move what is already in the file. «Lag
   - Outside corners are closed at **every angle**:
     - right angles: one wall is extended;
     - obtuse corners (for example a 45° bay): both walls run to where the outer faces meet;
-    - acute corners: the tip is cut at the other wall's outer face, so nothing sticks out.
-  - **Skewed rooms are reported.** Facing edges in two rooms that are not parallel get a warning naming both rooms, with «Rett opp alt»:
+    - acute corners: the tip is cut at the other wall's outer face, so nothing sticks out (very sharp tips are cut at 4 × the wall thickness);
+    - a shallow bend between a thin and a thick wall: the thick wall already covers the corner, so the thin one only fills the wedge between the wall ends, up to its own outer face. The outside gets a step, as at a straight joint, instead of a long spike.
+  - **Skewed rooms are reported.** Facing edges in two rooms that are not parallel get a warning naming both rooms, with «Rett opp rommene»:
     - under 3°: one partition is still made, and the warning gives its thickness at each end;
-    - 3–10°: no partition is made, and the warning says two exterior walls may overlap.
+    - 3–10°: no partition is made, and the warning says two exterior walls may overlap;
+    - the gap must vary by at least 5 mm along the edge, so short edges that are only rounded 1–2 mm do not count.
 - **Doors, windows and openings** sit on a room edge with a distance from the corner. They follow the edge when corners move.
   - The first door in an exterior wall becomes the **entrance door**.
   - A door's «går inn i» defaults to the room on the other side of the wall.
@@ -225,7 +227,8 @@ You can also **open a drawing from a file** (`*.tegning.json`) to move work betw
 - **Typed dimensions** in Norwegian, all in mm:
   - «4,2» = 4,2 m; «420 cm» = 420 cm; «4200» = 4200 mm; a bare 1–9 = metres.
   - A sign («+150», «-150») adds to or subtracts from the current value.
-  - In **coordinate and floor-level fields** (corner x/z, «Gulvnivå», «Flytt rommet») a sign is part of the value: «-1100» is −1100. Add or subtract there with «+=150» / «-=150», which work in every field.
+  - In **coordinate and floor-level fields** (corner x/z, «Gulvnivå») a minus is part of the value: «-1100» is −1100. Subtract there with «-=150». «+150» (and «+=150») always adds, since a positive value never needs a plus.
+  - In «Flytt rommet» the sign is the direction: «-500» moves 500 mm left or up. An empty field is 0, and Enter moves on to the next field and then moves the room.
   - While drawing, start typing and the number goes straight into the length field. Enter places it, and Tab moves to the next field.
   - In the polygon tool, the arrow buttons → ↓ ← ↑ give the direction without a mouse.
 - **Handles.** Drag corners, edges (the neighbour room follows, so the wall keeps its thickness), whole rooms, and openings (along the wall, or their ends to resize).
@@ -234,19 +237,21 @@ You can also **open a drawing from a file** (`*.tegning.json`) to move work betw
 - **Panel for the selection**:
   - room: name, floor level, ceiling height, sloped ceiling per corner, note, control dimensions, every edge length, and:
     - «Flytt rommet» by typed x/z distances;
-    - «Kopier rommet»: the copy is placed beside the original with a partition, on the first free side (right, below, left, above), with its windows and doors but not the entrance door;
-    - «Roter 90°»: clockwise about the middle; openings follow;
+    - «Kopier rommet»: the copy is placed beside the original with a partition, on the first free side (right, below, left, above), with its windows and doors but not the entrance door, and without their names and notes;
+    - «Roter 90°»: clockwise about the middle; openings follow; four turns give exactly the same room back;
   - edge: length; for an exterior wall, its thickness and material; for a partition, its **thickness** (the neighbouring room moves); add door, window or opening; «Fordel vinduer jevnt»;
   - corner: x and z (negative values allowed);
   - opening: type, from the left or right corner as seen from inside the room, width, height, sill, «går inn i», hinge side, swing, entrance door, note.
   - The message line always names what is selected, including which edge.
 - **Rett opp** makes nearly-square rooms exactly square and lines up nearly collinear edges.
   - The common axis is the largest room that is already straight, near the length-weighted average. Rooms that follow the grid count 1.5 times their size, so straight rooms stay where they are.
-  - «Rett opp alt» from a skew warning straightens edges up to 11° off the axis.
+  - «Rett opp rommene» on a skew warning straightens only the two rooms it names, with edges up to 11° off the axis. «Rett opp rommet» straightens the selected room. Rooms that are not straightened stay where they are; the straightened room's nearly-aligned edges are moved onto theirs.
+  - «Rett opp alt» (in the tools) straightens every room.
 - **The overlay stays readable:**
   - dimensions are always shown on the selected room and the room under the pointer;
   - other rooms show them when zoomed in, and only the ones that fit along their edge;
-  - handles are drawn by priority (selected opening, then the selected room, then other corners) and never on top of each other, so the Quest laser hits the handle you see;
+  - handles are drawn by priority (selected opening, then the selected room's corners, move handle and edges, then other corners) and never on top of each other, so the Quest laser hits the handle you see;
+  - when an opening is short on screen, its end handles are set a little outside its ends so all three fit. A drag counts from where you took hold, so the end does not jump;
   - note and fixture labels are hidden while the builder is open; room names stay.
 - **Undo/redo** keeps 100 steps (Ctrl+Z, Ctrl+Y). Everything is **saved in the browser** at once, so the drawing survives a reload.
 - The **live preview** is the real model:
@@ -271,7 +276,7 @@ Errors (saving is blocked) and warnings, each with «Vis» (select and zoom) and
   - a low ceiling;
   - a door taller than the ceiling;
   - very thin gaps between rooms;
-  - skewed rooms (fix: «Rett opp alt»);
+  - skewed rooms (fix: «Rett opp rommene»);
   - control dimensions from the old file that no longer fit the room.
 
 ### Measuring a new model in passthrough (Quest 3)
@@ -286,6 +291,7 @@ Room by room, standing in the room:
 2. **A** closes the room. Corners are where the walls meet, and the room must not cross itself.
    - If the room is under 3° off the drawing's common axis, it is turned onto the axis about the first touch. This is taken as tracking noise, and it avoids a wedge-shaped partition. The panel says how much it was turned and how far the farthest corner moved.
    - A room more than 3° off is kept as measured, since it is taken to be skewed on purpose.
+   - To keep a room that was turned in as measured, press **B** (back to the walls) and then **A**. B and A again turns it in after all.
 3. **Floor.** Touch the floor. A skips it.
 4. **Ceiling.** Touch the ceiling, or press the right stick to point at it with the ray (hit-test). A skips it.
 5. The room goes straight into the drawing, with its corners marked as measured.

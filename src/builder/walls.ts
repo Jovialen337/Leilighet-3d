@@ -68,18 +68,20 @@ export interface WallResult {
   open: OpenBoundary[];
   /** Advarsler (norsk), f.eks. veldig tynne vegger. */
   notes: string[];
-  /** Skjeve kanter mellom rom (vises med «Rett opp alt»). */
+  /** Skjeve kanter mellom rom (vises med «Rett opp rommene»). */
   skewed: SkewedPair[];
 }
 
 /** Kanter innenfor 3° regnes som parallelle (blir én skillevegg). */
-export const PARALLEL_DEG = 3;
+const PARALLEL_DEG = 3;
 const PARALLEL = Math.cos((PARALLEL_DEG * Math.PI) / 180);
 /** Over dette er kantene ikke lenger «nesten parallelle» (et skrått rom med vilje). */
 export const SKEW_MAX_DEG = 10;
 const SKEW_MAX = Math.cos((SKEW_MAX_DEG * Math.PI) / 180);
-/** Under dette er kantene parallelle nok (avrunding). */
+/** Under dette er kantene parallelle nok (avrunding) … */
 const SKEW_MIN_DEG = 0.3;
+/** … og luka må variere minst så mye langs kanten (mm), ellers er det bare avrunding. */
+const SKEW_MIN_GAP = 5;
 /** Knekk under 2° er en rett vegg (ingen hjørne å lukke). */
 const CORNER_MIN_SIN = Math.sin((2 * Math.PI) / 180);
 /** Luker under dette er åpne overganger (mm). */
@@ -228,7 +230,9 @@ export function deriveWalls(rooms: readonly BRoom[], settings: BuilderSettings):
           const s1 = Math.min(e.length, Math.max(sa, sb));
           if (facing < PARALLEL) {
             // 3–10°: blir ikke én skillevegg, men to yttervegger som kan gå inn i hverandre.
-            if (ra < rb && s1 - s0 >= MIN_OVERLAP && Math.max(ga, gb) >= -OPEN_GAP && Math.min(ga, gb) <= settings.maxWallGap)
+            // (Korte kanter som bare er avrundet skjeve, teller ikke: luka må variere minst 5 mm.)
+            const varies = Math.abs(dot(sub(add(e.a, scale(e.u, s1)), add(e.a, scale(e.u, s0))), f.out)) >= SKEW_MIN_GAP;
+            if (ra < rb && varies && s1 - s0 >= MIN_OVERLAP && Math.max(ga, gb) >= -OPEN_GAP && Math.min(ga, gb) <= settings.maxWallGap)
               noteSkew({ a: rooms[ra]!.id, b: rooms[rb]!.id, deg: (Math.acos(Math.min(1, facing)) * 180) / Math.PI, joined: false });
             continue;
           }
@@ -240,10 +244,10 @@ export function deriveWalls(rooms: readonly BRoom[], settings: BuilderSettings):
           const pa = add(e.a, scale(e.u, s0));
           const pb = add(e.a, scale(e.u, s1));
           const deg = (Math.acos(Math.min(1, facing)) * 180) / Math.PI;
-          if (deg > SKEW_MIN_DEG && g >= OPEN_GAP) {
+          const gapAt = (p: P2): number => dot(sub(p, f.a), f.out);
+          if (deg > SKEW_MIN_DEG && g >= OPEN_GAP && Math.abs(gapAt(pa) - gapAt(pb)) >= SKEW_MIN_GAP) {
             // Skilleveggen er rett, men luka er kileformet: den passer ikke helt i den ene enden.
-            const gapAt = (p: P2): number => Math.round(dot(sub(p, f.a), f.out));
-            noteSkew({ a: rooms[ra]!.id, b: rooms[rb]!.id, deg, joined: true, gaps: [gapAt(pa), gapAt(pb)] });
+            noteSkew({ a: rooms[ra]!.id, b: rooms[rb]!.id, deg, joined: true, gaps: [Math.round(gapAt(pa)), Math.round(gapAt(pb))] });
           }
           const fs = (p: P2): number => dot(sub(p, f.a), f.u);
           const srcA: WallSource = { room: rooms[ra]!.id, edge: e.i, s0, s1 };
@@ -385,7 +389,11 @@ export function deriveWalls(rooms: readonly BRoom[], settings: BuilderSettings):
   //    Rett vinkel: bare den ene forlenges (ingen overlapp). Butt vinkel (f.eks. en karnapp
   //    på 45°): begge forlenges til punktet der ytterflatene møtes. Spiss vinkel: begge
   //    forlenges til ytterflaten på den andre (hjørnet kuttes i stedet for å stikke ut).
-  const stretch: { w: DerivedWall; key: 'start' | 'end'; dir: P2; by: number }[] = [];
+  //    Er den ene veggen så mye tykkere at den alene dekker hjørnet (slak knekk mellom en
+  //    tynn og en tykk vegg), fyller den tynne bare kilen mellom endene, opp til sin egen
+  //    ytterflate – ytterflatene møtes da langt unna, og ytterveggen får et trinn i stedet.
+  // `max`: svært spisse hjørner kuttes heller enn å få en lang tupp.
+  const stretch: { w: DerivedWall; key: 'start' | 'end'; dir: P2; by: number; max: number }[] = [];
   for (let i = 0; i < exterior.length; i++)
     for (let j = i + 1; j < exterior.length; j++) {
       const A = exterior[i]!;
@@ -402,16 +410,23 @@ export function deriveWalls(rooms: readonly BRoom[], settings: BuilderSettings):
           const sinB = dot(fa.n, outB);
           if (sinA < CORNER_MIN_SIN || sinB < CORNER_MIN_SIN) continue;
           const cos = dot(fa.n, fb.n);
+          const max = 4 * Math.max(A.thickness, B.thickness);
           if (Math.abs(cos) < 0.02) {
-            stretch.push({ w: A, key: endA, dir: outA, by: B.thickness });
+            stretch.push({ w: A, key: endA, dir: outA, by: B.thickness, max });
             continue;
           }
           const k = Math.max(0, cos);
-          stretch.push({ w: A, key: endA, dir: outA, by: (B.thickness - A.thickness * k) / sinA });
-          stretch.push({ w: B, key: endB, dir: outB, by: (A.thickness - B.thickness * k) / sinB });
+          const byA = (B.thickness - A.thickness * k) / sinA;
+          const byB = (A.thickness - B.thickness * k) / sinB;
+          if (byB <= 0) stretch.push({ w: A, key: endA, dir: outA, by: (A.thickness * sinA) / cos, max });
+          else if (byA <= 0) stretch.push({ w: B, key: endB, dir: outB, by: (B.thickness * sinB) / cos, max });
+          else {
+            stretch.push({ w: A, key: endA, dir: outA, by: byA, max });
+            stretch.push({ w: B, key: endB, dir: outB, by: byB, max });
+          }
         }
     }
-  for (const x of stretch) if (x.by > 0) x.w[x.key] = add(x.w[x.key], scale(x.dir, x.by));
+  for (const x of stretch) if (x.by > 0) x.w[x.key] = add(x.w[x.key], scale(x.dir, Math.min(x.by, x.max)));
 
   const walls = [...exterior, ...interior];
 

@@ -237,6 +237,9 @@ export function copyRoom(doc: BuilderDoc, roomId: string): BRoom | null {
     delete c.entrance;
     delete c.measured;
     delete c.into;
+    // Navn og notat hørte til originalen.
+    delete c.name;
+    delete c.note;
     doc.openings.push(c);
   }
   return copy;
@@ -247,8 +250,14 @@ export function rotateRoom90(doc: BuilderDoc, roomId: string): boolean {
   const room = doc.rooms.find((r) => r.id === roomId);
   if (!room || room.polygon.length < 3) return false;
   const b = boundsOf(room.polygon);
-  const cx = (b.x0 + b.x1) / 2;
-  const cz = (b.z0 + b.z1) / 2;
+  // Om midten. Er bare den ene av bredde og dybde et oddetall, ligger midten på en halv
+  // mm i den ene retningen: da brukes nabopunktet med partall sum, så alle fire stillinger
+  // dreies om samme punkt og fire dreininger gir nøyaktig samme rom igjen.
+  let cx = (b.x0 + b.x1) / 2;
+  let cz = (b.z0 + b.z1) / 2;
+  const even = (v: number): boolean => ((v % 2) + 2) % 2 === 0;
+  if (cx % 1 !== 0 && cz % 1 === 0) cx = even(Math.floor(cx) + cz) ? Math.floor(cx) : Math.ceil(cx);
+  else if (cz % 1 !== 0 && cx % 1 === 0) cz = even(cx + Math.floor(cz)) ? Math.floor(cz) : Math.ceil(cz);
   // Med klokka på skjermen (x mot høyre, z nedover): (x, z) → (−z, x) om midten.
   room.polygon = room.polygon.map((p) => ({ ...p, x: Math.round(cx - (p.z - cz)), z: Math.round(cz + (p.x - cx)) }));
   return true;
@@ -368,13 +377,8 @@ export function distributeEvenly(doc: BuilderDoc, roomId: string, edge: number, 
   return list.length;
 }
 
-/**
- * Retter opp rom: kanter nær en akse blir nøyaktig rette (felles akse for
- * hele leiligheten, lengdevektet), og hjørner som nesten ligger på linje med
- * hjørner i andre rom, legges på linje (innen `align` mm).
- */
 /** Forskjellen mellom to retninger modulo 90° (grader, 0–45). */
-export const axisDiff = (a: number, b: number): number => Math.abs((((a - b + 45) % 90) + 90) % 90 - 45);
+const axisDiff = (a: number, b: number): number => Math.abs((((a - b + 45) % 90) + 90) % 90 - 45);
 
 /**
  * Tegningens felles akse (grader, 0–90): lengdevektet snitt av rommenes
@@ -406,6 +410,12 @@ export function commonAxis(doc: BuilderDoc, tolDeg = 4, skip?: string): number |
   return best ? best.a : ((mean % 90) + 90) % 90;
 }
 
+/**
+ * Retter opp rom (`roomIds`, eller alle): kanter innenfor `tolDeg` fra den
+ * felles aksen (se `commonAxis`) blir nøyaktig rette, og kanter som nesten
+ * ligger på linje med kanter i andre rom, legges på linje (innen `align` mm).
+ * Rom som ikke rettes, står stille. Gir antall endringer.
+ */
 export function straighten(doc: BuilderDoc, roomIds?: string[], tolDeg = 4, align = 30): number {
   const targets = doc.rooms.filter((r) => !roomIds || roomIds.includes(r.id));
   if (!targets.length) return 0;
@@ -442,11 +452,15 @@ export function straighten(doc: BuilderDoc, roomIds?: string[], tolDeg = 4, alig
     if (g) g.push(l);
     else groups.push([l]);
   }
+  const isTarget = (l: Line): boolean => !roomIds || roomIds.includes(l.room.id);
   for (const g of groups) {
-    if (g.length < 2 || !g.some((l) => !roomIds || roomIds.includes(l.room.id))) continue;
-    const v = Math.round(g.reduce((sum, l) => sum + l.value, 0) / g.length);
+    if (g.length < 2 || !g.some(isTarget)) continue;
+    // Rom som ikke skal rettes, står stille: de andre legges på linje med dem.
+    const fixed = g.filter((l) => !isTarget(l));
+    const ref = fixed.length ? fixed : g;
+    const v = Math.round(ref.reduce((sum, l) => sum + l.value, 0) / ref.length);
     for (const l of g) {
-      if (Math.abs(l.value - v) < 0.5) continue;
+      if (!isTarget(l) || Math.abs(l.value - v) < 0.5) continue;
       const n = l.room.polygon.length;
       const poly = l.room.polygon.map((p, k) => {
         if (k !== l.edge && k !== (l.edge + 1) % n) return { ...p };

@@ -736,6 +736,15 @@ button.big {
 }
 
 .name-input,
+.len-input {
+  font: inherit;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--panel-fg);
+}
+
 .move-row {
   display: flex;
   flex-wrap: wrap;
@@ -755,6 +764,7 @@ button.big {
   margin: 0;
   font-size: 12px;
 }
+
 .note-input {
   font: inherit;
   font-size: 13px;
@@ -764,14 +774,6 @@ button.big {
   padding: 5px 8px;
   border: 1px solid var(--line);
   border-radius: 6px;
-  background: #fff;
-  color: var(--panel-fg);
-}
-.len-input {
-  font: inherit;
-  padding: 5px 8px;
-  border-radius: 6px;
-  border: 1px solid var(--line);
   background: #fff;
   color: var(--panel-fg);
 }

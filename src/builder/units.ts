@@ -17,8 +17,9 @@ export interface ParsedLength {
  *
  * Fortegn: «+150» og «-150» legger til / trekker fra den nåværende verdien.
  * I felt for koordinater og nivåer (`signed`), der et negativt tall er en
- * vanlig verdi, er fortegnet en del av tallet («-1100» = −1100); der legger
- * man til med «+=150» og trekker fra med «-=150» (det virker i alle felt).
+ * vanlig verdi, er minus en del av tallet («-1100» = −1100); der trekker man
+ * fra med «-=150». «+150» og «+=150» legger alltid til (et positivt tall
+ * trenger aldri pluss foran).
  * Små tall med fortegn er mm («-5» = −5 mm), så et lite trinn ikke blir meter.
  */
 export function parseLength(text: string, signed = false): ParsedLength | null {
@@ -32,7 +33,7 @@ export function parseLength(text: string, signed = false): ParsedLength | null {
   let unit = m[3];
   if (!unit) unit = (/[.,]/.test(m[2]!) && value < 100) || (!prefix && value >= 1 && value < 10 && /^\d$/.test(m[2]!)) ? 'm' : 'mm';
   const factor = unit === 'm' ? 1000 : unit === 'dm' ? 100 : unit === 'cm' ? 10 : 1;
-  const relative = prefix.endsWith('=') || (!signed && prefix !== '');
+  const relative = prefix.endsWith('=') || prefix === '+' || (!signed && prefix === '-');
   return { mm: Math.round(sign * value * factor), relative };
 }
 

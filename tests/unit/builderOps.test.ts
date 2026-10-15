@@ -142,6 +142,38 @@ describe('redigering', () => {
     expect(Math.min(...third.polygon.map((p) => p.z))).toBe(2100);
   });
 
+  it('«Roter 90°» fire ganger gir nøyaktig samme rom (også med odde mål)', () => {
+    for (const [x0, z0, w, h] of [[0, 0, 4001, 3000], [-317, 52, 3333, 2222], [5, -5, 1235, 987], [0, 0, 4000, 3000]] as const) {
+      const d = emptyBuilderDoc();
+      const r = addRect(d, { x: x0, z: z0 }, { x: x0 + w, z: z0 + h }, 'Stue');
+      const before = structuredClone(r.polygon);
+      for (let i = 0; i < 4; i++) rotateRoom90(d, r.id);
+      expect(d.rooms[0]!.polygon).toEqual(before);
+    }
+  });
+
+  it('en kopi får ikke navnene og notatene til originalens vinduer', () => {
+    const { d, gang } = start();
+    const w = addOpening(d, 'window', gang.id, 0, 1500)!;
+    w.name = 'Stuevindu';
+    w.note = 'Nytt 2025';
+    const copy = copyRoom(d, gang.id)!;
+    const cw = d.openings.find((o) => o.room === copy.id && o.type === 'window')!;
+    expect(cw.name).toBeUndefined();
+    expect(cw.note).toBeUndefined();
+  });
+
+  it('«Rett opp» på ett rom flytter ikke de andre', () => {
+    const d = emptyBuilderDoc();
+    const a = addRect(d, { x: 0, z: 0 }, { x: 3000, z: 2000 }, 'Gang');
+    const b = addRect(d, { x: 3100, z: 12 }, { x: 6000, z: 2000 }, 'Stue');
+    const before = structuredClone(a.polygon);
+    straighten(d, [b.id]);
+    expect(d.rooms[0]!.polygon).toEqual(before);
+    // Stuas toppkant er lagt på linje med gangens.
+    expect(Math.min(...d.rooms[1]!.polygon.map((p) => p.z))).toBe(0);
+  });
+
   it('«Roter 90°» dreier rommet om midten, og døra følger med', () => {
     const { d, gang, door } = start();
     rotateRoom90(d, gang.id);

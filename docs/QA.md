@@ -321,6 +321,34 @@ Dimensions: visual 7, performance 8, options 8, intuitive 7, code 7, robustness 
   - the exact door offset (200) in the Quest Browser test;
   - emulated Quest: a second room measured 2° off ends up straight, with one 100 mm partition and no warning.
 
+### Gatekeeper (round 2, pass 1 at 89ea30f): **FAIL**
+- **Gates:**
+  - all green: 219 unit tests and 71 browser tests;
+  - draw calls per eye: 32 when walking the real file, 32 on a builder preview in VR, 10 in passthrough;
+  - textures about 4.7 MB;
+  - the published file round-trips with every field kept and no skew warning;
+  - drawings stored by the previous version still open.
+- **Blocking (both fixed):**
+  1. **A long spike where a thin and a thick exterior wall meet at a shallow bend.**
+     - With a 300 mm wall next to a 200 mm wall at 3°, the thin wall was stretched 1.9 m: out of the building, or into an L-shaped room.
+     - **Fix:** when the thick wall covers the corner by itself, the thin wall only fills the wedge between the wall ends, and very sharp tips are cut at 4 × the thickness.
+     - New property tests cover 3°, 5°, 10° and 30° bends with the thick wall before or after the bend and after an inside corner. They fail on the old code and pass now.
+  2. **The name fields lost their style.** The new CSS was inserted inside the `.name-input, .len-input` selector list.
+     - **Fix:** the rules are restored, and a browser test checks the style of the name fields.
+- **Remarks, fixed:**
+  - Skew warnings caused by 1–2 mm rounding on short edges: the gap must now vary by at least 5 mm.
+  - A room turned in during capture can be kept as measured with B then A.
+  - «+150» adds in every field (minus is a value only in coordinate and floor-level fields).
+  - In «Flytt rommet», Enter in an empty field counts as 0.
+  - «Roter 90°» four times gives exactly the same room, also with odd sizes.
+  - The end handles of a short opening are set outside its ends instead of being hidden. A drag counts from where you took hold, and there is a new browser test for dragging an end.
+  - The move handle is drawn before the edge handles.
+  - «Rett opp rommene» on a skew warning straightens only the two rooms named. Rooms that are not straightened stay still.
+  - A copy no longer copies the names and notes of the openings.
+  - Doc comment and exports tidied in `ops.ts`.
+- **Not changed:**
+  - Wall bodies overlap at closed corners with tops in the same plane. They are the same colour, so no flicker is visible.
+
 ### Test on the Quest (phase 2c)
 1. **Laptop, background image:** in «Lag ny modell», open «Bakgrunnsbilde» and load the sketch or a floor plan. Set the scale with a known wall length, then trace the rooms on top of it.
 2. **Quest Browser, 2D:**

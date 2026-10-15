@@ -356,7 +356,9 @@ export class BuilderEditor {
     if (handle.kind === 'opening' || handle.kind === 'opening-end') {
       const o = d.openings.find((x) => x.id === handle.id);
       const seg = o && this.openingSegment(o);
-      if (seg) grab = edgeCoords(seg.edge, p).s - o!.offset;
+      // Hvor langt fra det som dras pekeren tok tak (håndtaket kan sitte litt utenfor enden).
+      const at = handle.kind === 'opening-end' && handle.end === 'end' ? o!.offset + o!.width : o?.offset ?? 0;
+      if (seg) grab = edgeCoords(seg.edge, p).s - at;
     }
     this.drag = { handle, start: structuredClone(d), p0: p, grab };
     this.session.beginGesture();
@@ -430,13 +432,14 @@ export class BuilderEditor {
       this.session.apply((d) => {
         restore(d);
         const o = d.openings.find((x) => x.id === h.id)!;
-        if (h.kind === 'opening') o.offset = Math.round(Math.max(0, Math.min(e.length - o.width, s - g.grab)) / step) * step;
+        const at = s - g.grab;
+        if (h.kind === 'opening') o.offset = Math.round(Math.max(0, Math.min(e.length - o.width, at)) / step) * step;
         else if (h.end === 'start') {
           const end = o0.offset + o0.width;
-          const start = Math.max(0, Math.min(end - 300, Math.round(s / step) * step));
+          const start = Math.max(0, Math.min(end - 300, Math.round(at / step) * step));
           o.offset = start;
           o.width = end - start;
-        } else o.width = Math.max(300, Math.min(e.length - o0.offset, Math.round(s / step) * step - o0.offset));
+        } else o.width = Math.max(300, Math.min(e.length - o0.offset, Math.round(at / step) * step - o0.offset));
       });
     }
     this.bump();
@@ -590,10 +593,14 @@ export class BuilderEditor {
     return i >= 0;
   }
 
-  /** Retter opp valgt rom (eller alle). `tolDeg`: hvor skjeve kanter som rettes (standard 4°). */
-  straighten(all: boolean, tolDeg?: number): void {
+  /** Retter opp valgt rom (eller alle). */
+  straighten(all: boolean): void {
     const sel = this.selection.value;
-    const ids = all || !sel || sel.kind === 'opening' ? undefined : [sel.room];
+    this.straightenRooms(all || !sel || sel.kind === 'opening' ? undefined : [sel.room]);
+  }
+
+  /** Retter opp bestemte rom (alle: `undefined`). `tolDeg`: hvor skjeve kanter som rettes (standard 4°). */
+  straightenRooms(ids?: string[], tolDeg?: number): void {
     let n = 0;
     this.session.apply((d) => {
       n = straighten(d, ids, tolDeg);
