@@ -765,6 +765,26 @@ button.big {
   font-size: 12px;
 }
 
+.split-box {
+  margin-top: 8px;
+}
+.split-box summary {
+  cursor: pointer;
+  font-size: 13px;
+}
+.split-box select {
+  font: inherit;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  padding: 4px 6px;
+}
+.split-box > small.hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+}
+
 .note-input {
   font: inherit;
   font-size: 13px;

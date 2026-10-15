@@ -28,7 +28,9 @@ import {
   removeRoom,
   rotateRoom90,
   setPartitionThickness,
+  splitRoom,
   straighten,
+  type SplitResult,
 } from './ops';
 import { snapPoint, type SnapResult } from './snap';
 import { formatLength } from './units';
@@ -468,6 +470,29 @@ export class BuilderEditor {
     if (!copy) return false;
     this.selection.set({ kind: 'room', room: copy.id });
     this.message.set(`Kopi: «${copy.name}», lagt inntil med skillevegg. Dra den dit den skal, eller skriv hvor langt den skal flyttes.`);
+    return true;
+  }
+
+  /** Deler valgt rom i to med en skillevegg langs x = `at` (loddrett) eller z = `at` (vannrett). */
+  splitSelected(axis: 'x' | 'z', at: number): boolean {
+    const sel = this.selection.value;
+    if (!sel || sel.kind === 'opening') return false;
+    const res: { r: SplitResult | null } = { r: null };
+    this.session.apply((d) => {
+      res.r = splitRoom(d, sel.room, axis, at);
+      return res.r.ok;
+    });
+    const r = res.r;
+    if (!r) return false;
+    if (!r.ok) {
+      this.message.set(r.message);
+      return false;
+    }
+    this.selection.set({ kind: 'room', room: r.b.id });
+    const gap = this.doc?.settings.interiorThickness ?? 100;
+    this.message.set(
+      `Delt i «${r.a.name}» og «${r.b.name}» med ${formatLength(gap)} skillevegg.${r.dropped ? ` ${r.dropped} åpning${r.dropped > 1 ? 'er' : ''} som krysset skillet, ble fjernet.` : ''}`,
+    );
     return true;
   }
 

@@ -685,6 +685,7 @@ export class BuilderPanel {
       h('p', { class: 'hint' }, 'Kantene (lengde innvendig – skriv nytt mål og trykk Enter):'),
       edgeList,
       this.moveRow(),
+      this.splitRow(room),
       h(
         'div',
         { class: 'row' },
@@ -693,6 +694,42 @@ export class BuilderPanel {
         button('Roter 90°', 'builder-room-rotate', () => ed.rotateSelected()),
         button('Slett rommet', 'builder-room-delete', () => ed.deleteSelected(), 'small danger-small'),
       ),
+    );
+  }
+
+  /**
+   * «Del rommet»: en skillevegg tvers gjennom rommet, loddrett (ved en x) eller
+   * vannrett (ved en z). Forslaget er midt i rommet, på tvers av den lengste siden.
+   */
+  private splitRow(room: BRoom): HTMLElement {
+    const ed = this.editor;
+    const xs = room.polygon.map((p) => p.x);
+    const zs = room.polygon.map((p) => p.z);
+    const wide = Math.max(...xs) - Math.min(...xs) >= Math.max(...zs) - Math.min(...zs);
+    const mid = (axis: 'x' | 'z'): number => {
+      const v = axis === 'x' ? xs : zs;
+      return Math.round((Math.min(...v) + Math.max(...v)) / 2 / 10) * 10;
+    };
+    const dir = h('select', { 'data-testid': 'builder-split-axis' }, h('option', { value: 'x' }, 'Loddrett, ved x ='), h('option', { value: 'z' }, 'Vannrett, ved z ='));
+    dir.value = wide ? 'x' : 'z';
+    let at = mid(dir.value as 'x' | 'z');
+    const pos = coordInput('builder-split-at', at, (v, rel) => void (at = rel ? at + v : v));
+    dir.addEventListener('change', () => {
+      at = mid(dir.value as 'x' | 'z');
+      pos.value = String(at);
+    });
+    const go = (): void => {
+      // Ta med det som står i feltet, også om det ikke er bekreftet med Enter.
+      const v = parseLength(pos.value, true);
+      if (v && !v.relative) at = v.mm;
+      ed.splitSelected(dir.value as 'x' | 'z', at);
+    };
+    return h(
+      'details',
+      { class: 'split-box' },
+      h('summary', {}, 'Del rommet'),
+      h('div', { class: 'row' }, dir, pos, button('Del', 'builder-split-go', go)),
+      h('small', { class: 'hint' }, 'En skillevegg tvers gjennom rommet (standard tykkelse). Vinduer og dører følger siden de står på.'),
     );
   }
 

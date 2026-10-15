@@ -508,6 +508,31 @@ test('rom: kopier, skillevegg, roter, flytt med tall, negative koordinater og «
   expect(errors).toEqual([]);
 });
 
+test('«Del rommet» lager to rom med skillevegg midt i, og modellen er gyldig', async ({ page }) => {
+  await openBuilder(page);
+  await page.getByTestId('builder-new').click();
+  await page.getByTestId('builder-rect-w').fill('5000');
+  await page.getByTestId('builder-rect-d').fill('3000');
+  await page.getByTestId('builder-rect-make').click();
+  await page.getByTestId('builder-room-edge-3').click();
+  await page.getByTestId('builder-edge-door').click();
+  const room = (await builderDoc(page)).rooms[0];
+  const xs = room.polygon.map((p: any) => p.x);
+  await page.evaluate((id) => (window as any).leilighet.builder.editor.select({ kind: 'room', room: id }), room.id);
+  await page.getByText('Del rommet').click();
+  // Forslaget: loddrett midt i (rommet er bredere enn dypt).
+  await expect(page.getByTestId('builder-split-axis')).toHaveValue('x');
+  await expect(page.getByTestId('builder-split-at')).toHaveValue(String((Math.min(...xs) + Math.max(...xs)) / 2));
+  await page.getByTestId('builder-split-go').click();
+  const doc = await builderDoc(page);
+  expect(doc.rooms).toHaveLength(2);
+  await expect(page.getByTestId('builder-message')).toContainText('med 100 mm skillevegg');
+  await expect(page.getByTestId('builder-summary')).toContainText('2 rom');
+  // Rommet bak skillet har ingen dør ennå: varsel om at man ikke kommer inn, ingen feil.
+  await expect(page.getByTestId('builder-issues')).toContainText('kommer ikke inn');
+  await expect(page.getByTestId('builder-issues')).not.toContainText('✗');
+});
+
 test('åpning: dra enden for å gjøre den bredere – håndtakene ligger aldri oppå hverandre', async ({ page }) => {
   await openBuilder(page);
   await page.getByTestId('builder-new').click();

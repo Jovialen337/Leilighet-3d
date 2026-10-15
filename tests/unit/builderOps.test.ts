@@ -13,6 +13,7 @@ import {
   rotateRoom90,
   setEntrance,
   setPartitionThickness,
+  splitRoom,
   straighten,
 } from '../../src/builder/ops';
 import { snapPoint } from '../../src/builder/snap';
@@ -140,6 +141,42 @@ describe('redigering', () => {
     // Er plassen til høyre tatt, havner neste kopi under.
     const third = copyRoom(d, gang.id)!;
     expect(Math.min(...third.polygon.map((p) => p.z))).toBe(2100);
+  });
+
+  it('«Del rommet» gir to rom med skillevegg; vinduer følger sin side, en dør over skillet fjernes', () => {
+    const d = emptyBuilderDoc();
+    const stue = addRect(d, { x: 0, z: 0 }, { x: 4000, z: 3000 }, 'Stue');
+    stue.polygon = stue.polygon.map((p) => ({ ...p, m: true }));
+    addOpening(d, 'window', stue.id, 0, 3000)!; // midt på x 2500–3500: på høyre side
+    addOpening(d, 'window', stue.id, 2, 3000)!; // nederst, x 500–1500 (kanten går fra høyre mot venstre)
+    const across = addOpening(d, 'door', stue.id, 0, 2000)!; // x 1550–2450: krysser skillet ved 2000
+    const r = splitRoom(d, stue.id, 'x', 2000);
+    if (!r.ok) throw new Error(r.message);
+    expect(r.dropped).toBe(1);
+    expect(d.openings.some((o) => o.id === across.id)).toBe(false);
+    const xs = (id: string) => d.rooms.find((x) => x.id === id)!.polygon.map((p) => p.x);
+    expect([Math.min(...xs(r.a.id)), Math.max(...xs(r.a.id))]).toEqual([0, 1950]);
+    expect([Math.min(...xs(r.b.id)), Math.max(...xs(r.b.id))]).toEqual([2050, 4000]);
+    expect(r.b.name).toBe('Stue 2');
+    // Hjørnene som var målt, er fortsatt målt; de nye hjørnene ved skillet er det ikke.
+    expect(r.a.polygon.filter((p) => p.m)).toHaveLength(2);
+    // Vinduene sitter der de satt.
+    const top = d.openings.find((o) => o.room === r.b.id)!;
+    const e = edgesOf(r.b.polygon)[top.edge]!;
+    expect(alongEdge(e, top.offset + top.width / 2)).toEqual({ x: 3000, z: 0 });
+    const bottom = d.openings.find((o) => o.room === r.a.id)!;
+    const f = edgesOf(r.a.polygon)[bottom.edge]!;
+    expect(alongEdge(f, bottom.offset + bottom.width / 2)).toEqual({ x: 1000, z: 3000 });
+    // Én skillevegg på 100 mm mellom dem.
+    expect(deriveWalls(d.rooms, d.settings).walls.filter((w) => w.kind === 'interior').map((w) => w.thickness)).toEqual([100]);
+  });
+
+  it('«Del rommet» utenfor rommet eller for nær kanten avvises', () => {
+    const d = emptyBuilderDoc();
+    const stue = addRect(d, { x: 0, z: 0 }, { x: 4000, z: 3000 }, 'Stue');
+    expect(splitRoom(d, stue.id, 'x', 5000).ok).toBe(false);
+    expect(splitRoom(d, stue.id, 'z', 60).ok).toBe(false);
+    expect(d.rooms).toHaveLength(1);
   });
 
   it('«Roter 90°» fire ganger gir nøyaktig samme rom (også med odde mål)', () => {

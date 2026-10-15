@@ -6,7 +6,8 @@
  * hjørner legges til, fjernes eller flyttes, festes åpningene på nytt ut fra
  * hvor de faktisk sto, så de ikke hopper til en annen vegg.
  */
-import { add, alongEdge, dist, dot, edgeCoords, edgesOf, isAxisAligned, orthogonalize, dominantAngle, roomsOverlap, scale, sub, type P2 } from './geometry';
+import { add, alongEdge, dist, dot, edgeCoords, edgesOf, isAxisAligned, orthogonalize, dominantAngle, polygonProblem, roomsOverlap, scale, sub, type P2 } from './geometry';
+import { polygonArea } from '../geometry/math2d';
 import { OPEN_GAP } from './walls';
 import { floorColorFor, ROOM_NAMES, type BEdge, type BOpening, type BOpeningType, type BPoint, type BRoom, type BuilderDoc } from './types';
 
@@ -195,6 +196,117 @@ export function setPartitionThickness(doc: BuilderDoc, roomId: string, edge: num
     n++;
   }
   return n;
+}
+
+/**
+ * Klipper et polygon mot halvplanet der `side · (p[axis] − at) ≥ 0`
+ * (Sutherland–Hodgman). Hjørner fra originalen beholder målt-flagget; nye
+ * hjørner der kanten kuttes, gjør ikke.
+ */
+function clipPolygon(poly: readonly BPoint[], axis: 'x' | 'z', at: number, side: 1 | -1): BPoint[] {
+  const val = (p: BPoint): number => side * (p[axis] - at);
+  const out: BPoint[] = [];
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i]!;
+    const b = poly[(i + 1) % poly.length]!;
+    const va = val(a);
+    const vb = val(b);
+    if (va >= 0) out.push({ ...a });
+    if ((va >= 0) !== (vb >= 0)) {
+      const t = va / (va - vb);
+      out.push({ x: Math.round(a.x + (b.x - a.x) * t), z: Math.round(a.z + (b.z - a.z) * t) });
+    }
+  }
+  // Like punkter etter hverandre (kuttet gikk gjennom et hjørne) slås sammen.
+  return out.filter((p, i) => dist(p, out[(i + 1) % out.length]!) >= 1);
+}
+
+export type SplitResult = { ok: true; a: BRoom; b: BRoom; dropped: number } | { ok: false; message: string };
+
+/**
+ * «Del rommet»: deler et rom i to med en skillevegg (standard tykkelse) langs
+ * en loddrett (`axis` = 'x', ved x = `at`) eller vannrett linje. Rommet
+ * beholder navn og id på den ene siden; den andre siden blir et nytt rom.
+ * Vinduer og dører følger siden de står på; en åpning som krysser skillet,
+ * fjernes (antallet gis tilbake).
+ */
+export function splitRoom(doc: BuilderDoc, roomId: string, axis: 'x' | 'z', at: number): SplitResult {
+  const room = doc.rooms.find((r) => r.id === roomId);
+  if (!room || room.polygon.length < 3) return { ok: false, message: 'Velg et rom først.' };
+  if (room.ceilingCorners?.some((h) => h !== null && h !== undefined))
+    return { ok: false, message: 'Rommet har skrått tak. Gjør taket flatt før du deler det (eller del det og sett takhøydene etterpå).' };
+  const half = doc.settings.interiorThickness / 2;
+  const pa = clipPolygon(room.polygon, axis, at - half, -1);
+  const pb = clipPolygon(room.polygon, axis, at + half, 1);
+  for (const p of [pa, pb]) {
+    const problem = polygonProblem(p);
+    if (problem || Math.abs(polygonArea(p)) < 250_000)
+      return { ok: false, message: 'Skillet må gå tvers gjennom rommet, med minst 0,25 m² på hver side.' };
+  }
+  // Åpningene: midtpunkt og ende i den gamle tegningen, så de kan festes til siden de står på.
+  const old = edgesOf(room.polygon);
+  const mine = doc.openings.filter((o) => o.room === roomId);
+  const spans = new Map(
+    mine.flatMap((o) => {
+      const e = old[o.edge];
+      return e ? [[o, { a: alongEdge(e, o.offset), b: alongEdge(e, o.offset + o.width), u: e.u }] as const] : [];
+    }),
+  );
+  // Valg per kant (yttervegg): beholdes på kanter som ligger langs en gammel kant.
+  const edgeOpts = (poly: BPoint[]): (BEdge | null)[] | undefined => {
+    if (!room.edges) return undefined;
+    return edgesOf(poly).map((e) => {
+      const mid = alongEdge(e, e.length / 2);
+      const src = old.find((f) => Math.abs(dot(f.u, e.u)) > 0.999 && Math.abs(edgeCoords(f, mid).d) < 1);
+      return src ? (room.edges?.[src.i] ?? null) : null;
+    });
+  };
+  const name = nextRoomName(doc, room.name.replace(/\s+\d+$/, ''));
+  const b: BRoom = {
+    ...structuredClone(room),
+    id: uniqueId(doc, name),
+    name,
+    polygon: pb,
+  };
+  delete b.note;
+  delete b.dimensions;
+  const eb = edgeOpts(pb);
+  if (eb) b.edges = eb;
+  else delete b.edges;
+  room.polygon = pa;
+  const ea = edgeOpts(pa);
+  if (ea) room.edges = ea;
+  else delete room.edges;
+  // Kontrollmålene gjaldt hele rommet.
+  delete room.dimensions;
+  doc.rooms.splice(doc.rooms.indexOf(room) + 1, 0, b);
+  let dropped = 0;
+  for (const o of mine) {
+    const sp = spans.get(o);
+    let placed = false;
+    for (const r of [room, b]) {
+      for (const e of edgesOf(r.polygon)) {
+        if (e.length <= 0 || Math.abs(dot(e.u, sp?.u ?? e.u)) < 0.999 || !sp) continue;
+        const ca = edgeCoords(e, sp.a);
+        const cb = edgeCoords(e, sp.b);
+        if (Math.abs(ca.d) > 1 || Math.abs(cb.d) > 1) continue;
+        const s0 = Math.min(ca.s, cb.s);
+        const s1 = Math.max(ca.s, cb.s);
+        if (s0 < -1 || s1 > e.length + 1) continue;
+        o.room = r.id;
+        o.edge = e.i;
+        o.offset = Math.round(Math.max(0, s0));
+        placed = true;
+        break;
+      }
+      if (placed) break;
+    }
+    if (!placed) {
+      doc.openings = doc.openings.filter((x) => x !== o);
+      dropped++;
+    }
+  }
+  return { ok: true, a: room, b, dropped };
 }
 
 /** Hjørnenes ytterpunkter. */
