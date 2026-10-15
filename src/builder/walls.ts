@@ -35,6 +35,10 @@ export interface DerivedWall {
   name: string;
   /** Nedforing: underkant over laveste gulv (mm). Bare der to rom uten vegg har ulik takhøyde. */
   base?: number;
+  /** Fra veggen i den importerte modellen på samme sted (se compile.ts). */
+  height?: number;
+  note?: string;
+  layer?: string;
   /** Rommene veggen grenser til. */
   rooms: string[];
   sources: WallSource[];

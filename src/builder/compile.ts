@@ -20,7 +20,7 @@ import type {
 import { edgesOf, dist, polygonProblem, roomsOverlap, sub, type P2 } from './geometry';
 import { deriveWalls, isOpenAt, wallAt, type DerivedWall, type WallResult } from './walls';
 import { entranceFrame, planRotationFor, transformDoc, type PlanTransform } from './transform';
-import { DEFAULT_LAYERS } from './defaults';
+import { DEFAULT_LAYERS, doorLeafColor } from './defaults';
 import { floorColorFor, type BOpening, type BRoom, type BuilderDoc } from './types';
 import { dot } from '../geometry/math2d';
 import { validateApartment, type ValidationResult } from '../schema/validate';
@@ -85,16 +85,33 @@ function ceilingOf(r: BRoom): Ceiling<Num> {
   return { points, color: '#f7f6f2' };
 }
 
+/**
+ * Kontrollmålene med målt-flagget skrevet ut, så de ikke arver rommets
+ * `measured` (et plassholdermål må ikke bli «målt» fordi resten av rommet er det).
+ */
+function dimensionsOut(d: NonNullable<BRoom['dimensions']>): NonNullable<Room<Num>['dimensions']> {
+  const out: NonNullable<Room<Num>['dimensions']> = {};
+  for (const k of ['length', 'width', 'height'] as const) {
+    const v = d[k];
+    if (v === undefined) continue;
+    out[k] = typeof v === 'number' ? { value: v, measured: false } : { ...v, measured: !!v.measured };
+  }
+  return out;
+}
+
 function roomOut(r: BRoom): Room<Num> {
   const all = r.polygon.every((p) => p.m) && r.floorMeasured && r.ceilingMeasured;
   return {
     id: r.id,
     name: r.name,
     measured: !!all,
+    ...(r.note ? { note: r.note } : {}),
     polygon: r.polygon.map((p) => [MV(p.x, p.m && !all), MV(p.z, p.m && !all)] as [Num, Num]),
     floorLevel: MV(r.floor, r.floorMeasured && !all),
     floorColor: r.floorColor ?? floorColorFor(r.name),
     ceiling: ceilingOf(r),
+    ...(r.dimensions ? { dimensions: dimensionsOut(r.dimensions) } : {}),
+    ...(r.layer ? { layer: r.layer } : {}),
   };
 }
 
@@ -113,15 +130,18 @@ function wallOut(w: DerivedWall, rooms: Map<string, BRoom>): Wall<Num> {
     thickness: w.thickness,
     justify: w.justify,
     ...(w.base !== undefined ? { base: w.base } : {}),
+    ...(w.height !== undefined ? { height: w.height } : {}),
     color: w.color,
     material: w.material,
+    ...(w.note ? { note: w.note } : {}),
+    ...(w.layer ? { layer: w.layer } : {}),
   };
 }
 
 /**
  * Nye vegger på samme sted som en vegg i den importerte modellen arver id,
- * navn, farge og materiale – så installasjoner, tegninger og oppmåling som
- * viser til veggen, fortsatt treffer.
+ * navn, farge, materiale, notat, lag og fast høyde – så installasjoner,
+ * tegninger og oppmåling som viser til veggen, fortsatt treffer.
  */
 function inheritWallIds(walls: DerivedWall[], refs: readonly import('./types').WallRef[] | undefined): void {
   if (!refs?.length) return;
@@ -165,6 +185,11 @@ function inheritWallIds(walls: DerivedWall[], refs: readonly import('./types').W
     if (m.ref.name) m.w.name = m.ref.name;
     m.w.color = m.ref.color;
     if (m.ref.material) m.w.material = m.ref.material;
+    if (m.ref.note) m.w.note = m.ref.note;
+    if (m.ref.layer) m.w.layer = m.ref.layer;
+    if (m.ref.height !== undefined) m.w.height = m.ref.height;
+    // En nedforing fra tegningen (ulik takhøyde) går foran.
+    if (m.ref.base !== undefined && m.w.base === undefined) m.w.base = m.ref.base;
     usedRef.add(m.ref.id);
     done.add(m.w);
     taken.add(m.ref.id);
@@ -309,7 +334,17 @@ export function compile(doc: BuilderDoc, opts: CompileOptions = {}): CompileResu
     }
     const offset = Math.round(Math.min(hit.a0, hit.a1));
     const width = Math.round(Math.abs(hit.a1 - hit.a0));
-    const base = { id: o.id, ...(o.name ? { name: o.name } : {}), measured: !!o.measured, wall: hit.wall.id, offset, width, height: Math.round(o.height) };
+    const base = {
+      id: o.id,
+      ...(o.name ? { name: o.name } : {}),
+      measured: !!o.measured,
+      ...(o.note ? { note: o.note } : {}),
+      wall: hit.wall.id,
+      offset,
+      width,
+      height: Math.round(o.height),
+      ...(o.layer ? { layer: o.layer } : {}),
+    };
     if (o.type === 'door') {
       const into = defaultInto(o, hit.wall);
       if (!rooms.has(into)) {
@@ -324,8 +359,9 @@ export function compile(doc: BuilderDoc, opts: CompileOptions = {}): CompileResu
         into,
         hinge: o.hinge ?? 'left',
         swing: o.swing ?? 'in',
+        ...(o.openAngle !== undefined ? { openAngle: o.openAngle } : {}),
         ...(o.entrance ? { entrance: true } : {}),
-        leafColor: o.entrance ? '#5b6770' : '#f4f4f1',
+        leafColor: o.leafColor ?? doorLeafColor(!!o.entrance),
       };
       const ceil = rooms.get(into)!.ceiling;
       if (o.height > ceil) warn(`${label} er høyere (${Math.round(o.height)} mm) enn taket i «${rooms.get(into)!.name}».`, t);
@@ -333,7 +369,7 @@ export function compile(doc: BuilderDoc, opts: CompileOptions = {}): CompileResu
     } else if (o.type === 'window') {
       const sill = Math.round(o.sill ?? 900);
       if (sill + o.height > room.ceiling) warn(`${label} går over taket i «${room.name}».`, t);
-      openings.push({ ...base, type: 'window', sillHeight: sill, room: room.id });
+      openings.push({ ...base, type: 'window', sillHeight: sill, room: room.id, ...(o.frameColor ? { frameColor: o.frameColor } : {}) });
     } else openings.push({ ...base, type: 'passage', room: room.id });
   }
 
@@ -423,8 +459,24 @@ const EXTRA_PATHS = /^(fixtures|furniture|outdoor|zones|wiring|pipes|circuits|sc
 export function compileChecked(doc: BuilderDoc, opts: CompileOptions = {}): CompileResult {
   const r = compile(doc, opts);
   if (!r.doc) return r;
-  const v = validateApartment(r.doc);
-  const extra: BuildIssue[] = v.warnings.filter((w) => EXTRA_PATHS.test(w.path)).map((w) => ({ severity: 'warning', message: w.message }));
+  const out = r.doc;
+  const v = validateApartment(out);
+  const extra: BuildIssue[] = [];
+  for (const w of v.warnings) {
+    if (EXTRA_PATHS.test(w.path)) extra.push({ severity: 'warning', message: w.message });
+    // Kontrollmål fra den importerte modellen som ikke stemmer med rommet lenger.
+    const dim = /^rooms\[(\d+)\]\.dimensions/.exec(w.path);
+    const room = dim ? out.rooms[Number(dim[1])] : undefined;
+    if (room) extra.push({ severity: 'warning', message: w.message, target: { kind: 'room', id: room.id } });
+  }
+  // Svingretningen (kontrollfeltet i fila) regnes ut av hengsel og slag, så den alltid stemmer.
+  if (v.model)
+    for (const o of out.openings) {
+      if (o.type !== 'door') continue;
+      const d = v.model.data.openings.find((x) => x.id === o.id);
+      const g = d?.type === 'door' ? v.model.doorGeometry(d) : null;
+      if (g) o.swingDirection = g.swingDirection;
+    }
   if (!v.ok)
     return {
       ...r,

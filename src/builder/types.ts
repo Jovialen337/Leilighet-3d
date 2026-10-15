@@ -9,7 +9,7 @@
  * planen tegnes. Ved eksport flyttes origo til hjørnet ved inngangsdøra
  * (se transform.ts), slik oppmålingen forventer.
  */
-import type { Furniture, Fixture, Layer, Meta, Note, OutdoorArea, PipeRun, ScanReference, Settings, WallMaterial, WireRun, Zone, Circuit } from '../schema/types';
+import type { Furniture, Fixture, Layer, Meta, Note, Num, OutdoorArea, PipeRun, RoomDimensions, ScanReference, Settings, WallMaterial, WireRun, Zone, Circuit } from '../schema/types';
 
 export const BUILDER_VERSION = 1;
 
@@ -43,6 +43,11 @@ export interface BRoom {
   /** Valg per kant (samme rekkefølge som hjørnene: kant i går fra hjørne i til i+1). */
   edges?: (BEdge | null)[];
   floorColor?: string;
+  /** Fritekst (fra apartment.json, tas med uendret). */
+  note?: string;
+  /** Kontrollmål (lengde, bredde, takhøyde) slik de står i fila, med målt-flagg. */
+  dimensions?: RoomDimensions<Num>;
+  layer?: string;
 }
 
 export type BOpeningType = 'door' | 'window' | 'passage';
@@ -68,6 +73,14 @@ export interface BOpening {
   entrance?: boolean;
   name?: string;
   measured?: boolean;
+  note?: string;
+  layer?: string;
+  /** Dør: største åpningsvinkel (grader). Utelatt: 90. */
+  openAngle?: number;
+  /** Dør: farge på dørbladet. Utelatt: standard (mørk for inngangsdøra). */
+  leafColor?: string;
+  /** Vindu: farge på karmen. */
+  frameColor?: string;
 }
 
 export interface BuilderSettings {
@@ -105,6 +118,12 @@ export interface WallRef {
   start: [number, number];
   end: [number, number];
   thickness: number;
+  note?: string;
+  layer?: string;
+  /** Fast høyde (f.eks. halvvegg). */
+  height?: number;
+  /** Underkant over gulvet (drager/nedforing). */
+  base?: number;
 }
 
 /**

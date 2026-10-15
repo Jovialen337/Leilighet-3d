@@ -18,6 +18,9 @@ const bool = (v: unknown): v is boolean => typeof v === 'boolean';
 const pair = (v: unknown): boolean => Array.isArray(v) && v.length === 2 && v.every(num);
 const triple = (v: unknown): boolean => Array.isArray(v) && v.length === 3 && v.every(num);
 const listOf = (v: unknown, ok: (x: unknown) => boolean): boolean => v === undefined || (Array.isArray(v) && v.every(ok));
+/** Et tall i fila: rent tall eller { value, measured?, note? }. */
+const numLike = (v: unknown): boolean => num(v) || (isObj(v) && num(v.value) && opt(v.measured, bool) && opt(v.note, str));
+const dims = (v: unknown): boolean => isObj(v) && ['length', 'width', 'height'].every((k) => opt(v[k], numLike));
 
 const MATERIALS = ['brick', 'concrete', 'drywall', 'wood', 'other'];
 const SETTINGS = ['exteriorThickness', 'interiorThickness', 'maxWallGap', 'defaultCeiling'] as const;
@@ -30,7 +33,9 @@ function roomProblem(r: unknown, i: number): string | null {
   if (!Array.isArray(r.polygon) || !r.polygon.every((p) => isObj(p) && num(p.x) && num(p.z) && opt(p.m, bool)))
     return `${at} («${r.name}») har hjørner uten gyldige mål.`;
   if (!num(r.floor) || !num(r.ceiling)) return `${at} («${r.name}») mangler gulvnivå eller takhøyde.`;
-  if (!opt(r.floorMeasured, bool) || !opt(r.ceilingMeasured, bool) || !opt(r.floorColor, str)) return `${at} («${r.name}») har ugyldige valg.`;
+  if (!opt(r.floorMeasured, bool) || !opt(r.ceilingMeasured, bool) || !opt(r.floorColor, str) || !opt(r.note, str) || !opt(r.layer, str))
+    return `${at} («${r.name}») har ugyldige valg.`;
+  if (!opt(r.dimensions, dims)) return `${at} («${r.name}») har ugyldige kontrollmål.`;
   if (!listOf(r.ceilingCorners, (h) => h === null || num(h))) return `${at} («${r.name}») har ugyldige takhøyder i hjørnene.`;
   if (!listOf(r.edges, (e) => e === null || (isObj(e) && opt(e.thickness, (t) => num(t) && t > 0) && opt(e.material, (m) => MATERIALS.includes(m as string)))))
     return `${at} («${r.name}») har ugyldige veggvalg.`;
@@ -51,7 +56,12 @@ function openingProblem(o: unknown, i: number): string | null {
     opt(o.swing, (s) => s === 'in' || s === 'out') &&
     opt(o.entrance, bool) &&
     opt(o.name, str) &&
-    opt(o.measured, bool);
+    opt(o.measured, bool) &&
+    opt(o.note, str) &&
+    opt(o.layer, str) &&
+    opt(o.openAngle, (a) => num(a) && a > 0 && a <= 180) &&
+    opt(o.leafColor, str) &&
+    opt(o.frameColor, str);
   return ok ? null : `${at} har ugyldige valg.`;
 }
 
@@ -72,7 +82,19 @@ function extrasProblem(x: unknown): string | null {
     listOf(x.circuits, isObj) &&
     listOf(x.scans, (s) => isObj(s) && triple(s.position)) &&
     listOf(x.notes, (n) => isObj(n) && triple(n.position)) &&
-    listOf(x.walls, (w) => isObj(w) && str(w.id) && pair(w.start) && pair(w.end) && num(w.thickness));
+    listOf(
+      x.walls,
+      (w) =>
+        isObj(w) &&
+        str(w.id) &&
+        pair(w.start) &&
+        pair(w.end) &&
+        num(w.thickness) &&
+        opt(w.note, str) &&
+        opt(w.layer, str) &&
+        opt(w.height, (h) => num(h) && h > 0) &&
+        opt(w.base, (b) => num(b) && b >= 0),
+    );
   return ok ? null : 'Det som ble tatt med fra den gamle modellen (installasjoner, møbler, kabler …), er ødelagt.';
 }
 

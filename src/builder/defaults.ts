@@ -16,3 +16,6 @@ export const DEFAULT_LAYERS: Layer[] = [
   { id: 'scan-reference', name: 'Skannereferanse', visible: true },
   { id: 'notes', name: 'Notater', visible: true },
 ];
+
+/** Standardfarge på dørbladet: mørk på inngangsdøra, hvit ellers. */
+export const doorLeafColor = (entrance: boolean): string => (entrance ? '#5b6770' : '#f4f4f1');

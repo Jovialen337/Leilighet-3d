@@ -10,11 +10,12 @@
  * i byggeren ser ut som planen man kjenner.
  */
 import { frameAt, type ApartmentModel, type WallFrame } from '../model/ApartmentModel';
-import { isMeasured, measuredFlag } from '../schema/normalize';
-import type { ApartmentDoc, Fixture } from '../schema/types';
+import { isMeasured, isMeasuredValue, measuredFlag } from '../schema/normalize';
+import type { ApartmentDoc, Fixture, Num, RoomDimensions } from '../schema/types';
 import { validateApartment } from '../schema/validate';
 import { cross, dot, edgesOf, sub, type P2 } from './geometry';
 import { transformExtras, type PlanTransform } from './transform';
+import { doorLeafColor } from './defaults';
 import { BUILDER_VERSION, DEFAULT_BUILDER_SETTINGS, type AnchoredFixture, type BEdge, type BOpening, type BRoom, type BuilderDoc, type BuilderExtras } from './types';
 
 export type ImportResult = { ok: true; doc: BuilderDoc } | { ok: false; message: string };
@@ -27,6 +28,23 @@ function mode(values: number[], fallback: number): number {
   let n = 0;
   for (const [v, c] of count) if (c > n) [best, n] = [v, c];
   return best;
+}
+
+/**
+ * Kontrollmålene slik de står i fila, men med målt-flagget skrevet ut for
+ * hvert mål (rommet kan få et annet `measured` når det lagres på nytt).
+ */
+function dimensionsOf(raw: unknown, inherited: boolean): RoomDimensions<Num> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const out: RoomDimensions<Num> = {};
+  for (const k of ['length', 'width', 'height'] as const) {
+    const v = (raw as Record<string, unknown>)[k];
+    const n = typeof v === 'number' ? v : isMeasuredValue(v) ? v.value : undefined;
+    if (n === undefined || !Number.isFinite(n)) continue;
+    const note = isMeasuredValue(v) && v.note ? { note: v.note } : {};
+    out[k] = { value: n, measured: isMeasured(v, inherited), ...note };
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 /** Veggen som ligger langs en romkant, og om den er yttervegg. */
@@ -95,7 +113,11 @@ export function importApartment(raw: ApartmentDoc): ImportResult {
       ...(flat ? {} : { ceilingCorners: heights }),
       ...((rawCeil.points ?? []).length && (rawCeil.points ?? []).every((p) => isMeasured(p.height, ceilM)) ? { ceilingMeasured: true } : {}),
       ...(info.room.floorColor ? { floorColor: info.room.floorColor } : {}),
+      ...(info.room.note ? { note: info.room.note } : {}),
+      ...(info.room.layer ? { layer: info.room.layer } : {}),
     };
+    const dims = dimensionsOf(rawRoom.dimensions, rm);
+    if (dims) room.dimensions = dims;
     rooms.push(room);
   }
 
@@ -142,13 +164,21 @@ export function importApartment(raw: ApartmentDoc): ImportResult {
       height: Math.round(o.height),
       ...(o.name ? { name: o.name } : {}),
       ...(model.measureState(o.id) === 'measured' ? { measured: true } : {}),
+      ...(o.note ? { note: o.note } : {}),
+      ...(o.layer ? { layer: o.layer } : {}),
     };
-    if (o.type === 'window') bo.sill = Math.round(o.sillHeight);
+    if (o.type === 'window') {
+      bo.sill = Math.round(o.sillHeight);
+      if (o.frameColor) bo.frameColor = o.frameColor;
+    }
     if (o.type === 'door') {
       bo.into = o.into;
       bo.hinge = o.hinge;
       bo.swing = o.swing;
       if (o.entrance) bo.entrance = true;
+      if (o.openAngle !== undefined && o.openAngle !== 90) bo.openAngle = o.openAngle;
+      // Bare en farge som avviker fra standarden følger med (ellers følger den inngangsdør-valget).
+      if (o.leafColor && o.leafColor !== doorLeafColor(!!o.entrance)) bo.leafColor = o.leafColor;
     }
     openings.push(bo);
   }
@@ -198,6 +228,10 @@ export function importApartment(raw: ApartmentDoc): ImportResult {
         start: [a.x, a.z] as [number, number],
         end: [b.x, b.z] as [number, number],
         thickness: f.nMax - f.nMin,
+        ...(f.wall.note ? { note: f.wall.note } : {}),
+        ...(f.wall.layer ? { layer: f.wall.layer } : {}),
+        ...(f.wall.height !== undefined ? { height: f.wall.height } : {}),
+        ...(f.wall.base !== undefined && f.wall.base > 0 ? { base: f.wall.base } : {}),
       };
     }),
   };

@@ -115,6 +115,23 @@ function lengthInput(
   return i;
 }
 
+/** Fritekst (notat). Lagres når feltet forlates; tomt felt fjerner notatet. */
+function noteInput(testid: string, value: string | undefined, commit: (text: string) => void): HTMLTextAreaElement {
+  const t = h('textarea', { class: 'note-input', rows: '2', 'data-testid': testid, placeholder: 'Valgfritt' });
+  t.value = value ?? '';
+  t.addEventListener('keydown', (e) => {
+    e.stopPropagation(); // tastene skal ikke bli hurtigtaster mens man skriver
+    if (e.key === 'Escape') t.blur();
+  });
+  t.addEventListener('change', () => {
+    const v = t.value.trim();
+    if (v !== (value ?? '')) commit(v);
+  });
+  return t;
+}
+
+const DIM_TEXT = { length: 'lengde', width: 'bredde', height: 'takhøyde' } as const;
+
 const field = (label: string, el: HTMLElement, hint?: string): HTMLElement =>
   h('label', { class: 'field bfield' }, h('span', {}, label), el, ...(hint ? [h('small', { class: 'hint' }, hint)] : []));
 
@@ -645,6 +662,17 @@ export class BuilderPanel {
         ),
       ),
       corners,
+      field(
+        'Notat',
+        noteInput('builder-room-note', room.note, (v) =>
+          this.apply((d) => {
+            const r = d.rooms.find((x) => x.id === room.id)!;
+            if (v) r.note = v;
+            else delete r.note;
+          }),
+        ),
+      ),
+      ...this.dimensionsBlock(room),
       h('p', { class: 'hint' }, 'Kantene (lengde innvendig – skriv nytt mål og trykk Enter):'),
       edgeList,
       h(
@@ -654,6 +682,35 @@ export class BuilderPanel {
         button('Slett rommet', 'builder-room-delete', () => ed.deleteSelected(), 'small danger-small'),
       ),
     );
+  }
+
+  /** Kontrollmålene fra den importerte fila (vises bare når rommet har dem). */
+  private dimensionsBlock(room: BRoom): HTMLElement[] {
+    const d = room.dimensions;
+    if (!d) return [];
+    const parts = (['length', 'width', 'height'] as const).flatMap((k) => {
+      const v = d[k];
+      if (v === undefined) return [];
+      const n = typeof v === 'number' ? v : v.value;
+      const measured = typeof v !== 'number' && v.measured;
+      return [`${DIM_TEXT[k]} ${formatLength(n)}${measured ? ' (målt)' : ''}`];
+    });
+    return [
+      h(
+        'p',
+        { class: 'hint', 'data-testid': 'builder-room-dims' },
+        `Kontrollmål fra fila: ${parts.join(' · ')}. Stemmer ikke rommet med dem, står det i sjekklisten.`,
+      ),
+      h(
+        'div',
+        { class: 'row' },
+        button('Fjern kontrollmålene', 'builder-room-dims-remove', () =>
+          this.apply((x) => {
+            delete x.rooms.find((r) => r.id === room.id)!.dimensions;
+          }),
+        ),
+      ),
+    ];
   }
 
   private renderEdge(doc: BuilderDoc, room: BRoom, edge: number): void {
@@ -794,7 +851,18 @@ export class BuilderPanel {
           : button('Gjør til inngangsdør', 'builder-op-entrance', () => this.apply((d) => setEntrance(d, o.id)), 'small primary-small'),
       );
     }
-    rows.push(h('div', { class: 'row' }, button('Slett', 'builder-op-delete', () => this.editor.deleteSelected(), 'small danger-small')));
+    rows.push(
+      field(
+        'Notat',
+        noteInput('builder-op-note', o.note, (v) =>
+          set((x) => {
+            if (v) x.note = v;
+            else delete x.note;
+          }),
+        ),
+      ),
+      h('div', { class: 'row' }, button('Slett', 'builder-op-delete', () => this.editor.deleteSelected(), 'small danger-small')),
+    );
     c.append(...rows);
   }
 

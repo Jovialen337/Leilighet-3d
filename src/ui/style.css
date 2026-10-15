@@ -736,6 +736,18 @@ button.big {
 }
 
 .name-input,
+.note-input {
+  font: inherit;
+  font-size: 13px;
+  width: 100%;
+  flex-basis: 100%;
+  resize: vertical;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--panel-fg);
+}
 .len-input {
   font: inherit;
   padding: 5px 8px;

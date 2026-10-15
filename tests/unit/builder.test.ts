@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { compile } from '../../src/builder/compile';
+import { compile, compileChecked } from '../../src/builder/compile';
 import { deriveWalls } from '../../src/builder/walls';
 import { importApartment } from '../../src/builder/importDoc';
 import { dominantAngle, isAxisAligned, orthogonalize, roomsOverlap } from '../../src/builder/geometry';
 import { DEFAULT_BUILDER_SETTINGS, emptyBuilderDoc, type BRoom, type BuilderDoc } from '../../src/builder/types';
 import { validateApartment } from '../../src/schema/validate';
 import { MeasureSession } from '../../src/measure/MeasureSession';
-import type { ApartmentDoc } from '../../src/schema/types';
+import type { ApartmentDoc, Door } from '../../src/schema/types';
 import { PUBLISHED_PATH, loadDoc } from './helpers';
 
 const rect = (id: string, name: string, x0: number, z0: number, x1: number, z1: number, floor = 0): BRoom => ({
@@ -173,7 +173,8 @@ describe('start fra nåværende modell', () => {
   const roundTrip = (raw: ApartmentDoc) => {
     const imp = importApartment(raw);
     if (!imp.ok) throw new Error(imp.message);
-    const r = compile(imp.doc, { normalize: true });
+    // Som ved lagring: med skjemasjekken (som også regner ut svingretningen).
+    const r = compileChecked(imp.doc, { normalize: true });
     return { imp: imp.doc, r, v: validateApartment(r.doc) };
   };
 
@@ -211,6 +212,58 @@ describe('start fra nåværende modell', () => {
     }
     expect(after.furniture).toEqual(before.furniture);
     expect(after.pipes).toEqual(before.pipes);
+  });
+
+  it('ingen felt går tapt: notater, kontrollmål, lag, farger og svingretning følger med', () => {
+    const raw = JSON.parse(readFileSync(PUBLISHED_PATH, 'utf8')) as ApartmentDoc;
+    // Felt den publiserte fila ikke har ennå, men som en fil kan ha.
+    const wall = raw.walls.find((w) => w.id === 'v-gang-glass')!;
+    Object.assign(wall, { height: 2300, layer: 'structure', note: 'Glassvegg' });
+    const door = raw.openings.find((o) => o.id === 'dor-bad')!;
+    Object.assign(door, { openAngle: 110, leafColor: '#a0522d', note: 'Skyvedør?', layer: 'openings' });
+    Object.assign(raw.openings.find((o) => o.id === 'vindu-stue-1')!, { frameColor: '#333333', note: 'Nytt vindu 2025' });
+    Object.assign(raw.rooms.find((r) => r.id === 'kjokken')!, { layer: 'structure', dimensions: { length: 3000 } });
+    const { r } = roundTrip(raw);
+    expect(r.issues.filter((i) => i.severity === 'error')).toEqual([]);
+    const out = r.doc!;
+    // Felt som regnes ut på nytt (geometrien er sjekket i testen over).
+    const geometry = new Set(['polygon', 'ceiling', 'floorLevel', 'start', 'end', 'thickness', 'justify', 'offset', 'width', 'height', 'sillHeight', 'measured', 'wall']);
+    // Et rent tall i kontrollmålene skrives ut som { value, measured: false } (rommet er en plassholder).
+    const same = (key: string, x: unknown, y: unknown): boolean =>
+      key === 'dimensions'
+        ? JSON.stringify(Object.fromEntries(Object.entries(x as object).map(([k, v]) => [k, typeof v === 'number' ? { value: v, measured: false } : v]))) === JSON.stringify(y)
+        : JSON.stringify(x) === JSON.stringify(y);
+    const lost: string[] = [];
+    for (const kind of ['rooms', 'walls', 'openings'] as const)
+      for (const a of raw[kind] as unknown as Record<string, unknown>[]) {
+        const b = (out[kind] as unknown as Record<string, unknown>[]).find((x) => x.id === a.id);
+        if (!b) {
+          lost.push(`${kind}:${String(a.id)}`);
+          continue;
+        }
+        for (const key of Object.keys(a)) {
+          if (!(key in b)) lost.push(`${kind}:${String(a.id)}.${key}`);
+          else if (!geometry.has(key) && !same(key, a[key], b[key])) lost.push(`${kind}:${String(a.id)}.${key} endret`);
+        }
+      }
+    expect(lost).toEqual([]);
+    // Fast vegghøyde følger veggen; kontrollmål som er plassholdere forblir det.
+    expect(out.walls.find((w) => w.id === 'v-gang-glass')!.height).toBe(2300);
+    expect(out.rooms.find((x) => x.id === 'kjokken')!.dimensions).toEqual({ length: { value: 3000, measured: false } });
+    expect(out.rooms.find((x) => x.id === 'planterom')!.dimensions!.length).toEqual({ value: 3200, measured: true });
+    // Kontrollmålet på kjøkkenet stemmer ikke med tegningen: vises på rommet.
+    expect(r.issues).toContainEqual(expect.objectContaining({ severity: 'warning', target: { kind: 'room', id: 'kjokken' } }));
+  });
+
+  it('svingretningen regnes ut på nytt når hengselen byttes', () => {
+    const d = twoRooms();
+    let out = compileChecked(d).doc!;
+    const before = (out.openings.find((o) => o.id === 'dor-stue') as Door).swingDirection;
+    expect(before).toMatch(/clockwise/);
+    d.openings[1]!.hinge = 'right';
+    out = compileChecked(d).doc!;
+    expect((out.openings.find((o) => o.id === 'dor-stue') as Door).swingDirection).not.toBe(before);
+    expect(validateApartment(out).errors).toEqual([]);
   });
 
   it('plassholderen kommer også tilbake gyldig, med målte verdier som målt', () => {
