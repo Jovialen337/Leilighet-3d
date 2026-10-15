@@ -203,7 +203,7 @@ export function setPartitionThickness(doc: BuilderDoc, roomId: string, edge: num
  * (Sutherland–Hodgman). Hjørner fra originalen beholder målt-flagget; nye
  * hjørner der kanten kuttes, gjør ikke.
  */
-function clipPolygon(poly: readonly BPoint[], axis: 'x' | 'z', at: number, side: 1 | -1): BPoint[] {
+function clipPolygon(poly: readonly BPoint[], axis: 'x' | 'z', at: number, side: 1 | -1, round = true): BPoint[] {
   const val = (p: BPoint): number => side * (p[axis] - at);
   const out: BPoint[] = [];
   for (let i = 0; i < poly.length; i++) {
@@ -214,7 +214,9 @@ function clipPolygon(poly: readonly BPoint[], axis: 'x' | 'z', at: number, side:
     if (va >= 0) out.push({ ...a });
     if ((va >= 0) !== (vb >= 0)) {
       const t = va / (va - vb);
-      out.push({ x: Math.round(a.x + (b.x - a.x) * t), z: Math.round(a.z + (b.z - a.z) * t) });
+      const x = a.x + (b.x - a.x) * t;
+      const z = a.z + (b.z - a.z) * t;
+      out.push(round ? { x: Math.round(x), z: Math.round(z) } : { x, z });
     }
   }
   return removeNeedles(out);
@@ -252,6 +254,24 @@ function removeNeedles(poly: BPoint[]): BPoint[] {
 
 /** Minste bredde på hver del ved «Del rommet» (mm, målt fra skillet). */
 const MIN_SPLIT_DEPTH = 500;
+
+/**
+ * Rommets egen ramme: dreid så rommets kanter ligger langs x og z. Et rom
+ * som allerede følger planens akser, har vinkel 0 (rammen er planen selv).
+ * Rom målt i gjennomsyn står ofte dreid i planen.
+ */
+export function roomFrame(room: BRoom): { deg: number; toLocal: (p: P2) => P2; toWorld: (p: P2) => P2 } {
+  let deg = room.polygon.length >= 3 ? dominantAngle(room.polygon) : 0;
+  if (deg < 0.05 || deg > 89.95) deg = 0;
+  const t = (deg * Math.PI) / 180;
+  const c = Math.cos(t);
+  const sn = Math.sin(t);
+  return {
+    deg,
+    toLocal: (p) => (deg ? { x: p.x * c + p.z * sn, z: -p.x * sn + p.z * c } : { x: p.x, z: p.z }),
+    toWorld: (p) => (deg ? { x: p.x * c - p.z * sn, z: p.x * sn + p.z * c } : { x: p.x, z: p.z }),
+  };
+}
 
 export type SplitResult = { ok: true; a: BRoom; b: BRoom; dropped: number } | { ok: false; message: string };
 
@@ -306,7 +326,9 @@ function ceilingPlane(room: BRoom): ((p: P2) => number) | null {
 
 /**
  * «Del rommet»: deler et rom i to med en skillevegg (standard tykkelse) langs
- * en loddrett (`axis` = 'x', ved x = `at`) eller vannrett linje. Rommet
+ * en loddrett (`axis` = 'x', ved x = `at`) eller vannrett linje i rommets egen
+ * ramme (se `roomFrame`; for et rom langs planens akser er det x og z i planen,
+ * for et dreid rom står skillet vinkelrett på rommets kanter). Rommet
  * beholder navn og id på den ene siden; den andre siden blir et nytt rom.
  * Vinduer og dører følger siden de står på, og dører inn i rommet går inn i
  * den delen de står mot. Går skillet gjennom en åpning (i rommet eller i
@@ -316,19 +338,30 @@ export function splitRoom(doc: BuilderDoc, roomId: string, axis: 'x' | 'z', at: 
   const room = doc.rooms.find((r) => r.id === roomId);
   if (!room || room.polygon.length < 3) return { ok: false, message: 'Velg et rom først.' };
   const half = doc.settings.interiorThickness / 2;
-  const pa = clipPolygon(room.polygon, axis, at - half, -1);
-  const pb = clipPolygon(room.polygon, axis, at + half, 1);
+  // I rommets egen ramme (`at` er målt der), så skillet står vinkelrett på rommets kanter
+  // også når rommet er dreid i planen.
+  const fr = roomFrame(room);
+  const local = room.polygon.map((p) => ({ ...p, ...fr.toLocal(p) }));
+  const paL = clipPolygon(local, axis, at - half, -1, !fr.deg);
+  const pbL = clipPolygon(local, axis, at + half, 1, !fr.deg);
+  const world = (poly: BPoint[]): BPoint[] =>
+    poly.map((q) => {
+      const w = fr.toWorld(q);
+      return { ...q, x: Math.round(w.x), z: Math.round(w.z) };
+    });
+  const pa = world(paL);
+  const pb = world(pbL);
   for (const p of [pa, pb]) {
     const problem = polygonProblem(p);
     if (problem || Math.abs(polygonArea(p)) < 250_000)
       return { ok: false, message: 'Skillet må gå tvers gjennom rommet, med minst 0,25 m² på hver side.' };
   }
   // Hver del må være minst 50 cm bred målt fra skillet (ellers en stripe som ikke er et rom).
-  const depthA = at - half - Math.min(...pa.map((p) => p[axis]));
-  const depthB = Math.max(...pb.map((p) => p[axis])) - (at + half);
+  const depthA = at - half - Math.min(...paL.map((p) => p[axis]));
+  const depthB = Math.max(...pbL.map((p) => p[axis])) - (at + half);
   if (Math.min(depthA, depthB) < MIN_SPLIT_DEPTH)
     return { ok: false, message: `Den ene delen blir bare ${Math.round(Math.max(0, Math.min(depthA, depthB)) / 10)} cm bred. Flytt skillet, så hver del blir minst 50 cm.` };
-  if (runsOnLine(pa, axis, at - half) > 1 || runsOnLine(pb, axis, at + half) > 1)
+  if (runsOnLine(paL, axis, at - half) > 1 || runsOnLine(pbL, axis, at + half) > 1)
     return {
       ok: false,
       message: 'Skillet går ut og inn av rommet flere steder (rommet er formet som en U), så en av sidene ville blitt to rom. Del det et annet sted, eller del det i to omganger.',
@@ -340,8 +373,8 @@ export function splitRoom(doc: BuilderDoc, roomId: string, axis: 'x' | 'z', at: 
     const e = r ? edgesOf(r.polygon)[o.edge] : undefined;
     if (!r || !e) continue;
     if (o.room !== roomId && !linkedEdges(doc, o.room, o.edge).some((l) => l.room === roomId)) continue;
-    const a = alongEdge(e, o.offset);
-    const b = alongEdge(e, o.offset + o.width);
+    const a = fr.toLocal(alongEdge(e, o.offset));
+    const b = fr.toLocal(alongEdge(e, o.offset + o.width));
     if (Math.min(a[axis], b[axis]) >= at + half || Math.max(a[axis], b[axis]) <= at - half) continue;
     const what = o.name ? `«${o.name}»` : o.type === 'door' ? 'en dør' : o.type === 'window' ? 'et vindu' : 'en åpning';
     return { ok: false, message: `Skillet går gjennom ${what} i «${r.name}». Del rommet et annet sted, eller flytt åpningen først.` };

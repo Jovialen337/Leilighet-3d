@@ -464,6 +464,24 @@ Dimensions: visual 7, performance 8, options 8, intuitive 8, code 8, robustness 
   - A harmless leftover corner can stay in the middle of a straight edge.
   - The overlay costs a little more per redraw, and more of the other rooms' corners are hidden when zoomed out. Both are by design.
 
+### Judge (round 3, scored at c5aabf0): **8.00 – accepted**
+
+| # | Item | Verdict |
+|---|---|---|
+| 1 | Builder core | ✅ every field survives; skew warnings with a fix; corners closed at every angle |
+| 2 | 2D editor | ✅ no label collisions or handle overlaps on the PC at either size with any room selected; signed fields, undo messages, copy, rotate, move, partition thickness and «Del rommet» |
+| 3 | App integration | ✅ the preview is the real model at 32 draw calls per eye |
+| 4 | Passthrough capture | ✅ re-solved on the drawing's axis. Corner error is at most 5 mm in the noisy case (round 2: 39 mm), and the partition comes out at exactly 100 mm. A deliberately slanted room is kept, B + A works, and a short baseline is warned |
+| 5 | Robustness | ✅ «Del rommet» refuses bad splits with a reason; the fuzz found 0 bad results in 687 allowed splits |
+| 6 | Tests and docs | ✅ |
+
+All six dimensions scored 8: visual quality, performance, options and control, intuitive use, code quality, and robustness. The weighted total is **8.00**, so the round is accepted. The judge advised against a round 4; the small gaps left are under «Later work» in PLAN.md (phase 2c).
+
+**After acceptance:** the judge's first later-work point is fixed. «Del rommet» used to cut a turned room (as measured in passthrough) along the plan's axes, making a slanted partition. It now splits in the room's own frame.
+- A unit test covers a room turned 20°: two rectangles, one 100 mm partition and no skew warning.
+- Axis-aligned rooms are unchanged: the sweep of both files again gives 317 allowed splits with 0 errors.
+- All unit and browser tests pass.
+
 ### Test on the Quest (phase 2c)
 1. **Laptop, background image:** in «Lag ny modell», open «Bakgrunnsbilde» and load the sketch or a floor plan. Set the scale with a known wall length, then trace the rooms on top of it.
 2. **Quest Browser, 2D:**

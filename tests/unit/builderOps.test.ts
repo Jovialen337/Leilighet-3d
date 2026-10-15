@@ -14,6 +14,7 @@ import {
   rotateRoom90,
   setEntrance,
   setPartitionThickness,
+  roomFrame,
   splitRoom,
   straighten,
 } from '../../src/builder/ops';
@@ -357,6 +358,35 @@ describe('redigering', () => {
       expect(res.ok).toBe(false);
       if (!res.ok) expect(res.message).toContain('minst 50 cm');
     });
+  });
+
+  it('«Del rommet» i et rom som står dreid i planen (målt i gjennomsyn): skillet følger rommets kanter', () => {
+    const d = emptyBuilderDoc();
+    const a = (20 * Math.PI) / 180;
+    const rot = (x: number, z: number) => ({ x: Math.round(1000 + x * Math.cos(a) - z * Math.sin(a)), z: Math.round(500 + x * Math.sin(a) + z * Math.cos(a)) });
+    const r0 = addRoom(d, [rot(0, 0), rot(4000, 0), rot(4000, 3000), rot(0, 3000)], 'Stue');
+    const fr = roomFrame(r0);
+    expect(fr.deg).toBeCloseTo(20, 1);
+    // Midt i rommet, målt langs rommet.
+    const xs = r0.polygon.map((p) => fr.toLocal(p).x);
+    const at = (Math.min(...xs) + Math.max(...xs)) / 2;
+    const r = splitRoom(d, r0.id, 'x', at);
+    if (!r.ok) throw new Error(r.message);
+    // Begge delene er rektangler med kanter langs rommets retning (ikke skrå trapeser).
+    for (const part of [r.a, r.b]) {
+      expect(part.polygon).toHaveLength(4);
+      for (const e of edgesOf(part.polygon)) {
+        const deg = (((Math.atan2(e.u.z, e.u.x) * 180) / Math.PI - 20 + 360) % 90 + 90) % 90;
+        expect(Math.min(deg, 90 - deg)).toBeLessThan(0.1);
+      }
+      const ls = part.polygon.map((p) => fr.toLocal(p));
+      const w = Math.max(...ls.map((p) => p.x)) - Math.min(...ls.map((p) => p.x));
+      expect(Math.abs(w - 1950)).toBeLessThanOrEqual(2);
+    }
+    // Én skillevegg på 100 mm, ingen varsel om skjeve rom.
+    const walls = deriveWalls(d.rooms, d.settings);
+    expect(walls.skewed).toEqual([]);
+    expect(walls.walls.filter((w) => w.kind === 'interior').map((w) => w.thickness)).toEqual([100]);
   });
 
   it('«Del rommet» av et målt skrått tak: de nye høydene er regnet ut, ikke målt', () => {

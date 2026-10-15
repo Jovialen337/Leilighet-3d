@@ -243,6 +243,7 @@ You can also **open a drawing from a file** (`*.tegning.json`) to move work betw
       - One side keeps the room's id and name; the other becomes «‹navn› 2» with the same floor, ceiling and colour.
       - A sloped ceiling is kept: the old corners keep their heights, and the new corners at the split get theirs from the ceiling's plane (so the ceiling is no longer marked measured).
       - A partition flush with an existing wall (for example at an L's inside corner) gives clean rooms, with no zero-width spike along the old wall.
+      - In a room that stands turned in the plan (rooms measured in passthrough often do), the partition follows the room's own edges, and the position is measured along the room. The panel says so.
       - The partition strip (centred on the line) is taken out across the whole room, also where only one side continues. In an L split at x = 1950 with the inside corner at x = 2000, the long leg becomes 100 mm narrower; split at x = 2050 to keep it. The panel hint says so.
       - Windows and doors follow their side. A door into the room (from the room itself or from a neighbour) goes into the part it stands against.
       - Measured corners stay measured.
@@ -352,6 +353,13 @@ Other details:
   - A drawing published from another device still shows «Fortsett på ny modell …» here. Discard it with «Forkast tegningen»; it is kept as «forrige tegning».
 - While a new model is shown, drawing el/vann in VR is off; its coordinates would land wrongly in the file.
 - If `apartment.json` has errors, the error screen offers «Lag ny modell i stedet».
+
+### Later work (from the judge, round 3)
+
+- **Quest Browser plan:** the app's own room-name labels can overlap each other in small rooms (for example «Bad» and «Bad (hevet del)»). In narrow rooms they can cover the selected room's handles, which can still be clicked.
+- **Multi-select:** move or copy several rooms together.
+- Room templates, an overlap warning in `validate.ts`, and a wall-top fallback.
+- **Real-device checks:** see QA.md «Test on the Quest (phase 2c)». They cover corners within 2 cm, the tape comparison, how easy the handles are to hit, and 90 fps. If the tape comparison is off by more than 2 cm, passthrough capture is reopened.
 
 ## Phase 3 – editing in VR (design principles)
 

@@ -13,7 +13,7 @@ import { defaultInto } from '../builder/compile';
 import { OPEN_GAP, SKEW_MAX_DEG } from '../builder/walls';
 import { edgesOf, type Edge } from '../builder/geometry';
 import { leftOf } from '../geometry/math2d';
-import { distributeEvenly, linkedEdges, setEdgeLength, setEntrance } from '../builder/ops';
+import { distributeEvenly, linkedEdges, roomFrame, setEdgeLength, setEntrance } from '../builder/ops';
 import { ROOM_NAMES, floorColorFor, type BOpening, type BRoom, type BuilderDoc } from '../builder/types';
 import { formatArea, formatLength, parseLength } from '../builder/units';
 import type { BackdropState } from './BuilderBackdrop';
@@ -703,8 +703,11 @@ export class BuilderPanel {
    */
   private splitRow(room: BRoom): HTMLElement {
     const ed = this.editor;
-    const xs = room.polygon.map((p) => p.x);
-    const zs = room.polygon.map((p) => p.z);
+    // I rommets egen ramme (et rom målt i gjennomsyn står ofte dreid i planen).
+    const fr = roomFrame(room);
+    const local = room.polygon.map((p) => fr.toLocal(p));
+    const xs = local.map((p) => p.x);
+    const zs = local.map((p) => p.z);
     const wide = Math.max(...xs) - Math.min(...xs) >= Math.max(...zs) - Math.min(...zs);
     const mid = (axis: 'x' | 'z'): number => {
       const v = axis === 'x' ? xs : zs;
@@ -724,11 +727,21 @@ export class BuilderPanel {
       if (v && !v.relative) at = v.mm;
       ed.splitSelected(dir.value as 'x' | 'z', at);
     };
+    const turned = fr.deg
+      ? [
+          h(
+            'small',
+            { class: 'hint', 'data-testid': 'builder-split-turned' },
+            `Rommet står dreid ${fr.deg.toFixed(0)}° i planen: skillet følger rommets egne kanter, og tallet er målt langs rommet (x og z dreid med det).`,
+          ),
+        ]
+      : [];
     return h(
       'details',
       { class: 'split-box' },
       h('summary', {}, 'Del rommet'),
       h('div', { class: 'row' }, dir, pos, button('Del', 'builder-split-go', go)),
+      ...turned,
       h(
         'small',
         { class: 'hint' },
