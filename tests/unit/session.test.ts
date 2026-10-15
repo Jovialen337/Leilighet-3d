@@ -212,6 +212,25 @@ describe('lagring lokalt', () => {
     expect(new MeasureSession(changed, kv).progress().done).toBe(2);
   });
 
+  it('gamle målinger tas bare med når punktet i den nye fila fortsatt er i nærheten', () => {
+    const kv = new MemoryKV();
+    const a = new MeasureSession(base, kv);
+    measureCurrent(a, 10);
+    measureCurrent(a, 10);
+    // Ny fil der hjørnene i første rom er nummerert på nytt (hjørne 1 er nå et annet hjørne).
+    const changed = loadDoc();
+    const room = changed.rooms[0]!;
+    room.polygon = [...room.polygon.slice(1), room.polygon[0]!];
+    const b = new MeasureSession(changed, kv);
+    expect(b.stale).toMatchObject({ count: 2 });
+    expect(b.adoptStale()).toBe(true);
+    expect(b.adoptSkipped).toBe(2);
+    expect(b.progress().done).toBe(0);
+    // De som ikke passet, er ikke slettet: de ligger fortsatt til side (også etter omlasting).
+    expect(b.stale).toMatchObject({ count: 2 });
+    expect(new MeasureSession(changed, kv).stale).toMatchObject({ count: 2 });
+  });
+
   it('«Forkast» på gamle målinger sletter bare dem – dagens målinger beholdes', () => {
     const kv = new MemoryKV();
     const a = new MeasureSession(base, kv);

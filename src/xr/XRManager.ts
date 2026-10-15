@@ -20,6 +20,8 @@ import { Observable } from '../state/Observable';
 import type { ViewState } from '../state/ViewState';
 import type { FpsMeter } from '../ui/FpsMeter';
 import { MeasureMode, type MeasureDebugState } from './MeasureMode';
+import { BuildMode, type BuildDebugState } from './BuildMode';
+import type { BuilderSession } from '../builder/BuilderSession';
 import { TeleportArc } from './teleport';
 import { WristPanel } from './WristPanel';
 import { WristMenu } from './WristMenu';
@@ -32,7 +34,8 @@ import { LAYER_GROUPS, LAYER_PRESETS, applyPreset, groupState, setGroup } from '
 import { followFloor, placeAtSpawn, snapTurn, teleportTo } from './rig';
 
 export type XRSupport = 'checking' | 'supported' | 'unsupported' | 'insecure' | 'no-webxr';
-export type XRMode = 'walk' | 'measure';
+/** walk = VR; measure = oppmåling av fila; build = oppmåling av ny modell (begge gjennomsyn). */
+export type XRMode = 'walk' | 'measure' | 'build';
 
 export const SNAP_ANGLE = (30 * Math.PI) / 180;
 /** Myk dreiing: grader per sekund ved fullt utslag. */
@@ -71,10 +74,17 @@ export class XRManager {
   /** Støtter nettleseren gjennomsyn (immersive-ar)? */
   readonly arSupport = new Observable<boolean | null>(null);
   readonly error = new Observable<string | null>(null);
-  /** Oppmåling pågår (AR-økt). */
+  /** Oppmåling pågår (AR-økt med gjennomsyn: fila eller ny modell). */
   readonly measuring = new Observable(false);
   mode: XRMode = 'walk';
   measure: MeasureMode | null = null;
+  /** Oppmåling av ny modell («Lag ny modell»). */
+  build: BuildMode | null = null;
+  /**
+   * Kan el og vann tegnes i VR nå? Ikke mens man går gjennom en ny modell:
+   * den har sin egen ramme, så tegningene ville havnet feil i fila.
+   */
+  canDraw: () => boolean = () => true;
   private requestedMode: XRMode = 'walk';
   private readonly slots: Slot[] = [];
   private readonly arc = new TeleportArc();
@@ -125,6 +135,7 @@ export class XRManager {
     private readonly fps: FpsMeter,
     private readonly getMeasureSession: () => MeasureSession | null = () => null,
     private readonly plan: PlanController | null = null,
+    private readonly getBuilderSession: () => BuilderSession | null = () => null,
   ) {
     renderer.xr.enabled = true;
     renderer.xr.setReferenceSpaceType('local-floor');
@@ -272,6 +283,24 @@ export class XRManager {
     }
   }
 
+  /** Oppmåling av en ny modell i gjennomsyn («Lag ny modell»). */
+  async enterBuild(): Promise<void> {
+    if (!navigator.xr || this.presenting || !this.getBuilderSession()) return;
+    this.error.set(null);
+    this.requestedMode = 'build';
+    try {
+      this.renderer.xr.setFramebufferScaleFactor(1);
+      const session = await navigator.xr.requestSession('immersive-ar', {
+        requiredFeatures: ['local-floor'],
+        optionalFeatures: ['hit-test'],
+      });
+      await this.renderer.xr.setSession(session);
+    } catch (e) {
+      this.requestedMode = 'walk';
+      this.error.set(`Kunne ikke starte oppmåling: ${(e as Error).message}`);
+    }
+  }
+
   async exit(): Promise<void> {
     await this.renderer.xr.getSession()?.end();
   }
@@ -282,7 +311,15 @@ export class XRManager {
     this.mode = this.requestedMode;
     const xrSession = this.renderer.xr.getSession();
     const ms = this.getMeasureSession();
-    if (this.mode === 'measure' && xrSession && ms) {
+    const bs = this.getBuilderSession();
+    if (this.mode === 'build' && xrSession && bs) {
+      if (!this.build) this.build = new BuildMode(this.rig, this.camera, this.scene, bs, (hand) => this.slot(hand), this.menu, () => void this.exit());
+      this.pendingSpawn = false;
+      this.setPointersVisible(false);
+      this.wrist.mesh.visible = false;
+      this.build.start(xrSession);
+      this.measuring.set(true);
+    } else if (this.mode === 'measure' && xrSession && ms) {
       if (!this.measure || this.measureSession !== ms) {
         this.measure?.stop();
         this.measure = new MeasureMode(this.rig, this.camera, this.scene, ms, (hand) => this.slot(hand));
@@ -312,6 +349,14 @@ export class XRManager {
     this.updateWristHelp();
     this.arcLine.visible = false;
     this.marker.visible = false;
+    if (this.mode === 'build') {
+      this.build?.stop();
+      this.setPointersVisible(true);
+      this.wrist.mesh.visible = true;
+      this.mode = 'walk';
+      this.requestedMode = 'walk';
+      this.measuring.set(false);
+    }
     if (this.mode === 'measure') {
       this.measure?.stop();
       this.setPointersVisible(true);
@@ -340,6 +385,12 @@ export class XRManager {
 
   /** Kalles hver ramme i VR, før tegning. */
   update(dt: number, frame?: XRFrame, time = performance.now()): void {
+    // Oppmåling av ny modell trenger ingen modell (tegningen kan være tom).
+    if (this.mode === 'build' && this.build) {
+      this.build.update(frame, this.renderer.xr.getReferenceSpace(), time);
+      this.camera.getWorldPosition(this.head);
+      return;
+    }
     const model = this.getModel();
     if (!model) return;
     this.frames++;
@@ -454,6 +505,7 @@ export class XRManager {
       circuits: model ? (model.data.circuits ?? []).map((c) => ({ id: c.id, name: c.name })) : [],
       drawCircuit: this.plan?.options.value.circuit ?? null,
       filterCircuit: this.view.circuit.value,
+      drawBlocked: !this.canDraw(),
       qualityNote:
         this.mode === 'walk' && this.presenting && (this.view.quality.value === 'high') !== this.sessionHigh
           ? 'Skarpheten endres neste gang du går inn i VR.'
@@ -523,7 +575,7 @@ export class XRManager {
 
   private drawAction(id: string): void {
     const p = this.plan;
-    if (!p) return;
+    if (!p || !this.canDraw()) return;
     const [, what = '', arg = ''] = id.split(':');
     if (what === 'status') {
       p.set({ status: p.options.value.status === 'planned' ? 'existing' : 'planned' });
@@ -573,6 +625,15 @@ export class XRManager {
     const p = this.plan;
     const edge = this.triggerEdge;
     this.triggerEdge = false;
+    if (this.drawTool && !this.canDraw()) {
+      // Tegning ble skrudd av (f.eks. byggeren tok over visningen): avslutt verktøyet.
+      this.drawTool = null;
+      if (p) {
+        p.set({ tool: 'select' });
+        p.hover = null;
+      }
+      this.updateWristHelp();
+    }
     if (!p || !this.drawTool || this.menu.open) {
       if (p && !this.drawTool) p.hover = null;
       return;
@@ -695,6 +756,10 @@ export class XRManager {
 
   measureDebug(): MeasureDebugState | null {
     return this.measure?.debugState() ?? null;
+  }
+
+  buildDebug(): BuildDebugState | null {
+    return this.build?.debugState() ?? null;
   }
 
   /** Neste kurs i fila etter `id` (null = ingen/alle; etter siste kommer null igjen). */

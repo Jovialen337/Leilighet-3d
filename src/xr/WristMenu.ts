@@ -60,7 +60,11 @@ export class WristMenu {
 
   /** Oppdaterer innholdet (tegner bare hvis noe er endret). */
   setState(s: MenuState): void {
-    const { items, labels } = buildMenu(s);
+    this.setLayout(buildMenu(s));
+  }
+
+  /** Et annet innhold (f.eks. menyen for oppmåling av ny modell). */
+  setLayout({ items, labels }: { items: MenuItem[]; labels: MenuLabel[] }): void {
     this.items = items;
     this.labels = labels;
     this.hovered = this.hovered ? (items.find((i) => i.id === this.hovered!.id) ?? null) : null;

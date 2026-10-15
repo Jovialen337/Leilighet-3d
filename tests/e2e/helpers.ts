@@ -279,3 +279,76 @@ export async function menuPress(page: Page, id: string): Promise<void> {
   await aimAt(page, 'right', p);
   await press(page, 'right', 'trigger');
 }
+
+/* ------------------------- Lag ny modell ------------------------- */
+
+export interface BuildDebug {
+  phase: 'align-0' | 'align-1' | 'walls' | 'floor' | 'ceiling' | 'opening' | 'ready';
+  method: 'touch' | 'point';
+  status: { text: string; tone: string } | null;
+  captures: number;
+  walls: number[];
+  corners: number;
+  closed: boolean;
+  opening: { type: string; touches: number } | null;
+  target: string | null;
+  lastRoom: string | null;
+  rooms: number;
+  openings: number;
+  tip: { x: number; y: number; z: number };
+  rig: { x: number; y: number; z: number; yaw: number };
+  hitTest: string;
+  ghost: { x: number; z: number } | null;
+  menu: { open: boolean; hovered: string | null };
+  panel: { header: string; title: string; body: string; badge?: string; footer: string[] } | null;
+}
+
+export const buildState = (page: Page): Promise<BuildDebug> => page.evaluate(() => (window as any).leilighet.xr.buildDebug());
+
+/** Tegningen i «Lag ny modell» (byggerens dokument). */
+export const builderDoc = (page: Page): Promise<any> => page.evaluate(() => (window as any).leilighet.builder.session.doc);
+
+/** Åpner «Lag ny modell». */
+export async function openBuilder(page: Page, goto: string | null = './'): Promise<void> {
+  if (goto !== null) {
+    await page.goto(goto);
+    await waitForModel(page);
+  }
+  await page.getByTestId('builder-entry').click();
+  await expect(page.getByTestId('builder')).toBeVisible();
+}
+
+/** Starter oppmåling av ny modell (AR) i emulert Quest 3 og måler avstanden til måletuppen. */
+export async function enterBuild(page: Page, button = 'builder-capture'): Promise<void> {
+  await page.waitForFunction(() => (window as any).leilighet.xr.arSupport.value === true);
+  await page.getByTestId(button).click();
+  await page.waitForFunction(() => (window as any).leilighet.xr.presenting === true);
+  await frames(page, 4);
+  await page.evaluate(() => {
+    const c = (window as any).__iwer.controllers.right;
+    c.quaternion.set(0, 0, 0, 1);
+    c.position.set(0, 1, 0);
+  });
+  await frames(page, 3);
+  const tip = (await buildState(page)).tip;
+  await page.evaluate((o) => ((window as any).__tipOffset = o), { x: tip.x - 0, y: tip.y - 1, z: tip.z - 0 });
+}
+
+/** Berører et punkt i referanserommet (m) med måletuppen og trykker avtrekkeren (holder grepet om `grip`). */
+export async function touch(page: Page, x: number, y: number, z: number, grip = false): Promise<void> {
+  await page.evaluate(() => {
+    const c = (window as any).__iwer.controllers.right;
+    c.quaternion.set(0, 0, 0, 1);
+  });
+  await placeTipLocal(page, x, y, z);
+  if (grip) await button(page, 'right', 'squeeze', 1);
+  await press(page, 'right', 'trigger');
+  if (grip) await button(page, 'right', 'squeeze', 0);
+}
+
+/** Åpner menyen (X) i oppmålingen av ny modell og trykker på en knapp. */
+export async function buildMenu(page: Page, id: string): Promise<void> {
+  if (!(await buildState(page)).menu.open) await press(page, 'left', 'x-button');
+  await frames(page, 2);
+  await menuPress(page, id);
+}

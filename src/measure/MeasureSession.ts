@@ -99,6 +99,25 @@ function distanceToTarget(o: Observation, t: TaskInfo): { h: number; v: number }
   return { h, v };
 }
 
+/** Hvor langt (mm) en gammel måling kan ligge fra punktet i den nye fila og fortsatt brukes. */
+export const ADOPT_DISTANCE = 600;
+export const ADOPT_HEIGHT = 500;
+
+/** Er målingen nær nok punktet i fila til at den kan gjelde det samme? */
+export function nearTarget(o: Observation, t: { x: number; y: number; z: number }): boolean {
+  switch (o.kind) {
+    case 'room-floor':
+    case 'opening-top':
+    case 'opening-sill':
+      return Math.abs(o.y - t.y) <= ADOPT_HEIGHT;
+    case 'ceiling':
+      // Takpunktene kan stå litt hvor som helst i rommet: høyden teller mest.
+      return Math.abs(o.y - t.y) <= ADOPT_HEIGHT && Math.hypot(o.x - t.x, o.z - t.z) <= 2 * ADOPT_DISTANCE;
+    default:
+      return Math.hypot(o.x - t.x, o.z - t.z) <= ADOPT_DISTANCE;
+  }
+}
+
 const metres = (mm: number): string => `${(mm / 1000).toFixed(1).replace('.', ',')} m`;
 
 const today = (d: Date): string =>
@@ -122,6 +141,8 @@ export class MeasureSession {
   stale: StaleInfo | null = null;
   /** Målingene som lå lagret, er nå med i fila (den ble lastet opp). */
   published = false;
+  /** Gamle målinger som ikke ble tatt med sist (punktet er flyttet for langt i den nye fila). */
+  adoptSkipped = 0;
 
   private log: Action[] = [];
   private cursor: string | null = null;
@@ -273,6 +294,17 @@ export class MeasureSession {
     this.notify();
   }
 
+  /** Fingeravtrykk av målingene (loggen), eller null når det ikke er målt noe. */
+  logHash(): string | null {
+    return this.log.length ? hashText(JSON.stringify(this.log)) : null;
+  }
+
+  /** Fingeravtrykk av de gamle målingene (laget mot en eldre fil), eller null. */
+  staleHash(): string | null {
+    const saved = this.stale ? this.read(this.staleKey) : null;
+    return saved?.log.length ? hashText(JSON.stringify(saved.log)) : null;
+  }
+
   /** Forkaster bare de gamle målingene (laget mot en eldre fil); dagens beholdes. */
   discardStale(): void {
     if (!this.stale) return;
@@ -285,17 +317,34 @@ export class MeasureSession {
     this.notify();
   }
 
-  /** Bruker målinger som ble laget mot en eldre versjon av fila. */
+  /**
+   * Bruker målinger som ble laget mot en eldre versjon av fila. En måling tas
+   * bare med når punktet i den nye fila fortsatt er i nærheten – ellers kan
+   * f.eks. «hjørne 1» nå være et annet hjørne (lagt om med «Lag ny modell»).
+   * De som ikke passer, blir liggende til side.
+   */
   adoptStale(): boolean {
     const saved = this.read(this.staleKey);
     if (!saved) return false;
-    const keys = new Set(this.tasks.map((t) => t.key));
-    const keep = (a: Action): boolean =>
-      a.t === 'revisit' || (a.t === 'skip' ? keys.has(a.key) : keys.has(taskKey(a.o)));
-    this.log = [...this.log, ...saved.log.filter(keep)];
-    this.stale = null;
+    const tasks = new Map(this.tasks.map((t) => [t.key, t]));
+    const kept: Action[] = [];
+    const left: Action[] = [];
+    for (const a of saved.log) {
+      if (a.t === 'revisit') kept.push(a);
+      else if (a.t === 'skip') {
+        if (tasks.has(a.key)) kept.push(a);
+      } else {
+        const t = tasks.get(taskKey(a.o));
+        (t && nearTarget(a.o, t.target) ? kept : left).push(a);
+      }
+    }
+    this.log = [...this.log, ...kept];
+    this.adoptSkipped = left.length;
+    // Det som ikke passet, slettes ikke: det legges til side igjen (kan forkastes med «Forkast»).
+    this.stale = left.length ? { count: left.length, updatedAt: saved.updatedAt } : null;
     try {
-      this.storage?.removeItem(this.staleKey);
+      if (left.length) this.storage?.setItem(this.staleKey, JSON.stringify({ ...saved, log: left }));
+      else this.storage?.removeItem(this.staleKey);
     } catch {
       /* lagring utilgjengelig */
     }
@@ -424,6 +473,17 @@ export class MeasureSession {
   }
 
   private restore(): void {
+    this.restoreCurrent();
+    // Målinger som ble lagt til side tidligere (mot en eldre fil), vises fortsatt –
+    // også etter flere omlastinger – til de brukes eller forkastes.
+    if (!this.stale) {
+      const old = this.read(this.staleKey);
+      const count = old ? old.log.filter((a) => a.t === 'obs').length : 0;
+      if (old && count) this.stale = { count, updatedAt: old.updatedAt };
+    }
+  }
+
+  private restoreCurrent(): void {
     const saved = this.read(this.key);
     if (!saved) return;
     if (saved.baseHash === this.baseHash) {

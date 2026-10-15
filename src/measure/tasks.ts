@@ -53,7 +53,7 @@ export const ALIGN_STEPS = [
   {
     title: 'Start: retning',
     instruction:
-      'Berør inngangsveggen minst én meter lenger inn mot kjøkkenet, og trykk avtrekkeren. Da legges modellen oppå rommet ditt.',
+      'Berør inngangsveggen minst én meter fra hjørnet, forbi døra, og trykk avtrekkeren. Da legges modellen oppå rommet ditt.',
   },
 ] as const;
 

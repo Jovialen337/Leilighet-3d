@@ -1,6 +1,6 @@
 # Leilighet 3D – project plan
 
-Status: **Phase 1 live** at https://jovialen337.github.io/Leilighet-3d/ and checked on the Quest 3 (90 fps, 11.9 ms; movement and reach OK). **Phase 2 (guided measuring) built**; it ships when its pull request is merged, then needs a test on the Quest. This file is updated in every phase.
+Status: **Phase 1 live** at https://jovialen337.github.io/Leilighet-3d/ and checked on the Quest 3 (90 fps, 11.9 ms; movement and reach OK). Phases 2 and 2b are live and need a test on the Quest. **Phase 2c («Lag ny modell») is built** and ships when its pull request is merged. This file is updated in every phase.
 
 ## Goal
 
@@ -18,6 +18,7 @@ All UI text is Norwegian (bokmål). All geometry comes from one data file, `publ
 | 1 | Data model + validation, rendering, VR walking (teleport, snap turn, room-scale), laptop orbit/top-down, layer toggles, FPS, GitHub Pages deploy | **live** – see [QA.md](QA.md) |
 | 2 | **Guided measuring** in passthrough on the Quest: align the model to the real apartment, then touch or point at corners, floors, ceilings, openings and fixtures, step by step. The model updates as you go. | **built**, awaiting Quest test |
 | 2b | **Graphics, options and planning** (improvement rounds scored per [SCORING.md](SCORING.md)): new lighting and quality presets; saved settings; VR menu (X); go to room; dollhouse; **electrical and water planning** with drawing on PC and in VR; layer groups, presets and filters with x-ray | **built**, being scored |
+| 2c | **«Lag ny modell»** – make a new model from scratch or from the current one: draw rooms on the PC or in the Quest Browser (walls are made automatically), or measure the rooms by touching the walls in passthrough on the Quest 3. Doors, windows and openings, checks with one-click fixes, undo, autosave, walk through it in VR, and export as `apartment.json`. | **built**, being scored |
 | 3 | **Editing** in VR: grab, move, turn, add and delete furniture and fixtures; edit walls, doors and windows with snapping and live dimensions; wrist menu; undo | planned |
 | 4+ | *(proposal)* Planning: electrical and wiring routes, ventilation, workshop zone, GLB furniture import, notes in VR | – |
 
@@ -98,7 +99,9 @@ Every capture gives a short vibration. Moving around is by walking only: telepor
 
 Guided measuring *moves and resizes* what is in the model: rooms, corners, walls, openings and fixtures. It cannot yet add or remove rooms, corners, doors or windows. The first Quest test showed the placeholder layout was quite different from the real apartment.
 
-**Done 2026-10-12:** the layout was corrected from the user's sketch (see "The apartment" below). Measuring now makes it exact. Adding and removing corners, rooms and openings in VR belongs to phase 3.
+**Done 2026-10-12:** the layout was corrected from the user's sketch (see "The apartment" below). Measuring now makes it exact.
+
+**Done 2026-10-14:** «Lag ny modell» (phase 2c) can add and remove rooms, corners, doors and windows, on the PC and in passthrough. Start it from the current model to keep fixtures, furniture, cables and pipes.
 
 ## Phase 2b – graphics, options, electrical and water planning
 
@@ -156,6 +159,207 @@ Guided measuring *moves and resizes* what is in the model: rooms, corners, walls
 - Filters: existing / planned, a single circuit, and **røntgen** (see-through walls and ceilings, so cables and pipes in walls show). In VR, the circuit button in «Lag» shows the next circuit on each press, then all circuits again.
 - In the 2D plan, cables, pipes and electrical/water points are never cut and are drawn on top, so the whole plan always shows.
 - The same presets, filters and groups are in the VR menu («Lag»). Everything is saved per device.
+
+## Phase 2c – «Lag ny modell» (build a new model)
+
+The guided measuring in phase 2 can only move what is already in the file. «Lag ny modell» makes a model from nothing, or rebuilds the current one, and ends with a normal `apartment.json`.
+
+### The idea: rooms first, walls by themselves
+
+- You draw **rooms** as floor polygons, using inside measurements (the numbers you get with a tape).
+- **Walls are made automatically** from how the rooms lie against each other:
+  - A gap of 20–400 mm between two room edges becomes an **interior wall** filling the gap. It is face-justified, so both rooms keep their exact inside measurements.
+  - Edges that touch (gap under 20 mm) are an **open boundary** with no wall, for example between a living room and an open kitchen. If the ceilings differ, a soffit (wall from the lower ceiling up) is made.
+  - Everything else is an **exterior wall**, 200 mm by default and adjustable per edge.
+  - Collinear exterior walls are merged.
+  - Outside corners are closed at **every angle**:
+    - right angles: one wall is extended;
+    - obtuse corners (for example a 45° bay): both walls run to where the outer faces meet;
+    - acute corners: the tip is cut at the other wall's outer face, so nothing sticks out (very sharp tips are cut at 4 × the wall thickness);
+    - a shallow bend between a thin and a thick wall: the thick wall already covers the corner, so the thin one only fills the wedge between the wall ends, up to its own outer face. The outside gets a step, as at a straight joint, instead of a long spike.
+  - **Skewed rooms are reported.** Facing edges in two rooms that are not parallel get a warning naming both rooms, with «Rett opp rommene»:
+    - under 3°: one partition is still made, and the warning gives its thickness at each end;
+    - 3–10°: no partition is made, and the warning says two exterior walls may overlap;
+    - the gap must vary by at least 5 mm along the edge, so short edges that are only rounded 1–2 mm do not count.
+- **Doors, windows and openings** sit on a room edge with a distance from the corner. They follow the edge when corners move.
+  - The first door in an exterior wall becomes the **entrance door**.
+  - A door's «går inn i» defaults to the room on the other side of the wall.
+- **Export moves the origin** to the inside corner at the entrance door, with x along the entrance wall and the hallway floor = 0. This is what guided measuring expects.
+  - `settings.planRotation` is chosen so the 2D plan still looks the way it was drawn.
+  - The transform is a proper rotation, never a mirror.
+
+### Three ways to start
+
+1. **Ny tom modell.** Draw from scratch.
+2. **Start fra nåværende modell.** Imports the file shown now, including measurements in progress and drawn cables and pipes. Exactly this is carried over:
+   - **Rooms:** id, name, polygon, floor level, ceiling (flat or per-corner height), floor colour, note, layer and the control dimensions (`dimensions`, with their measured flags). The measured flags of corners, floor and ceiling also come along.
+     - Control dimensions that no longer fit the room are shown on that room in the checklist. The room panel shows them, with «Fjern kontrollmålene».
+   - **Walls** are made again from the rooms. A new wall in the same place as an old one keeps its **id, name, colour, material, note, layer and fixed height** (and a beam's `base`), so fixtures, cables and measurements that point at it still work.
+     - The exterior wall thickness and material are kept per edge, and the most common thickness becomes the default.
+   - **Openings:** id, type, name, note, layer, width, height, sill, «går inn i», hinge, swing, entrance flag, opening angle, door leaf colour (when not the default) and window frame colour.
+     - `swingDirection` is not copied. It is worked out again from hinge and swing on every save, so it always matches.
+   - **Everything else is copied as it is**, moved with the plan:
+     - fixtures (wall fixtures are re-attached to the nearest new wall, or placed freely where they were if the wall is gone);
+     - furniture, outdoor areas, zones, cables, pipes, circuits, scans and notes;
+     - layers, `meta.description`, and the settings `planCutHeight`, `defaultWallHeight` and `backgroundColor`.
+   - The plan is turned by `planRotation`, so it looks like the plan you know.
+   - A unit test checks that no field of any room, wall or opening in the published file is lost or changed. Only recomputed geometry differs: polygons, wall ends and justification, and offsets.
+3. **Mål opp i gjennomsyn (Quest 3).** Measure the rooms by touching the walls (see below).
+
+You can also **open a drawing from a file** (`*.tegning.json`) to move work between the laptop and the Quest.
+
+**Background image («Bakgrunnsbilde»).** Put a sketch or a floor plan (for example from the estate agent's prospectus) under the plan and trace the rooms on top of it.
+
+- Set the scale with two clicks on points whose real distance you know, then type that distance («3,4 m»).
+- «Flytt bildet» lets you drag it into place, and you can change its opacity, hide it or remove it.
+- The image is shrunk to at most 1600 px and saved only in the browser (up to 1.5 MB), never in `apartment.json`.
+
+### Drawing (PC and Quest Browser)
+
+- Tools: **Velg og flytt** (S), **Rektangel** (R), **Mangekant** (M), **Rom inntil** (I, a new room on the other side of an edge, with a partition), **Dør** (D), **Vindu** (V), **Åpning** (O).
+- **Snapping**, in this order:
+  1. corners of other rooms;
+  2. the wall gap next to another room, or its edge;
+  3. alignment with any corner (dashed guides);
+  4. 45°/90° from the previous point (at 45° the sides are rounded to the grid, so a square is 3000 × 3000);
+  5. the 10 mm grid.
+  - Hold **Ctrl**, or press «Fri» on the Quest, for no snapping.
+- **Typed dimensions** in Norwegian, all in mm:
+  - «4,2» = 4,2 m; «420 cm» = 420 cm; «4200» = 4200 mm; a bare 1–9 = metres.
+  - A sign («+150», «-150») adds to or subtracts from the current value.
+  - In **coordinate and floor-level fields** (corner x/z, «Gulvnivå») a minus is part of the value: «-1100» is −1100, and «-3» is −3 m like «3» is 3 m. Subtract there with «-=150». «+150» (and «+=150») always adds, since a positive value never needs a plus.
+  - In «Flytt rommet» the sign is only the direction; the number reads like any other length («-500» moves 500 mm left or up, «-3» moves 3 m like «3»). An empty field is 0, and Enter moves on to the next field and then moves the room.
+  - While drawing, start typing and the number goes straight into the length field. Enter places it, and Tab moves to the next field.
+  - In the polygon tool, the arrow buttons → ↓ ← ↑ give the direction without a mouse.
+- **Handles.** Drag corners, edges (the neighbour room follows, so the wall keeps its thickness), whole rooms, and openings (along the wall, or their ends to resize).
+  - Arrow keys nudge the selection 10 mm, or 100 mm with Shift.
+  - Each drag is one undo step, and the 3D model is rebuilt when the drag ends.
+- **Panel for the selection**:
+  - room: name, floor level, ceiling height, sloped ceiling per corner, note, control dimensions, every edge length, and:
+    - «Flytt rommet» by typed x/z distances;
+    - «Kopier rommet»: the copy is placed beside the original with a partition, on the first free side (right, below, left, above), with its windows and doors but not the entrance door, and without their names and notes;
+    - «Roter 90°»: clockwise about the middle; openings follow; four turns give exactly the same room back;
+    - «Del rommet»: a partition of the standard thickness straight through the room, vertical (at an x) or horizontal (at a z), suggested in the middle across the longer side.
+      - One side keeps the room's id and name; the other becomes «‹navn› 2» with the same floor, ceiling and colour.
+      - A sloped ceiling is kept: the old corners keep their heights, and the new corners at the split get theirs from the ceiling's plane (so the ceiling is no longer marked measured).
+      - A partition flush with an existing wall (for example at an L's inside corner) gives clean rooms, with no zero-width spike along the old wall.
+      - In a room that stands turned in the plan (rooms measured in passthrough often do), the partition follows the room's own edges, and the position is measured along the room. The panel says so.
+      - The partition strip (centred on the line) is taken out across the whole room, also where only one side continues. In an L split at x = 1950 with the inside corner at x = 2000, the long leg becomes 100 mm narrower; split at x = 2050 to keep it. The panel hint says so.
+      - Windows and doors follow their side. A door into the room (from the room itself or from a neighbour) goes into the part it stands against.
+      - Measured corners stay measured.
+      - The split is refused, with a message naming the reason, if:
+        - it would cut through an opening, in the room or in the wall facing it from a neighbour;
+        - it does not cross the room, or leaves under 0.25 m² or under 50 cm (measured from the partition) on a side;
+        - it crosses the room more than once (a U-shape), which would make one side two rooms;
+  - edge: length; for an exterior wall, its thickness and material; for a partition, its **thickness** (the neighbouring room moves); add door, window or opening; «Fordel vinduer jevnt»;
+  - corner: x and z (negative values allowed);
+  - opening: type, from the left or right corner as seen from inside the room, width, height, sill, «går inn i», hinge side, swing, entrance door, note.
+  - The message line always names what is selected, including which edge.
+- **Rett opp** makes nearly-square rooms exactly square and lines up nearly collinear edges.
+  - The common axis is the largest room that is already straight, near the length-weighted average. Rooms that follow the grid count 1.5 times their size, so straight rooms stay where they are.
+  - «Rett opp rommene» on a skew warning straightens only the two rooms it names, with edges up to 11° off the axis. «Rett opp rommet» straightens the selected room. Rooms that are not straightened stay where they are; the straightened room's nearly-aligned edges are moved onto theirs.
+  - «Rett opp alt» (in the tools) straightens every room.
+- **The overlay stays readable:**
+  - a dimension is drawn only where it covers no other dimension, room name or handle;
+  - the selected room and the room under the pointer come first. A label is tried near the middle of its edge, first horizontal and then running along the edge (narrow rooms). For the selected room it may also go just outside the edge;
+  - other rooms show dimensions when zoomed in, and only where the label lies completely inside the room;
+  - a label with no free spot is left out; every edge length is in the panel;
+  - handles are chosen by priority (selected opening, then the selected room's corners, move handle and edges, then other corners). A handle closer than the two radii to a more important one is left out, and the most important is drawn on top, so the Quest laser hits the handle you see;
+  - when an opening is short on screen, its end handles are set a little outside its ends so all three fit. A drag counts from where you took hold, so the end does not jump;
+  - note and fixture labels are hidden while the builder is open; room names stay.
+- **Undo/redo** keeps 100 steps (Ctrl+Z, Ctrl+Y), and the message says «Angret.» or «Gjort om.». Everything is **saved in the browser** at once, so the drawing survives a reload.
+- The **live preview** is the real model:
+  - 2D plan cut at the section height, 3D («Se i 3D») and **VR** («Gå gjennom i VR»);
+  - if the drawing has errors, the last valid version is shown until they are fixed.
+- On the **Quest Browser** everything works without a keyboard: big buttons and 16 px handles for the laser pointer, typed values through the system keyboard, and arrow buttons.
+
+### Checks («Sjekk»)
+
+Errors (saving is blocked) and warnings, each with «Vis» (select and zoom) and, where possible, a one-click fix:
+
+- **Errors:**
+  - rooms that overlap;
+  - polygons that cross themselves or are too small;
+  - openings outside their wall, across a wall break or on an open boundary;
+  - openings that overlap;
+  - the full schema validation of the resulting file.
+- **Warnings:**
+  - no entrance door (fix: «Merk en inngangsdør»), or more than one (fix: keep the first);
+  - the entrance wall is shorter than 1 m, which alignment needs;
+  - a room you cannot get into from the entrance;
+  - a low ceiling;
+  - a door taller than the ceiling;
+  - very thin gaps between rooms;
+  - skewed rooms (fix: «Rett opp rommene»);
+  - control dimensions from the old file that no longer fit the room.
+
+### Measuring a new model in passthrough (Quest 3)
+
+Room by room, standing in the room:
+
+1. **Walls.**
+   - Touch the first wall twice, at least 30 cm apart. This gives its direction.
+   - Then touch each next wall once, going around the room. Each is assumed to be at a right angle along the room's axes, so a slanted wall does not tilt the rest.
+   - For a slanted wall, hold the **grip** while touching to add a point to the same wall.
+   - A ghost corner shows where the next corner will land.
+2. **A** closes the room. Corners are where the walls meet, and the room must not cross itself.
+   - **The drawing's axis.** The room's direction comes from only two touches on the first wall: 1 cm off over 60 cm is about 1°, which would skew the whole room and every dimension. So, when the first wall is within 3° of the drawing's common axis, the axis is used as the direction, and every wall line goes through its own touches. That keeps the dimensions right, not only the angle.
+     - In the emulated test, a second touch 1 cm off gives a partition of 100 ± 5 mm and a depth of 3000 ± 5 mm.
+     - Walls touched several times (grip) use the axis too when they are within 3°, but only when the first wall does; deliberately slanted walls keep their own line.
+     - The panel says how many degrees came from the axis and how far the corners moved.
+   - A room more than 3° off is kept as measured, since it is taken to be skewed on purpose.
+   - To keep a room as measured anyway, press **B** (back to the walls) and then **A**. B and A again uses the axis after all.
+   - With no axis to borrow (the first room, or one skewed on purpose), touches on the first wall less than 1 m apart get a warning that the direction will be inaccurate.
+3. **Floor.** Touch the floor. A skips it.
+4. **Ceiling.** Touch the ceiling, or press the right stick to point at it with the ray (hit-test). A skips it.
+5. The room goes straight into the drawing, with its corners marked as measured.
+
+Openings come from the **X menu**. Pick «Dør», «Vindu» or «Åpning» and touch:
+
+- the hinge side of the frame (doors), then the other side;
+- the top;
+- for windows, also the sill.
+
+The menu also has:
+
+- room names (no keyboard needed);
+- «Mål ‹rom› på nytt»: re-measure the room you stand in; doors and windows follow;
+- «Nytt rom», «Avbryt», touch/point, «Juster på nytt» and «Avslutt».
+
+Other details:
+
+- **B** undoes the last touch, or the last change in the drawing.
+- Each touch is the **median of the tip over the last 150 ms** before the trigger, so the jerk of pulling the trigger does not count.
+- While the menu is open, the trigger never measures.
+- **Alignment.** If the drawing already has rooms (drawn on the PC or measured earlier), the session starts by aligning:
+  - touch the corner at the entrance door, then the entrance wall beyond the door;
+  - the same thing happens automatically after the headset loses tracking (reference space reset).
+
+### Saving
+
+- «Last ned apartment.json» + «Last opp til GitHub», the same flow as measuring.
+  - The export remembers its fingerprint. When that exact file is published, the drawing is removed by itself.
+  - If you changed the drawing after exporting, it is kept.
+- «Lagre tegningen som fil» / «Åpne tegning …» move unfinished work between devices.
+- **Nothing is lost:**
+  - When a new drawing is started, opened from a file or discarded, the old one is kept as «forrige tegning». «Hent forrige tegning» brings it back, also after a reload.
+  - A stored drawing that cannot be read is set aside under its own key and reported; the app starts as normal.
+  - Drawing files are fully checked before they are opened.
+- **Local changes that went into the new model:**
+  - «Start fra nåværende modell» remembers which drawn cables, pipes and points, and which measurements, it took with it.
+  - When the exported file is published, exactly those are removed from the browser, because they are now in the file, in the new frame.
+  - Anything made on the old model afterwards is kept and reported, since it may now be in the wrong place.
+  - Drawn el/vann also remembers which rooms and walls it was drawn on. If the file changes underneath it, for example when a new model was published from another device, the measuring box warns that it may be wrong. «De ligger riktig – behold dem» clears the warning; «Forkast dem» deletes them.
+  - A drawing published from another device still shows «Fortsett på ny modell …» here. Discard it with «Forkast tegningen»; it is kept as «forrige tegning».
+- While a new model is shown, drawing el/vann in VR is off; its coordinates would land wrongly in the file.
+- If `apartment.json` has errors, the error screen offers «Lag ny modell i stedet».
+
+### Later work (from the judge, round 3)
+
+- **Quest Browser plan:** the app's own room-name labels can overlap each other in small rooms (for example «Bad» and «Bad (hevet del)»). In narrow rooms they can cover the selected room's handles, which can still be clicked.
+- **Multi-select:** move or copy several rooms together.
+- Room templates, an overlap warning in `validate.ts`, and a wall-top fallback.
+- **Real-device checks:** see QA.md «Test on the Quest (phase 2c)». They cover corners within 2 cm, the tape comparison, how easy the handles are to hit, and 90 fps. If the tape comparison is off by more than 2 cm, passthrough capture is reopened.
 
 ## Phase 3 – editing in VR (design principles)
 
@@ -278,8 +482,16 @@ src/
   xr/         XRManager.ts (session, controllers, teleport, snap turn, floor follow, measure mode), teleport.ts (arc),
               rig.ts (pure rig maths), WristPanel.ts (seed of the phase 3 wrist menu), emulator.ts (IWER),
               MeasureMode.ts, MeasureOverlay.ts, InfoPanel.ts (passthrough measuring)
-  ui/         DesktopUI.ts (Norwegian panel), MeasureBox.ts, Labels.ts, FpsMeter.ts, github.ts, style.css
-  app/App.ts  wiring
+  builder/    «Lag ny modell»: types.ts (rooms + openings drawing), walls.ts (walls from rooms), compile.ts (drawing →
+              apartment.json, checks), transform.ts (origin at the entrance), importDoc.ts (apartment.json → drawing),
+              ops.ts (edits that keep openings in place), snap.ts, units.ts (Norwegian lengths), capture.ts (passthrough
+              maths: walls from touches, openings from frames, alignment), BuilderSession.ts (undo, autosave, export),
+              BuilderEditor.ts (tools, selection, drag)
+  ui/         DesktopUI.ts (Norwegian panel), MeasureBox.ts, BuilderPanel.ts + BuilderOverlay.ts (SVG handles in the 2D plan)
+              + BuilderBackdrop.ts (image to trace, with scale),
+              Labels.ts, FpsMeter.ts, github.ts, style.css
+  xr/         … BuildMode.ts, BuildOverlay.ts, buildMenu.ts (measuring a new model in passthrough)
+  app/        App.ts (wiring), BuilderController.ts («Lag ny modell»: preview, input, keys, saving)
 ```
 
 - **Single source of truth:** `ApartmentStore` holds the raw document (including `{value, measured}`). It validates, then builds an `ApartmentModel`. The scene is rebuilt from the model.
@@ -302,11 +514,21 @@ src/
 - **Quest, measuring:** see the controls table in phase 2.
 - **Quest, menu (X):** point with the right controller and pull the trigger. Tabs: Visning, Lag, Tegn, Gå til, Komfort. Right stick back turns 180°.
 - **Laptop, keys:** 1/2 (3D/2D), T (ceilings), U (placeholders), K (dollhouse), R (reset view), F (FPS), H (help), S/E/V/P (draw tools), Enter/Backspace/Esc/Delete/Ctrl+Z while drawing.
+- **Laptop, «Lag ny modell»:**
+  - tools S/R/M/I/D/V/O; type numbers for lengths;
+  - Enter/double-click/right-click to finish a polygon, Backspace (last point or delete), Esc, Delete;
+  - Ctrl+Z / Ctrl+Y; arrows to nudge (Shift: 100 mm); hold Ctrl for no snapping.
+- **Quest, measuring a new model:**
+  - trigger = touch; grip + trigger = same wall; A = close the room / skip / next room; B = undo;
+  - X = menu (names, doors, windows, re-measure, exit); right stick click = touch/point.
 
 ## Known limitations
 
 - Imported GLB furniture is only a grey placeholder box. Scan references are validated but not drawn.
 - Notes are small markers in VR; their text shows only in the laptop 2D plan.
-- Guided measuring cannot add or remove rooms, corners or openings (see phase 2).
+- Guided measuring cannot add or remove rooms, corners or openings; use «Lag ny modell» for that (phase 2c).
+- «Lag ny modell» draws rooms with flat floors; a room with two floor levels is two rooms side by side (an open boundary or a step between them).
+- Walls between rooms are only made where the gap is 20–400 mm; thicker walls (load-bearing, chimneys) must be drawn as a gap of that size or adjusted per edge.
+- In passthrough, re-measuring a room keeps its doors and windows on the nearest matching edge; check them afterwards on the PC.
 - Pointing (hit-test) needs the Quest's room setup (Space Setup); without it, use touch.
 - Measurements are stored only in the browser they were taken in (the Quest), until they are downloaded and uploaded to GitHub.

@@ -8,6 +8,15 @@
  */
 import type { ApartmentDoc } from '../schema/types';
 import type { KV } from '../state/persist';
+import { hashText } from '../measure/MeasureSession';
+
+/**
+ * Fingeravtrykk av det tegningene står på (rom, vegger, åpninger og dreiing).
+ * Endres det, kan tegnede kabler og rør ligge feil – også når fila ble
+ * publisert fra en annen enhet.
+ */
+export const geometryHash = (doc: ApartmentDoc): string =>
+  hashText(JSON.stringify([doc.rooms, doc.walls, doc.openings, doc.settings?.planRotation ?? 0]));
 
 export type PlanCollection = 'wiring' | 'pipes' | 'fixtures' | 'circuits' | 'layers';
 export type PlanObject = { id: string } & Record<string, unknown>;
@@ -28,6 +37,16 @@ export class PlanEdits {
   published = false;
   /** Øker ved hver endring (for mellomlagring hos den som bruker endringene). */
   revision = 0;
+  /**
+   * Antall endringer som ble tegnet mot en eldre utgave av rom og vegger (fila
+   * er byttet siden): de kan ligge feil og bør sjekkes. 0 = alt er tegnet på
+   * fila slik den er nå.
+   */
+  olderFile = 0;
+  /** Rom og vegger endringene er tegnet på (se geometryHash). */
+  private drawnOn: string | null = null;
+  /** Rom og vegger i fila som er lastet nå. */
+  private current: string | null = null;
   private readonly listeners = new Set<() => void>();
 
   constructor(
@@ -37,17 +56,15 @@ export class PlanEdits {
   ) {
     try {
       const text = storage?.getItem(key);
-      const saved = text ? (JSON.parse(text) as { version?: number; ops?: unknown }) : null;
-      if (saved?.version === 1 && Array.isArray(saved.ops)) this.ops = saved.ops.filter(isOp);
+      const saved = text ? (JSON.parse(text) as { version?: number; ops?: unknown; drawnOn?: unknown }) : null;
+      if (saved?.version === 1 && Array.isArray(saved.ops)) {
+        this.ops = saved.ops.filter(isOp);
+        if (typeof saved.drawnOn === 'string') this.drawnOn = saved.drawnOn;
+      }
     } catch {
       this.ops = [];
     }
-    if (base && this.ops.length) {
-      const before = this.ops.length;
-      this.ops = this.prune(base);
-      if (!this.ops.length) this.published = true;
-      if (this.ops.length !== before) this.save();
-    }
+    if (base) this.rebase(base);
   }
 
   /**
@@ -110,6 +127,7 @@ export class PlanEdits {
     if (!ops.length) return;
     const drop = new Set(ops);
     this.ops = this.ops.filter((o) => !drop.has(o));
+    if (this.olderFile) this.olderFile = Math.min(this.olderFile, this.ops.length);
     this.changed();
   }
 
@@ -118,11 +136,25 @@ export class PlanEdits {
    * lytterne – den som laster, tegner modellen på nytt uansett.
    */
   rebase(base: ApartmentDoc): void {
+    this.current = geometryHash(base);
     const before = this.ops.length;
-    if (!before) return;
-    this.ops = this.prune(base);
-    if (!this.ops.length) this.published = true;
-    if (this.ops.length !== before) this.save();
+    if (before) {
+      this.ops = this.prune(base);
+      if (!this.ops.length) this.published = true;
+    }
+    // Endringer tegnet mot andre rom og vegger enn fila har nå: si fra (eldre lagring uten avtrykk regnes som riktig).
+    const older = this.ops.length > 0 && this.drawnOn !== null && this.drawnOn !== this.current;
+    this.olderFile = older ? this.ops.length : 0;
+    if (!older) this.drawnOn = this.ops.length ? this.current : null;
+    if (this.ops.length !== before || (!older && before)) this.save();
+  }
+
+  /** «Behold dem»: endringene tegnet mot en eldre fil er sjekket og gjelder fila slik den er nå. */
+  acceptOlder(): void {
+    if (!this.olderFile) return;
+    this.olderFile = 0;
+    this.drawnOn = this.current;
+    this.changed();
   }
 
   get size(): number {
@@ -167,6 +199,7 @@ export class PlanEdits {
   clear(): void {
     this.ops = [];
     this.published = false;
+    this.olderFile = 0;
     this.changed();
   }
 
@@ -213,8 +246,13 @@ export class PlanEdits {
 
   private save(): void {
     this.revision++;
+    if (!this.ops.length) {
+      this.olderFile = 0;
+      this.drawnOn = null;
+    } else if (!this.olderFile) this.drawnOn = this.current;
     try {
-      if (this.ops.length) this.storage?.setItem(this.key, JSON.stringify({ version: 1, ops: this.ops }));
+      if (this.ops.length)
+        this.storage?.setItem(this.key, JSON.stringify({ version: 1, ops: this.ops, ...(this.drawnOn ? { drawnOn: this.drawnOn } : {}) }));
       else this.storage?.removeItem(this.key);
     } catch {
       /* full eller utilgjengelig lagring: endringene finnes fortsatt i minnet */
@@ -224,6 +262,9 @@ export class PlanEdits {
 
 /** Hvilket objekt en endring gjelder («samling:id»). */
 const keyOf = (o: PlanOp): string => `${o.c}:${o.op === 'put' ? o.obj.id : o.id}`;
+
+/** Fingeravtrykk av en endring (lik endring gir likt avtrykk, også etter omlasting). */
+export const opFingerprint = (o: PlanOp): string => hashText(JSON.stringify(o));
 
 /** Legger endringene inn i en kopi av fila. */
 export function applyOps(doc: ApartmentDoc, ops: readonly PlanOp[]): ApartmentDoc {

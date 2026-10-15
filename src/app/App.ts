@@ -24,7 +24,7 @@ import { repoFromLocation, uploadUrl } from '../ui/github';
 import { Labels } from '../ui/Labels';
 import { DesktopView } from '../views/DesktopView';
 import { XRManager } from '../xr/XRManager';
-import { applyOps, PlanEdits, type PlanOp } from '../plan/PlanEdits';
+import { applyOps, opFingerprint, PlanEdits, type PlanOp } from '../plan/PlanEdits';
 import { PlanController } from '../plan/PlanController';
 import { PlanOverlay } from '../plan/PlanOverlay';
 import { PlanBox } from '../ui/PlanBox';
@@ -32,6 +32,8 @@ import { isTypingTarget } from '../ui/shortcuts';
 import type { ApartmentDoc } from '../schema/types';
 import { validateApartment, type ValidationResult } from '../schema/validate';
 import type { DrawTool } from '../plan/draw';
+import { BuilderController } from './BuilderController';
+import type { Consumed } from '../builder/BuilderSession';
 
 /** Tegningene som passer (lagt inn), de som ikke passer nå, og valideringen av resultatet. */
 type PlanSplit = { doc: ApartmentDoc; hidden: PlanOp[]; result?: ValidationResult };
@@ -56,6 +58,8 @@ export class App {
   readonly planCtrl: PlanController;
   readonly planOverlay: PlanOverlay;
   readonly planBox: PlanBox;
+  /** «Lag ny modell». */
+  readonly builder: BuilderController;
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointer = new THREE.Vector2();
   private readonly rayHits: THREE.Intersection[] = [];
@@ -71,6 +75,8 @@ export class App {
   private planCache: ({ base: ApartmentDoc; rev: number } & PlanSplit) | null = null;
   /** Siste godkjente forhåndssjekk: gjenbrukes når endringen lagres, så den ikke valideres to ganger. */
   private planPending: { base: ApartmentDoc; rev: number; size: number; doc: ApartmentDoc; result: ValidationResult } | null = null;
+  /** Den nye modellen har ingen rom ennå: modellen er skjult. */
+  private previewEmpty = false;
 
   constructor(private readonly root: HTMLElement) {
     this.store = new ApartmentStore(`${import.meta.env.BASE_URL}apartment.json`);
@@ -121,6 +127,36 @@ export class App {
       this.fps,
       () => this.measure,
       this.planCtrl,
+      () => this.builder?.session ?? null,
+    );
+    this.builder = new BuilderController(
+      {
+        view: this.view,
+        desktop: this.desktop,
+        xr: this.xr,
+        canvas: this.renderer.domElement,
+        importSource: () => {
+          const base = this.baseDoc();
+          if (!base) return null;
+          const { doc, hidden } = this.splitPlan(base);
+          return {
+            doc,
+            consumed: {
+              plan: this.plan.ops.filter((o) => !hidden.includes(o)).map(opFingerprint),
+              measure: this.measure?.hasMeasurements ? this.measure.logHash() : null,
+            },
+          };
+        },
+        showPreview: (v) => this.showBuilderPreview(v),
+        showEmpty: () => this.showBuilderEmpty(),
+        restore: () => this.restoreFromBuilder(),
+        helpOpen: () => this.ui.helpOpen,
+        download: (text, name) => this.downloadText(text, name),
+        copy: (text) => this.copyText(text),
+        uploadUrl: () => uploadUrl(repoFromLocation()),
+        capture: () => void this.xr.enterBuild(),
+      },
+      localStore(),
     );
     this.ui = new DesktopUI(root, this.view, this.xr, {
       reload: () => void this.load(),
@@ -129,6 +165,7 @@ export class App {
       resetSettings: () => this.settings.reset({ layers: this.store.model?.data.layers ?? [] }),
       defaultSectionHeight: () => this.store.model?.settings.planCutHeight ?? 1500,
       planBox: this.planBox.root,
+      builder: { entry: this.builder.entry, panel: this.builder.panel.root, open: () => this.builder.setOpen(true) },
       measure: {
         start: () => void this.xr.enterMeasure(),
         stop: () => void this.xr.exit(),
@@ -144,9 +181,18 @@ export class App {
           this.planCtrl.message.set('Tegningene som ikke passet, er slettet.');
         },
         adoptStale: () => this.measure?.adoptStale(),
+        keepPlanOlder: () => this.plan.acceptOlder(),
+        discardPlanOlder: () => this.plan.clear(),
       },
     });
     this.ui.panel.querySelector('.panel-toggle')?.addEventListener('click', () => this.resize());
+    // Ny modell vises: el og vann tegnes på fila, ikke på den (gjelder også i VR).
+    this.xr.canDraw = () => !this.builder.ownsView;
+    this.builder.open.subscribe((on) => {
+      this.ui.setBuilding(on);
+      this.labels.setBuilding(on);
+      this.resize();
+    });
 
     this.bindState();
     window.addEventListener('resize', () => this.resize());
@@ -165,6 +211,8 @@ export class App {
     void this.xr.checkSupport();
     this.renderer.setAnimationLoop((time, frame) => this.frame(time, frame));
     await this.load();
+    // Var «Lag ny modell» åpen sist, fortsetter man der.
+    if (this.builder.wasOpen()) this.builder.setOpen(true);
   }
 
   async load(): Promise<void> {
@@ -173,20 +221,43 @@ export class App {
     if (!result.ok) {
       console.error('Feil i apartment.json', result.errors);
       this.ui.showErrors(result.errors, result.warnings);
+      // Byggeren kan lage en ny, gyldig fil selv om den gamle har feil.
+      if (this.builder.open.value) {
+        this.ui.hideOverlay();
+        if (this.builder.ownsView) this.builder.refresh(true);
+      }
       return;
     }
+    const published = this.builder.checkPublished(this.store.fileDoc);
     this.measure = this.createMeasureSession();
     this.planHidden = [];
     this.planCache = null;
     this.planPending = null;
     if (this.store.fileDoc) this.plan.rebase(this.store.fileDoc);
-    if (this.measure?.hasMeasurements || this.plan.size) this.showDraft(true);
+    if (published) this.dropConsumed(published.consumed);
+    if (this.builder.ownsView) this.builder.refresh(true);
+    else if (this.measure?.hasMeasurements || this.plan.size) this.showDraft(true);
     else {
       this.renderedDoc = this.store.doc;
       this.applyModel(result.model);
       this.ui.showModel(result.model, result.warnings);
     }
     this.updateMeasureUi();
+  }
+
+  /**
+   * Den publiserte fila kom fra «Lag ny modell», som tok med tegnet el og
+   * vann og målinger fra den gamle modellen: de er nå med i fila (i den nye
+   * rammen) og skal ikke legges på en gang til. Det som ble laget etterpå,
+   * beholdes, og byggeren sier fra om det.
+   */
+  private dropConsumed(c: Consumed | null): void {
+    if (c) {
+      const done = new Set(c.plan);
+      this.plan.removeOps(this.plan.ops.filter((o) => done.has(opFingerprint(o))));
+      if (c.measure && this.measure?.staleHash() === c.measure) this.measure.discardStale();
+    }
+    this.builder.noteLeftovers(this.plan.ops.length, this.measure?.stale?.count ?? 0);
   }
 
   /** Grunnlaget for tegning: oppmålingsutkastet eller fila (uten planendringene). */
@@ -199,6 +270,7 @@ export class App {
       planChanges: this.plan.changedObjects,
       planPublished: this.plan.published,
       planStale: this.planHidden.length,
+      planOlder: this.plan.olderFile,
     });
   }
 
@@ -234,6 +306,8 @@ export class App {
    */
   private showDraft(force = false): void {
     this.draftDirty = false;
+    // Mens man lager ny modell, er det den som vises (utkastet tegnes når byggeren lukkes).
+    if (this.builder.ownsView) return;
     const base = this.baseDoc();
     if (!base) return;
     const { doc, hidden, result } = this.splitPlan(base);
@@ -315,11 +389,14 @@ export class App {
 
   private downloadDraft(): void {
     const text = this.exportText();
-    if (!text) return;
+    if (text) this.downloadText(text, 'apartment.json');
+  }
+
+  private downloadText(text: string, filename: string): void {
     const blob = new Blob([text], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'apartment.json';
+    a.download = filename;
     document.body.append(a);
     a.click();
     a.remove();
@@ -328,7 +405,10 @@ export class App {
 
   private async copyDraft(): Promise<boolean> {
     const text = this.exportText();
-    if (!text) return false;
+    return text ? this.copyText(text) : false;
+  }
+
+  private async copyText(text: string): Promise<boolean> {
     try {
       await navigator.clipboard.writeText(text);
       return true;
@@ -337,7 +417,43 @@ export class App {
     }
   }
 
+  /* ---------------- Lag ny modell ---------------- */
+
+  /** Tegningen vises som modell (i 2D, 3D og VR). */
+  private showBuilderPreview(v: ValidationResult): void {
+    const r = this.store.setValidated(v);
+    if (!r.ok) return;
+    this.renderedDoc = null; // vanlig visning tegnes på nytt når byggeren lukkes
+    this.ui.hideOverlay();
+    this.applyModel(r.model);
+    this.ui.showModel(r.model, r.warnings);
+  }
+
+  /** Ingen rom ennå: bare rutenettet. */
+  private showBuilderEmpty(): void {
+    this.renderedDoc = null;
+    this.previewEmpty = true;
+    this.apartment.root.visible = false;
+    this.labels.clear();
+    this.ui.hideOverlay();
+  }
+
+  /** Byggeren er lukket (eller har ingen tegning): fila eller utkastet vises igjen. */
+  private restoreFromBuilder(): void {
+    if (!this.store.fileDoc) {
+      // Fila har feil: feilene vises igjen når byggeren lukkes.
+      if (!this.builder.open.value) void this.load();
+      else this.showBuilderEmpty();
+      return;
+    }
+    this.renderedDoc = null;
+    this.showDraft(true);
+    if (this.store.model) this.desktop.fit(this.store.model);
+  }
+
   private applyModel(model: ApartmentModel): void {
+    this.previewEmpty = false;
+    this.apartment.root.visible = !this.xr.measuring.value;
     this.view.layers.reset(model.data.layers);
     this.planBox.setModel(model);
     const sel = this.planCtrl.selected.value;
@@ -387,7 +503,7 @@ export class App {
     this.view.measureHighlight.subscribe((v) => this.apartment.setMeasureHighlight(v));
     this.xr.measuring.subscribe((on) => {
       // Gjennomsyn: bare trådskjelettet fra oppmålingen vises.
-      this.apartment.root.visible = !on;
+      this.apartment.root.visible = !on && !this.previewEmpty;
       this.applyQuality();
       this.desktop.grid.visible = !on && this.view.cameraMode.value === 'top';
       if (!on && this.draftDirty) this.showDraft();
@@ -455,7 +571,7 @@ export class App {
   }
 
   private planHover(e: PointerEvent): void {
-    if (this.planCtrl.tool === 'select' || this.renderer.xr.isPresenting) {
+    if (this.planCtrl.tool === 'select' || this.renderer.xr.isPresenting || this.builder.open.value) {
       this.planCtrl.hover = null;
       this.ui.planTooltip(null);
       return;
@@ -478,7 +594,8 @@ export class App {
     el.addEventListener('pointerup', (e) => {
       const d = down;
       down = null;
-      if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5 || this.renderer.xr.isPresenting) return;
+      // Mens man lager ny modell, går klikkene til byggeren (BuilderController).
+      if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5 || this.renderer.xr.isPresenting || this.builder.open.value) return;
       if (d.button === 2) {
         if (this.planCtrl.drawing) this.planCtrl.finish();
         return;
@@ -495,14 +612,14 @@ export class App {
     this.view.cameraMode.subscribe(() => this.ui.planTooltip(null));
     this.planCtrl.options.subscribe(() => this.ui.planTooltip(null));
     el.addEventListener('dblclick', () => {
-      if (this.planCtrl.drawing) this.planCtrl.finish();
+      if (this.planCtrl.drawing && !this.builder.open.value) this.planCtrl.finish();
     });
     el.addEventListener('contextmenu', (e) => {
-      if (this.planCtrl.tool !== 'select') e.preventDefault();
+      if (this.planCtrl.tool !== 'select' && !this.builder.open.value) e.preventDefault();
     });
     const tools: Record<string, DrawTool> = { s: 'select', e: 'wire', v: 'pipe', p: 'fixture' };
     window.addEventListener('keydown', (e) => {
-      if (isTypingTarget(e.target) || e.altKey || e.metaKey) return;
+      if (isTypingTarget(e.target) || e.altKey || e.metaKey || this.builder.open.value) return;
       const k = e.key;
       if (e.ctrlKey) {
         if (k === 'z' || k === 'Z') {

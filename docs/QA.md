@@ -203,3 +203,296 @@ These fixes have **not** been re-scored by the judge. The round is merged at the
    - Try «Kurs for nye» for cables.
 3. X → «Lag» → «Elplan» / «Rørplan», then «Røntgen». Does the plan read well inside the walls?
 4. On the laptop: draw a cable in 2D (E, click, Enter). Look at the summary and the materials list in «Tegn el og vann».
+
+## Phase 2c – «Lag ny modell» – 2026-10-14
+
+The goal: a complete and detailed way to make a new model, as perfect as possible. The design and controls are in PLAN.md (phase 2c).
+
+### How it was tested
+- **Unit tests (Vitest)** for everything that can be tested without a browser:
+  - walls from rooms (property tests on 5 layouts plus the published apartment), compile, export frame and plan rotation, and import with wall ids kept;
+  - the edit operations (corners, edges, rooms, openings follow their edge), the Norwegian length parser and the session (undo, autosave, published detection);
+  - the passthrough maths: walls from touches with noise, slanted walls, an L-shaped room, the median filter, openings from frames, and alignment against an existing drawing (rigid, never mirrored);
+  - the new checks: unreachable rooms, a short entrance wall, and the entrance-door fixes;
+  - the VR menu layout.
+- **Browser tests (Playwright, Chromium):**
+  - drawing with the mouse (rectangle, «Rom inntil», door, window, then download a valid file with the origin at the entrance door);
+  - typed lengths (digits go straight into the field, Tab and Enter, + to add), and an L-shaped room with typed lengths and arrow buttons;
+  - dragging a corner and an edge (one undo step each), and arrow-key nudging;
+  - starting from the current model (fixtures, furniture and wall ids kept), and «Lukk» showing the file again;
+  - reload persistence, saving and opening a drawing file, and published detection;
+  - errors with «Vis», and «Lag ny modell i stedet» when `apartment.json` is broken;
+  - a background image: load it, set the scale with two clicks and a typed distance, drag it, and keep it after a reload;
+  - robustness:
+    - a broken drawing from a file or in storage;
+    - cables taken into a new model not applied twice after publishing;
+    - no VR drawing on a new model;
+    - an image that cannot be saved;
+    - re-alignment after a tracking reset;
+  - the Quest Browser (Quest user agent): no keyboard, big handles.
+- **Emulated Quest 3 (IWER) in passthrough:**
+  - a 4 × 3 m room from five wall touches, floor and ceiling, with exact corners;
+  - a door from three frame touches (width, height and hinge side), and naming from the menu;
+  - undo, «same wall» refusal, a slanted wall with grip, and skipping floor and ceiling;
+  - re-entering: alignment to the entrance corner in a turned reference space, then re-measuring a room with its door kept.
+- Every existing test still passes. Screenshots of the plan, the overlay and the VR menu were checked by eye.
+
+### Gatekeeper (pass 1 at f254688): **FAIL**
+- **Gates:**
+  - all green: 192 unit tests, 62 browser tests and no console errors;
+  - draw calls per eye: 32 when walking the real file (the same as before), at most 34 on a builder preview, 10 in passthrough capture;
+  - textures 4.7–8.0 MB.
+- **Blocking (all fixed):**
+  1. A drawing file where a room had no name passed the rough check. It was saved, and from then on the app could not start until site data was cleared.
+     - **Fix:** full validation of drawings, from file and from storage.
+     - A stored drawing that cannot be read is set aside under its own key, with a notice.
+     - Compiling never throws, and the builder panel and overlay can no longer stop the app.
+  2. Cables and pipes drawn on the old model that went into «Start fra nåværende modell» were laid on top of the published new file again, in the old frame. The same applied to measurements.
+     - **Fix:** the builder remembers what it took with it. When its export is published, exactly those changes are removed. Anything made later is kept and reported.
+  3. Drawing el/vann in VR while walking through a new model saved it in the drawing's own frame.
+     - **Fix:** «Tegn» in VR is off while a new model is shown, and the menu says why.
+- **Non-blocking (fixed):**
+  - dead code removed;
+  - hit-test is read only in point mode;
+  - nothing is compiled while dragging;
+  - background image: an image that cannot be saved also removes the older one (cap 1.5 MB, max 1600 px);
+  - old measurements that do not fit stay set aside instead of being deleted. Set-aside measurements now also show after more reloads, an older gap found while testing this;
+  - «Åpne tegning …» asks first, and «Hent forrige tegning» brings back the previous drawing;
+  - builder keys only work while drawing in 2D;
+  - new tests for re-alignment after a tracking reset, the image save failure, broken drawings, changes taken into a new model, and the VR drawing block.
+### Gatekeeper (pass 2 at 55d84fa): **PASS**
+- **Gates:**
+  - all green: 198 unit tests and 67 browser tests;
+  - the three blockers re-checked in the browser and fixed;
+  - draw calls per eye: 32 when walking the file, at most 34 on a new-model preview, 10 in passthrough;
+  - textures 4.7–8.0 MB;
+  - while dragging, the compile result is reused (about 1 ms per move).
+- **Remarks, fixed afterwards:**
+  1. A new model published from *another* device could still leave drawn el/vann in the old frame. Drawn el/vann now remembers the rooms and walls it was drawn on and warns on any device when they change. There is a unit test and a browser test.
+  2. The «Forkast tegningen» text now says the drawing can be fetched back.
+  3. «Hent forrige tegning» also brings back what that drawing took from the old model.
+
+- **Not changed:**
+  - The browser test's draw-call threshold uses the placeholder file.
+  - The budget rule is 40 per eye; the gatekeeper measured 32 per eye on the real file.
+
+### Judge (round 1, scored at 6f8dc2b): **7.50 – not accepted**
+
+| # | Item | Verdict | What was missing |
+|---|---|---|---|
+| 1 | Builder core: walls, compile, import/export | 🟡 | Import → export lost room notes, the planterom's measured `dimensions`, a wall note and `swingDirection` on 3 doors. Skewed facing edges gave no warning. A 45° bay left an ~80 mm notch at the outside corner. |
+| 2 | 2D editor (PC and Quest Browser) | 🟡 | «-1100» in a coordinate field was taken as «subtract». Dimensions and labels cluttered the plan, and Quest handles could lie on top of each other. No partition thickness, typed move, copy or rotate. A 45° square snapped to 2998 × 2998. Selecting an edge did not name the edge. |
+| 3 | App integration | ✅ | – |
+| 4 | Passthrough capture | 🟡 | A room measured slightly skewed stayed skewed, with no warning. Still needs a test on a real Quest. |
+| 5 | Robustness | ✅ | – |
+| 6 | Tests and docs | 🟡 | Missing tests for these gaps. The Quest Browser test accepted two door offsets. PLAN did not say exactly what «Start fra nåværende modell» carries over. |
+
+Dimensions: visual 7, performance 8, options 8, intuitive 7, code 7, robustness 8. Weighted 7.50, below the 8.0 needed, and four items were 🟡. Another round was worth it.
+
+### Round 2 – the judge's list
+- **Import keeps every field.**
+  - Carried over: room notes, layers and control dimensions; wall notes, layers and fixed heights; opening notes, layers, opening angle, leaf and frame colours.
+  - `swingDirection` is worked out on every save.
+  - Control dimensions that no longer fit are shown on the room.
+  - Rooms and openings have a note field.
+- **Walls.**
+  - Warnings for skewed facing edges (under 3°: thickness at each end; 3–10°: two exterior walls may overlap), with «Rett opp alt».
+  - Outside corners are closed at every angle (bay, chamfer, slanted wall, acute corner).
+  - The common axis keeps straight rooms in place.
+- **Editor.**
+  - Signed coordinate and floor fields (relative with «+=» / «-=»).
+  - Partition thickness, «Flytt rommet», «Kopier rommet» and «Roter 90°».
+  - The 45° snap rounds the sides, and the selection message names the edge.
+  - Overlay: dimensions only where they fit, plus the selected and hovered rooms; handles drawn by priority and never overlapping; note and fixture labels hidden while building.
+- **Capture.** A room measured under 3° off the drawing is turned onto its axis about the first touch, and the panel says by how much.
+
+**How it was tested:**
+- **Unit tests:**
+  - no field lost in the published file (with extra fields added: wall height, door angle and colour, frame colour, room layer, plain-number control dimensions);
+  - `swingDirection` recomputed when the hinge changes;
+  - corner property tests (no hole, nothing outside the outer faces, nothing inside the room) for a 45° bay, a chamfer, a 30° wall and a 37° corner;
+  - skew warnings at 0°, 1.5°, 6° and 45°, and «Rett opp alt» leaving the straight room alone;
+  - the signed length parser;
+  - partition thickness, copy, rotate, and the 45° snap;
+  - `alignToAxis`, also on a drawing turned 30°.
+- **Browser tests:**
+  - copy, partition thickness, rotate, typed move, negative coordinates and floor level, «+=», a skewed corner with «Rett opp alt»;
+  - labels hidden while building;
+  - the exact door offset (200) in the Quest Browser test;
+  - emulated Quest: a second room measured 2° off ends up straight, with one 100 mm partition and no warning.
+
+### Gatekeeper (round 2, pass 1 at 89ea30f): **FAIL**
+- **Gates:**
+  - all green: 219 unit tests and 71 browser tests;
+  - draw calls per eye: 32 when walking the real file, 32 on a builder preview in VR, 10 in passthrough;
+  - textures about 4.7 MB;
+  - the published file round-trips with every field kept and no skew warning;
+  - drawings stored by the previous version still open.
+- **Blocking (both fixed):**
+  1. **A long spike where a thin and a thick exterior wall meet at a shallow bend.**
+     - With a 300 mm wall next to a 200 mm wall at 3°, the thin wall was stretched 1.9 m: out of the building, or into an L-shaped room.
+     - **Fix:** when the thick wall covers the corner by itself, the thin wall only fills the wedge between the wall ends, and very sharp tips are cut at 4 × the thickness.
+     - New property tests cover 3°, 5°, 10° and 30° bends with the thick wall before or after the bend and after an inside corner. They fail on the old code and pass now.
+  2. **The name fields lost their style.** The new CSS was inserted inside the `.name-input, .len-input` selector list.
+     - **Fix:** the rules are restored, and a browser test checks the style of the name fields.
+- **Remarks, fixed:**
+  - Skew warnings caused by 1–2 mm rounding on short edges: the gap must now vary by at least 5 mm.
+  - A room turned in during capture can be kept as measured with B then A.
+  - «+150» adds in every field (minus is a value only in coordinate and floor-level fields).
+  - In «Flytt rommet», Enter in an empty field counts as 0.
+  - «Roter 90°» four times gives exactly the same room, also with odd sizes.
+  - The end handles of a short opening are set outside its ends instead of being hidden. A drag counts from where you took hold, and there is a new browser test for dragging an end.
+  - The move handle is drawn before the edge handles.
+  - «Rett opp rommene» on a skew warning straightens only the two rooms named. Rooms that are not straightened stay still.
+  - A copy no longer copies the names and notes of the openings.
+  - Doc comment and exports tidied in `ops.ts`.
+- **Not changed:**
+  - Wall bodies overlap at closed corners with tops in the same plane. They are the same colour, so no flicker is visible.
+
+### Gatekeeper (round 2, pass 2 at 51c050a): **PASS**
+- **Gates:**
+  - all green: 239 unit tests and 72 browser tests, with no console errors;
+  - draw calls per eye: 32 when walking the real file, 32 on a builder preview, 10 in passthrough;
+  - textures about 4.7 MB;
+  - the published file compiles byte-identically to before.
+- **Corners:** checked on a 15 mm grid in 27 layouts at three versions. There are no holes, no intrusions and no far points.
+  - The gatekeeper's repros went from 1.1–2.6 m spikes to at most 349 mm from the room.
+- **Remarks:**
+  - In «Flytt rommet», «-3» moved 3 mm while «3» moved 3 m. **Fixed:** the sign is only the direction there.
+  - Accepted as designed and documented:
+    - «Rett opp rommene» can move one of the two rooms up to 30 mm onto a nearby room's line;
+    - very sharp tips are cut at 4 × the wall thickness;
+    - corner overlap.
+
+### Judge (round 2, scored at 4c50135): **7.75 – not accepted**
+
+| # | Item | Verdict |
+|---|---|---|
+| 1 | Builder core | ✅ every field survives; skew warnings with a fix; corners closed at every angle |
+| 2 | 2D editor | 🟡 dimension labels still overlapped in the bathroom on the real plan; side labels under the selected room's handles; handles partly overlapping |
+| 3 | App integration | ✅ |
+| 4 | Passthrough capture | 🟡 turning the closed room fixed the angle but kept the dimension error. A second touch 1 cm off over 60 cm gave a 125 mm partition and a 2981 mm depth (target ±5 mm) |
+| 5 | Robustness | ✅ |
+| 6 | Tests and docs | ✅ |
+
+Dimensions: visual 7, performance 8, options 8, intuitive 8, code 8, robustness 8, weighted 7.75. Another round was worth it.
+
+### Round 3 – the judge's list
+- **Capture: solved on the drawing's axis.**
+  - When the first wall is within 3° of the axis, the axis is the room's direction, and each wall line goes through its own touches.
+  - The rigid turn is removed. B then A still keeps a room as measured.
+  - With no axis, a first-wall baseline under 1 m gets a warning.
+- **Labels:**
+  - placed without covering other dimensions, room names (measured from the label) or handles;
+  - horizontal, then along the edge, then (selected room only) outside the edge;
+  - for other rooms, only inside the room;
+  - text widths measured with the real font;
+  - left out when there is no spot.
+- **Handles:** left out by r1 + r2, and the most important is drawn on top.
+- **Small fixes:**
+  - «-3» is −3 m in coordinate fields;
+  - «Angre» and «Gjør om» update the message.
+- **Optional:** «Del rommet» (split a room with a partition).
+
+**How it was tested:**
+- **Unit tests:**
+  - the judge's noise case (partition 100 ± 5 mm, depth 3000 ± 5 mm), a straight room, the first room, a deliberately slanted room, a grip-touched slanted wall and a turned drawing;
+  - signed «-3»;
+  - splitting (openings, measured corners, refusals).
+- **Browser tests:**
+  - zero overlaps with every room selected, on PC and in the Quest Browser;
+  - undo and redo messages;
+  - «Del rommet».
+- **Emulated Quest:**
+  - the noise case end to end (partition 100 ± 5 mm, depth 3000 ± 5 mm, no skew warning), with B + A;
+  - the short-baseline warning.
+- **The published file:** zero overlaps at 1280×800, at 1920×1080 and in the Quest Browser, with nothing, the bathroom or the living room selected.
+
+### Gatekeeper (round 3, pass 1 at f34405e): **FAIL**
+- **Gates:**
+  - all green: 243 unit tests and 76 browser tests, with no console errors;
+  - draw calls per eye: 32 when walking the file, 32 on a builder preview, 10 in passthrough;
+  - textures about 4.7 MB;
+  - capture on the axis, labels, handles and the small fixes checked out.
+- **Blocking (both fixed):**
+  1. «Del rommet» left doors pointing at the old room. Splitting «Bad» on the real file made «Baddør» invalid, and saving was blocked.
+     - **Fix:** a door into the split room now goes into the part it stands against: its own doors get the new part, and doors in neighbours get «går inn i» worked out again.
+     - New tests: a door from a neighbour, and every room of the published file in a unit test and through the UI in a browser test. Every allowed split gives a valid file.
+  2. Splitting a U-shaped room across the U made one «room» out of two pieces, joined by walls on top of each other. Validation accepted it.
+     - **Fix:** the split is refused when the line crosses the room more than once. There is a U test, and an L split through its inside corner still works.
+- **Remarks, fixed:**
+  - A split that would cut through an opening is now refused with the opening's name, instead of silently removing it. This also covers openings in a neighbour's wall facing the room.
+  - Rooms with a sloped ceiling can be split; the new corners take their height from the ceiling's plane. On the real file, every allowed split of every room gives a valid file.
+  - The overlay reads a room label's size from the page only when its name or area changes, not on every redraw.
+  - The «Velg» hint says that selecting a room shows all its corners and dimensions.
+  - A grip-touched wall uses the drawing's axis only when the first wall does. B + A is offered whenever the axis changed anything.
+
+### Gatekeeper (round 3, pass 2 at ad0c276): **FAIL**
+- **Gates:** all green (248 unit tests, 77 browser tests); 32 draw calls per eye; textures about 4.7 MB.
+- **Pass 1's blockers:**
+  - The door fix holds: 557 splits of the published file and the placeholder (every 50 mm) left no door pointing at the wrong room.
+  - The U refusal holds.
+- **Blocking (fixed):**
+  - A partition flush with an existing wall (for example at x = 1950 in an L whose inside corner is at x = 2000) left a zero-width «needle» along the old wall. That gave a phantom exterior wall and a 4 m partition, and the file still exported as valid.
+  - **Fix:** after clipping, corners where the outline doubles straight back are removed, and the checks run again.
+  - New tests: flush partitions in L, U and T rooms, and a sweep of every 50 mm split in L, U, T and comb-shaped rooms. Every allowed split gives two simple rooms with no needle, and the areas add up.
+- **Remarks, fixed:**
+  - Slivers are refused: each part must be at least 50 cm wide from the partition.
+  - A measured sloped ceiling is no longer marked measured after a split, because the new corners are interpolated.
+  - The label-size cache key no longer changes on every corner drag.
+  - When only a grip wall was snapped, the panel no longer says «Rettet inn 0,0°».
+- **Sweep after the fix:** every 50 mm on both axes, in every room of both files, gives 317 allowed splits, all of which compile without errors. The other 891 positions are refused with a reason.
+- **Test timeouts:** after a container restart the long emulated-Quest scenarios took 49–58 s, also at the previous commit. They now have 90 s, like the long tests in plan.spec.
+
+### Gatekeeper (round 3, pass 3 at 8b88cdd): **PASS**
+- **Gates:**
+  - all green: 252 unit tests and 77 browser tests, with no console errors;
+  - draw calls per eye: 32 when walking the file, 32 on a builder preview, 10 in passthrough;
+  - textures about 4.7 MB.
+- **Needle fix:** the flush L split gives a clean 2 × 2 m room and a 2 m partition, with no phantom wall.
+- **Fuzz** (every room, both axes, 50 mm steps):
+
+  | Input | Allowed | Bad | Area error |
+  |---|---|---|---|
+  | Published file | 103 | 0 | 0 |
+  | Placeholder | 214 | 0 | 0 |
+  | Synthetic U, T, comb and L | 370 | 0 | 0 |
+
+  All other positions are refused with a reason.
+- **Remarks:**
+  - The partition strip is taken out across the whole room, so a flush split on the «wrong» side narrows the other leg of an L by 100 mm. This is now stated in the panel hint and in PLAN.
+  - A harmless leftover corner can stay in the middle of a straight edge.
+  - The overlay costs a little more per redraw, and more of the other rooms' corners are hidden when zoomed out. Both are by design.
+
+### Judge (round 3, scored at c5aabf0): **8.00 – accepted**
+
+| # | Item | Verdict |
+|---|---|---|
+| 1 | Builder core | ✅ every field survives; skew warnings with a fix; corners closed at every angle |
+| 2 | 2D editor | ✅ no label collisions or handle overlaps on the PC at either size with any room selected; signed fields, undo messages, copy, rotate, move, partition thickness and «Del rommet» |
+| 3 | App integration | ✅ the preview is the real model at 32 draw calls per eye |
+| 4 | Passthrough capture | ✅ re-solved on the drawing's axis. Corner error is at most 5 mm in the noisy case (round 2: 39 mm), and the partition comes out at exactly 100 mm. A deliberately slanted room is kept, B + A works, and a short baseline is warned |
+| 5 | Robustness | ✅ «Del rommet» refuses bad splits with a reason; the fuzz found 0 bad results in 687 allowed splits |
+| 6 | Tests and docs | ✅ |
+
+All six dimensions scored 8: visual quality, performance, options and control, intuitive use, code quality, and robustness. The weighted total is **8.00**, so the round is accepted. The judge advised against a round 4; the small gaps left are under «Later work» in PLAN.md (phase 2c).
+
+**After acceptance:** the judge's first later-work point is fixed. «Del rommet» used to cut a turned room (as measured in passthrough) along the plan's axes, making a slanted partition. It now splits in the room's own frame.
+- A unit test covers a room turned 20°: two rectangles, one 100 mm partition and no skew warning.
+- Axis-aligned rooms are unchanged: the sweep of both files again gives 317 allowed splits with 0 errors.
+- All unit and browser tests pass.
+
+### Test on the Quest (phase 2c)
+1. **Laptop, background image:** in «Lag ny modell», open «Bakgrunnsbilde» and load the sketch or a floor plan. Set the scale with a known wall length, then trace the rooms on top of it.
+2. **Quest Browser, 2D:**
+   - Open the page and press «Lag ny modell …» → «Ny tom modell».
+   - Draw a room with the laser pointer, type a width with the system keyboard, and drag a corner. Are the handles easy to hit?
+3. **Passthrough:**
+   - «Lag ny modell …» → «Mål opp i gjennomsyn».
+   - In the hallway: touch the entrance wall twice, then each other wall once, then A, the floor and the ceiling.
+   - X → «Dør», then touch the hinge side of the frame, the other side, and the top.
+   - Do the corners land where the real corners are (within about 2 cm)?
+4. X → «Nytt rom» and measure the living room. Did the panel say «Rettet inn …°», and by how much? Then look at the result on the laptop: «Fortsett på ny modell …».
+   - Is there one partition between the hallway and the living room, with no skew warning in «Sjekk»?
+   - Measure one wall with a tape and compare. **Please report the difference; the target is at most 2 cm.**
+5. **«Gå gjennom i VR»:** does it feel like the real apartment?

@@ -20,6 +20,9 @@ export interface MeasureActions {
   adoptStale(): void;
   /** Forkast tegnede endringer som ikke passer med modellen nå. */
   discardPlanStale?(): void;
+  /** Tegninger laget mot en eldre fil: «Behold dem» / «Forkast dem». */
+  keepPlanOlder?(): void;
+  discardPlanOlder?(): void;
 }
 
 export interface MeasureUiState {
@@ -33,6 +36,8 @@ export interface MeasureUiState {
   planPublished?: boolean;
   /** Tegnede endringer som ikke passer med modellen nå (vises ikke, men beholdes). */
   planStale?: number;
+  /** Tegnede endringer laget mot en eldre fil (rom og vegger er endret siden). */
+  planOlder?: number;
 }
 
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
@@ -46,9 +51,12 @@ export class MeasureBox {
   private readonly draftError: HTMLElement;
   private readonly stale: HTMLElement;
   private readonly staleText: HTMLElement;
+  private readonly adoptNote: HTMLElement;
   private readonly published: HTMLElement;
   private readonly planStale: HTMLElement;
   private readonly planStaleText: HTMLElement;
+  private readonly planOlder: HTMLElement;
+  private readonly planOlderText: HTMLElement;
   private readonly upload: HTMLAnchorElement;
   private readonly copyButton: HTMLButtonElement;
   private readonly discardMeasure: HTMLButtonElement;
@@ -106,10 +114,19 @@ export class MeasureBox {
       if (confirm('Slette de gamle målingene? Dagens målinger og tegningene beholdes.')) actions.discardStale();
     });
     this.stale = h('div', { class: 'draft stale', 'data-testid': 'draft-stale', hidden: '' }, this.staleText, h('div', { class: 'actions' }, adopt, dropStale));
+    this.adoptNote = h('p', { class: 'hint', 'data-testid': 'stale-adopt-note', hidden: '' });
     this.planStaleText = h('p', {});
     const dropPlanStale = h('button', { class: 'link danger', 'data-testid': 'plan-stale-discard' }, 'Forkast dem');
     dropPlanStale.addEventListener('click', () => actions.discardPlanStale?.());
     this.planStale = h('div', { class: 'draft stale', 'data-testid': 'plan-stale', hidden: '' }, this.planStaleText, dropPlanStale);
+    this.planOlderText = h('p', {});
+    const keepOlder = h('button', { 'data-testid': 'plan-older-keep' }, 'De ligger riktig – behold dem');
+    keepOlder.addEventListener('click', () => actions.keepPlanOlder?.());
+    const dropOlder = h('button', { class: 'link danger', 'data-testid': 'plan-older-discard' }, 'Forkast dem');
+    dropOlder.addEventListener('click', () => {
+      if (confirm('Slette de tegnede endringene som ble laget mot en eldre fil? Dette kan ikke angres.')) actions.discardPlanOlder?.();
+    });
+    this.planOlder = h('div', { class: 'draft stale', 'data-testid': 'plan-older', hidden: '' }, this.planOlderText, h('div', { class: 'actions' }, keepOlder, dropOlder));
     this.published = h(
       'p',
       { class: 'draft-ok', 'data-testid': 'draft-published', hidden: '' },
@@ -124,7 +141,9 @@ export class MeasureBox {
       this.hint,
       this.draft,
       this.stale,
+      this.adoptNote,
       this.planStale,
+      this.planOlder,
       this.published,
     );
   }
@@ -165,9 +184,15 @@ export class MeasureBox {
     this.stale.hidden = !ms?.stale;
     if (ms?.stale)
       this.staleText.textContent = `Det finnes ${plural(ms.stale.count, 'måling', 'målinger')} laget mot en eldre versjon av apartment.json.`;
+    const skipped = ms?.adoptSkipped ?? 0;
+    this.adoptNote.hidden = skipped === 0;
+    this.adoptNote.textContent = `${plural(skipped, 'gammel måling', 'gamle målinger')} passet ikke med fila nå (punktet er flyttet langt) og ble ikke tatt med.`;
     const ps = s.planStale ?? 0;
     this.planStale.hidden = ps === 0;
     this.planStaleText.textContent = `${plural(ps, 'tegnet endring passer', 'tegnede endringer passer')} ikke med modellen nå (f.eks. er en vegg blitt kortere eller borte) og vises ikke. De er tatt vare på og kommer tilbake hvis modellen endres så de passer igjen.`;
+    const po = s.planOlder ?? 0;
+    this.planOlder.hidden = po === 0;
+    this.planOlderText.textContent = `${plural(po, 'tegnet endring', 'tegnede endringer')} (el og vann) ble laget mot en eldre utgave av rom og vegger – fila er byttet siden, kanskje fra en annen enhet. De kan ligge feil nå: sjekk dem i 2D-planen.`;
     this.published.hidden = !ms?.published && !s.planPublished;
   }
 }

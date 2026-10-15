@@ -29,6 +29,8 @@ export interface DesktopActions {
   defaultSectionHeight: () => number;
   /** «Tegn el og vann»-seksjonen. */
   planBox?: HTMLElement;
+  /** «Lag ny modell»: knappen som åpner byggeren, og panelet. */
+  builder?: { entry: HTMLElement; panel: HTMLElement; open: () => void };
 }
 
 const QUALITY_TEXT: Record<Quality, string> = { low: 'Rask', medium: 'Standard', high: 'Høy' };
@@ -71,7 +73,7 @@ export class DesktopUI {
   private readonly roomList: HTMLElement;
   private readonly helpDialog: HTMLElement;
   private readonly tooltip: HTMLElement;
-  private planState: { planChanges: number; planPublished: boolean; planStale?: number } = { planChanges: 0, planPublished: false };
+  private planState: { planChanges: number; planPublished: boolean; planStale?: number; planOlder?: number } = { planChanges: 0, planPublished: false };
 
   constructor(
     root: HTMLElement,
@@ -158,6 +160,7 @@ export class DesktopUI {
         this.vrButton,
         this.vrHint,
         this.measureBox.root,
+        ...(actions.builder ? [actions.builder.entry, actions.builder.panel] : []),
         h('div', { class: 'group' },
           h('h2', {}, 'Visning'),
           h('div', { class: 'segmented' }, this.modeButtons.orbit, this.modeButtons.top),
@@ -275,6 +278,22 @@ export class DesktopUI {
         ['Hold Ctrl', 'Ikke fest (fri plassering)'],
       ].map(([k, t]) => h('tr', {}, h('td', {}, h('kbd', {}, k!)), h('td', {}, t!))),
     );
+    const builder = h(
+      'table',
+      {},
+      ...[
+        ['S / R / M / I', 'Velg / Rektangel / Mangekant / Rom inntil'],
+        ['D / V / O', 'Dør / Vindu / Åpning'],
+        ['Klikk', 'Sett hjørne, velg (dra = flytt visningen)'],
+        ['Tall', 'Skriv mål (bredde, lengde) – Enter, Tab for neste felt'],
+        ['Piltaster (Shift)', 'Flytt valgt 10 mm (100 mm)'],
+        ['Enter, dobbeltklikk, høyreklikk', 'Ferdig med mangekanten'],
+        ['Backspace', 'Fjern siste hjørne / slett valgt'],
+        ['Esc', 'Avbryt / tilbake til «Velg»'],
+        ['Ctrl+Z / Ctrl+Y', 'Angre / gjør om'],
+        ['Hold Ctrl', 'Ikke fest (fri plassering)'],
+      ].map(([k, t]) => h('tr', {}, h('td', {}, h('kbd', {}, k!)), h('td', {}, t!))),
+    );
     const vr = h(
       'ul',
       {},
@@ -292,6 +311,8 @@ export class DesktopUI {
         h('p', { class: 'hint' }, '3D: dra for å rotere, rull for å zoome, høyreklikk-dra for å panorere. 2D: dra for å flytte.'),
         h('h2', {}, 'Tegn el og vann'),
         plan,
+        h('h2', {}, 'Lag ny modell'),
+        builder,
         h('h2', {}, 'I VR (Quest 3)'),
         vr,
         close,
@@ -325,7 +346,7 @@ export class DesktopUI {
   /** Oppdaterer oppmålingsboksen (kalles når målinger eller tegninger endres). */
   updateMeasure(
     session: MeasureSession | null = this.measureSession,
-    plan: { planChanges: number; planPublished: boolean; planStale?: number } = this.planState,
+    plan: { planChanges: number; planPublished: boolean; planStale?: number; planOlder?: number } = this.planState,
   ): void {
     this.measureSession = session;
     this.planState = plan;
@@ -351,7 +372,7 @@ export class DesktopUI {
   private updateVrButton(): void {
     const s = this.xr.support.value;
     const t = VR_TEXT[s];
-    if (this.view.inXR.value && this.xr.mode === 'measure') {
+    if (this.view.inXR.value && this.xr.mode !== 'walk') {
       this.vrButton.textContent = 'Gå inn i VR';
       this.vrButton.disabled = true;
       return;
@@ -377,16 +398,34 @@ export class DesktopUI {
     const list = h('ul', {}, ...errors.map((e) => h('li', {}, e.message, e.path ? h('code', {}, ` ${e.path}`) : '')));
     const retry = h('button', {}, 'Prøv igjen');
     retry.addEventListener('click', () => this.actions.reload());
+    const build = h('button', { 'data-testid': 'errors-builder' }, 'Lag ny modell i stedet');
+    build.addEventListener('click', () => {
+      this.hideOverlay();
+      this.panel.classList.remove('collapsed');
+      this.actions.builder?.open();
+    });
     this.overlay.replaceChildren(
       h('div', { class: 'error-box', 'data-testid': 'errors' },
         h('h2', {}, `Feil i apartment.json (${errors.length})`),
         h('p', {}, 'Modellen kan ikke tegnes før feilene er rettet:'),
         list,
-        retry,
+        h('div', { class: 'row' }, retry, ...(this.actions.builder ? [build] : [])),
       ),
     );
     this.setWarnings(warnings);
     this.status.textContent = 'Leilighetsdata har feil.';
+  }
+
+  /** Skjuler lastings-/feilmeldingen over modellen. */
+  hideOverlay(): void {
+    this.overlay.hidden = true;
+    this.overlay.classList.remove('error');
+  }
+
+  /** «Lag ny modell» er åpen: panelet viser bare byggeren. */
+  setBuilding(on: boolean): void {
+    this.panel.classList.toggle('building', on);
+    if (on) this.panel.classList.remove('collapsed');
   }
 
   showModel(model: ApartmentModel, warnings: Issue[]): void {

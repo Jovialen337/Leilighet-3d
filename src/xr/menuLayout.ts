@@ -73,6 +73,8 @@ export interface MenuState {
   filterCircuit: string | null;
   /** Beskjed under grafikkvalget (f.eks. at «Høy» gjelder fra neste VR-økt), eller null. */
   qualityNote: string | null;
+  /** Tegning av el og vann er av (f.eks. mens man går gjennom en ny modell). */
+  drawBlocked?: boolean;
 }
 
 /** Overskrifter i lerretet (tegnes, men kan ikke trykkes på). */
@@ -186,6 +188,11 @@ export function buildMenu(s: MenuState): { items: MenuItem[]; labels: MenuLabel[
       grid(s.layers.map((l) => ({ id: `layer:${l.id}`, label: l.name, active: l.visible, kind: 'toggle' as const })));
       break;
     case 'tegn': {
+      if (s.drawBlocked) {
+        labels.push({ text: 'Tegning av el og vann er av mens du går', x: PAD, y: y + 30 });
+        labels.push({ text: 'gjennom en ny modell («Lag ny modell»).', x: PAD, y: y + 76 });
+        break;
+      }
       grid([
         ...DRAW_ITEMS.map((d) => ({ id: d.id, label: d.label, active: s.drawTool === d.id, kind: 'choice' as const })),
         { id: 'draw:status', label: s.drawPlanned ? 'Nytt: planlagt' : 'Nytt: eksisterende', active: s.drawPlanned, kind: 'toggle' as const },
