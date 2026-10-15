@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { alignFromTouches } from '../../src/measure/align';
 import {
+  alignToAxis,
   closeRoom,
   composeRig,
   fitLine,
@@ -11,7 +12,8 @@ import {
   type RigPose,
 } from '../../src/builder/capture';
 import { compile } from '../../src/builder/compile';
-import { addOpening, addRoom } from '../../src/builder/ops';
+import { addOpening, addRect, addRoom, commonAxis } from '../../src/builder/ops';
+import { deriveWalls } from '../../src/builder/walls';
 import { entranceFrame } from '../../src/builder/transform';
 import { emptyBuilderDoc } from '../../src/builder/types';
 
@@ -283,5 +285,60 @@ describe('justering mot en tegning som finnes', () => {
     const w2 = rigApply(rig, toRef(far, 900));
     expect(w2.x).toBeCloseTo(far.x / 1000, 6);
     expect(w2.z).toBeCloseTo(far.z / 1000, 6);
+  });
+});
+
+describe('nye rom rettes inn etter tegningen', () => {
+  /** Rom på 3 × 2 m med hjørne i (3100, 0), dreid `deg` grader om det hjørnet. */
+  const skewed = (deg: number) => {
+    const a = (deg * Math.PI) / 180;
+    return [
+      [0, 0],
+      [3000, 0],
+      [3000, 2000],
+      [0, 2000],
+    ].map(([x, z]) => ({ x: Math.round(3100 + x! * Math.cos(a) - z! * Math.sin(a)), z: Math.round(x! * Math.sin(a) + z! * Math.cos(a)) }));
+  };
+
+  it('under 3° skjevt: dreies inn på aksen om første berøring, og blir én skillevegg', () => {
+    const d = emptyBuilderDoc();
+    addRect(d, { x: 0, z: 0 }, { x: 3000, z: 2000 }, 'Gang');
+    const poly = skewed(1.8);
+    const pivot = { x: 3100, z: 1000 };
+    const r = alignToAxis(poly, commonAxis(d), pivot);
+    expect(Math.abs(r.deg)).toBeCloseTo(1.8, 1);
+    // Rett etterpå (innen avrundingen), og punktet man startet med står (nesten) stille.
+    const [p0, p1, p2, p3] = r.polygon;
+    for (const [a, b] of [[p0!.z, p1!.z], [p1!.x, p2!.x], [p2!.z, p3!.z], [p3!.x, p0!.x]]) expect(Math.abs(a! - b!)).toBeLessThanOrEqual(1);
+    expect(r.moved).toBeLessThan(120);
+    addRoom(d, r.polygon, 'Stue');
+    const walls = deriveWalls(d.rooms, d.settings);
+    expect(walls.skewed).toEqual([]);
+    expect(walls.walls.filter((w) => w.kind === 'interior')).toHaveLength(1);
+  });
+
+  it('over 3° skjevt (med vilje), eller første rom: beholdes som målt', () => {
+    const d = emptyBuilderDoc();
+    expect(alignToAxis(skewed(2), commonAxis(d), { x: 0, z: 0 }).deg).toBe(0);
+    addRect(d, { x: 0, z: 0 }, { x: 3000, z: 2000 }, 'Gang');
+    const r = alignToAxis(skewed(8), commonAxis(d), { x: 3100, z: 0 });
+    expect(r.deg).toBe(0);
+    expect(r.polygon).toEqual(skewed(8));
+  });
+
+  it('aksen følger tegningen også når den er dreid', () => {
+    const d = emptyBuilderDoc();
+    const a = (30 * Math.PI) / 180;
+    const rot = (x: number, z: number) => ({ x: Math.round(x * Math.cos(a) - z * Math.sin(a)), z: Math.round(x * Math.sin(a) + z * Math.cos(a)) });
+    addRoom(d, [rot(0, 0), rot(3000, 0), rot(3000, 2000), rot(0, 2000)], 'Gang');
+    expect(commonAxis(d)).toBeCloseTo(30, 0);
+    const b = (31.5 * Math.PI) / 180;
+    const poly = [
+      [3100, 0],
+      [6100, 0],
+      [6100, 2000],
+      [3100, 2000],
+    ].map(([x, z]) => ({ x: x! * Math.cos(b) - z! * Math.sin(b), z: x! * Math.sin(b) + z! * Math.cos(b) }));
+    expect(alignToAxis(poly, commonAxis(d), poly[0]!).deg).toBeCloseTo(-1.5, 1);
   });
 });

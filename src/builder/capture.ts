@@ -12,7 +12,7 @@
  *
  * Alle mål i mm, i byggerens ramme (x, z i planet, y opp).
  */
-import { add, cross, dist, dot, edgeCoords, edgesOf, polygonProblem, scale, sub, type P2 } from './geometry';
+import { add, cross, dist, dominantAngle, dot, edgeCoords, edgesOf, polygonProblem, scale, sub, type P2 } from './geometry';
 import type { PlanTransform } from './transform';
 import type { BOpeningType, BuilderDoc } from './types';
 
@@ -150,6 +150,41 @@ export function closeRoom(walls: readonly (readonly P2[])[]): CloseResult {
     }
   }
   return { ok: true, polygon: poly };
+}
+
+/** Et nytt rom som er så lite skjevt i forhold til tegningen, rettes inn automatisk (grader). */
+export const AUTO_ALIGN_DEG = 3;
+
+export interface AlignResult {
+  polygon: P2[];
+  /** Hvor mye rommet ble dreid (grader, + = med klokka i planen; 0 = uendret). */
+  deg: number;
+  /** Lengst et hjørne ble flyttet (mm). */
+  moved: number;
+}
+
+/**
+ * Et rom målt i gjennomsyn står sjelden helt parallelt med de andre: små
+ * vinkelfeil i sporingen gir en skjev skillevegg. Er rommet under 3° fra
+ * tegningens felles akse (se `commonAxis`), dreies det inn på aksen om
+ * `pivot` – første berøring, så veggen man startet med blir stående der den
+ * ble berørt. Er det mer, er det trolig skjevt med vilje, og det beholdes.
+ */
+export function alignToAxis(poly: readonly P2[], axis: number | null, pivot: P2): AlignResult {
+  const same: AlignResult = { polygon: poly.map((p) => ({ x: p.x, z: p.z })), deg: 0, moved: 0 };
+  if (axis === null || poly.length < 3) return same;
+  const a = dominantAngle(poly);
+  const d = ((((a - axis + 45) % 90) + 90) % 90) - 45;
+  if (Math.abs(d) < 0.05 || Math.abs(d) > AUTO_ALIGN_DEG) return same;
+  const th = (-d * Math.PI) / 180;
+  const c = Math.cos(th);
+  const s = Math.sin(th);
+  const polygon = poly.map((p) => {
+    const x = p.x - pivot.x;
+    const z = p.z - pivot.z;
+    return { x: Math.round(pivot.x + x * c - z * s), z: Math.round(pivot.z + x * s + z * c) };
+  });
+  return { polygon, deg: -d, moved: Math.max(...polygon.map((q, i) => dist(q, poly[i]!))) };
 }
 
 /**

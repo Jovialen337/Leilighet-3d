@@ -16,6 +16,7 @@
 import * as THREE from 'three';
 import type { BuilderSession } from '../builder/BuilderSession';
 import {
+  alignToAxis,
   closeRoom,
   composeRig,
   medianPoint,
@@ -28,7 +29,7 @@ import {
   type P3,
 } from '../builder/capture';
 import { alongEdge, dist, dot, edgesOf, roomsOverlap, sub, type P2 } from '../builder/geometry';
-import { addOpening, addRoom, linkedEdges, nextRoomName, setPolygon } from '../builder/ops';
+import { addOpening, addRoom, commonAxis, linkedEdges, nextRoomName, setPolygon } from '../builder/ops';
 import { entranceFrame } from '../builder/transform';
 import { ROOM_NAMES, floorColorFor, type BOpeningType, type BuilderDoc } from '../builder/types';
 import { formatArea, formatLength } from '../builder/units';
@@ -490,9 +491,16 @@ export class BuildMode {
       case 'walls': {
         const r = closeRoom(this.walls);
         if (!r.ok) return this.fail(r.message, right);
-        this.pending = { polygon: r.polygon, floor: null };
+        // Litt skjevt i forhold til resten av tegningen (sporingen): rett inn om første berøring.
+        const t = this.target;
+        const axis = this.doc ? commonAxis(this.doc, 4, t.kind === 'remeasure' ? t.room : undefined) : null;
+        const al = alignToAxis(r.polygon, axis, this.walls[0]![0]!);
+        this.pending = { polygon: al.polygon, floor: null };
         this.phase = 'floor';
-        this.ok(`Rommet er lukket: ${r.polygon.length} hjørner, ${formatArea(polygonArea(r.polygon))}. Berør gulvet.`, right);
+        const fix = al.deg
+          ? ` Rettet inn ${Math.abs(al.deg).toFixed(1).replace('.', ',')}° etter de andre rommene (flyttet høyst ${formatLength(al.moved)}).`
+          : '';
+        this.ok(`Rommet er lukket: ${r.polygon.length} hjørner, ${formatArea(polygonArea(al.polygon))}.${fix} Berør gulvet.`, right);
         break;
       }
       case 'floor':

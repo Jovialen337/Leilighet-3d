@@ -590,6 +590,53 @@ test('mål opp et rom i gjennomsyn: vegger, gulv, tak, dør og navn', async ({ p
   expect(errors).toEqual([]);
 });
 
+test('gjennomsyn: et rom målt litt skjevt (2°) rettes inn etter rommet ved siden av', async ({ page }) => {
+  const errors = collectErrors(page);
+  await openBuilder(page, './?emulator');
+  await page.getByTestId('builder-new').click();
+  await enterBuild(page, 'builder-capture-more');
+  await captureRoom(page);
+  expect((await buildState(page)).phase).toBe('ready');
+  // Nytt rom: 2,9 × 3 m østenfor, 100 mm skillevegg – men dreid 2° om hjørnet (sporingsfeil).
+  await press(page, 'right', 'a-button');
+  const t = (2 * Math.PI) / 180;
+  const f = (x: number, z: number) => ({ x: 3.1 + (x - 3.1) * Math.cos(t) - (z + 1) * Math.sin(t), z: -1 + (x - 3.1) * Math.sin(t) + (z + 1) * Math.cos(t) });
+  for (const [x, z] of [
+    [3.5, -1],
+    [5.5, -1],
+    [6, -2],
+    [4.5, -4],
+    [3.1, -2.5],
+  ] as const) {
+    const p = f(x, z);
+    await touch(page, p.x, 1, p.z);
+  }
+  await press(page, 'right', 'a-button');
+  const s = await buildState(page);
+  expect(s.phase).toBe('floor');
+  expect(s.status?.text).toContain('Rettet inn 2,0° etter de andre rommene');
+  await touch(page, 4.5, 0.004, -2.5);
+  await touch(page, 4.5, 2.45, -2.5);
+  const doc = await builderDoc(page);
+  const [p0, p1, p2, p3] = doc.rooms[1].polygon;
+  for (const [a, b] of [
+    [p0.z, p1.z],
+    [p1.x, p2.x],
+    [p2.z, p3.z],
+    [p3.x, p0.x],
+  ])
+    expect(Math.abs(a - b)).toBeLessThanOrEqual(1);
+  // Én skillevegg på 100 mm mellom rommene, ingen varsel om skjeve rom.
+  const left = Math.min(...doc.rooms[1].polygon.map((p: any) => p.x));
+  expect(Math.abs(left - 3100)).toBeLessThanOrEqual(2);
+  await page.evaluate(() => (window as any).leilighet.xr.exit());
+  await page.waitForFunction(() => (window as any).leilighet.xr.presenting === false);
+  await expect(page.getByTestId('builder-summary')).toContainText('2 rom');
+  await expect(page.getByTestId('builder-issues')).not.toContainText('parallelle');
+  await expect(page.getByTestId('builder-issues')).not.toContainText('skjevt');
+  expect(errors).toEqual([]);
+});
+
 test('gjennomsyn: angre, samme vegg, skrå vegg og hopp over gulv og tak', async ({ page }) => {
   await openBuilder(page, './?emulator');
   await page.getByTestId('builder-new').click();
