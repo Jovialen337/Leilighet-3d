@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   addOpening,
   addRect,
+  addRoom,
   addRoomBeside,
   copyRoom,
   deleteCorner,
@@ -19,7 +20,10 @@ import {
 import { snapPoint } from '../../src/builder/snap';
 import { roomsOverlap } from '../../src/builder/geometry';
 import { BuilderSession, BUILDER_KEY } from '../../src/builder/BuilderSession';
-import { compile } from '../../src/builder/compile';
+import { compile, compileChecked } from '../../src/builder/compile';
+import { importApartment } from '../../src/builder/importDoc';
+import { readFileSync } from 'node:fs';
+import { PUBLISHED_PATH } from './helpers';
 import { deriveWalls } from '../../src/builder/walls';
 import { alongEdge, edgesOf, isAxisAligned, type P2 } from '../../src/builder/geometry';
 import type { BOpening, BuilderDoc } from '../../src/builder/types';
@@ -143,17 +147,22 @@ describe('redigering', () => {
     expect(Math.min(...third.polygon.map((p) => p.z))).toBe(2100);
   });
 
-  it('«Del rommet» gir to rom med skillevegg; vinduer følger sin side, en dør over skillet fjernes', () => {
+  it('«Del rommet» gir to rom med skillevegg; vinduer følger sin side; skillet går ikke gjennom en dør', () => {
     const d = emptyBuilderDoc();
     const stue = addRect(d, { x: 0, z: 0 }, { x: 4000, z: 3000 }, 'Stue');
     stue.polygon = stue.polygon.map((p) => ({ ...p, m: true }));
     addOpening(d, 'window', stue.id, 0, 3000)!; // midt på x 2500–3500: på høyre side
     addOpening(d, 'window', stue.id, 2, 3000)!; // nederst, x 500–1500 (kanten går fra høyre mot venstre)
-    const across = addOpening(d, 'door', stue.id, 0, 2000)!; // x 1550–2450: krysser skillet ved 2000
+    const across = addOpening(d, 'door', stue.id, 0, 2000)!; // x 1550–2450: skillet ved 2000 går gjennom den
+    across.name = 'Stuedør';
+    const refused = splitRoom(d, stue.id, 'x', 2000);
+    expect(refused).toEqual({ ok: false, message: 'Skillet går gjennom «Stuedør» i «Stue». Del rommet et annet sted, eller flytt åpningen først.' });
+    expect(d.rooms).toHaveLength(1);
+    // Døra flyttes til venstre: nå går det.
+    across.offset = 600;
     const r = splitRoom(d, stue.id, 'x', 2000);
     if (!r.ok) throw new Error(r.message);
-    expect(r.dropped).toBe(1);
-    expect(d.openings.some((o) => o.id === across.id)).toBe(false);
+    expect(r.dropped).toBe(0);
     const xs = (id: string) => d.rooms.find((x) => x.id === id)!.polygon.map((p) => p.x);
     expect([Math.min(...xs(r.a.id)), Math.max(...xs(r.a.id))]).toEqual([0, 1950]);
     expect([Math.min(...xs(r.b.id)), Math.max(...xs(r.b.id))]).toEqual([2050, 4000]);
@@ -164,11 +173,102 @@ describe('redigering', () => {
     const top = d.openings.find((o) => o.room === r.b.id)!;
     const e = edgesOf(r.b.polygon)[top.edge]!;
     expect(alongEdge(e, top.offset + top.width / 2)).toEqual({ x: 3000, z: 0 });
-    const bottom = d.openings.find((o) => o.room === r.a.id)!;
+    const bottom = d.openings.find((o) => o.room === r.a.id && o.type === 'window')!;
     const f = edgesOf(r.a.polygon)[bottom.edge]!;
     expect(alongEdge(f, bottom.offset + bottom.width / 2)).toEqual({ x: 1000, z: 3000 });
     // Én skillevegg på 100 mm mellom dem.
     expect(deriveWalls(d.rooms, d.settings).walls.filter((w) => w.kind === 'interior').map((w) => w.thickness)).toEqual([100]);
+  });
+
+  it('«Del rommet»: en dør inn i rommet fra et naborom går inn i delen den står mot', () => {
+    const d = emptyBuilderDoc();
+    const gang = addRect(d, { x: 0, z: 0 }, { x: 4000, z: 2000 }, 'Gang');
+    const bod = addRoomBeside(d, gang.id, 2, 2000, 'Bod')!; // under gangen, 100 mm skillevegg
+    // Døra sitter i boden (som ved import), og går inn i gangen.
+    const e = edgesOf(bod.polygon).find((x) => Math.abs(x.u.x) > 0.9 && Math.min(x.a.z, x.b.z) < 2200)!;
+    const door = addOpening(d, 'door', bod.id, e.i, 3000)!;
+    door.into = gang.id;
+    const r = splitRoom(d, gang.id, 'x', 2000);
+    if (!r.ok) throw new Error(r.message);
+    // Døra står ved x ≈ 3000, altså mot den nye delen: «går inn i» regnes ut på nytt.
+    expect(door.into).toBeUndefined();
+    const out = compileChecked(d);
+    expect(out.issues.filter((i) => i.severity === 'error')).toEqual([]);
+    expect(out.doorInto.get(door.id)).toBe(r.b.id);
+  });
+
+  it('«Del rommet» på den publiserte fila: dører inn i rommet peker på riktig del, og fila er gyldig', () => {
+    const imp = importApartment(JSON.parse(readFileSync(PUBLISHED_PATH, 'utf8')) as ApartmentDoc);
+    if (!imp.ok) throw new Error(imp.message);
+    const split: string[] = [];
+    for (const id of imp.doc.rooms.map((r) => r.id)) {
+      const d = structuredClone(imp.doc);
+      const room = d.rooms.find((r) => r.id === id)!;
+      const xs = room.polygon.map((p) => p.x);
+      const zs = room.polygon.map((p) => p.z);
+      // Forslaget i panelet: midt i, på tvers av den lengste siden.
+      const wide = Math.max(...xs) - Math.min(...xs) >= Math.max(...zs) - Math.min(...zs);
+      const v = wide ? xs : zs;
+      const at = Math.round((Math.min(...v) + Math.max(...v)) / 2 / 10) * 10;
+      const r = splitRoom(d, id, wide ? 'x' : 'z', at);
+      if (!r.ok) {
+        // Bare fordi skillet ville gått gjennom en åpning – aldri en ugyldig fil.
+        expect(r.message).toMatch(/går gjennom|minst 0,25 m²/);
+        continue;
+      }
+      split.push(id);
+      // Ingen dør peker på et rom som ikke lenger ligger ved døra.
+      const out = compileChecked(d, { normalize: true });
+      expect({ id, errors: out.issues.filter((i) => i.severity === 'error').map((i) => i.message) }).toEqual({ id, errors: [] });
+      expect(out.issues.some((i) => i.message.includes('som ikke ligger ved veggen'))).toBe(false);
+    }
+    // Badet (med «Baddør» inn fra stua) kan deles, og gir en gyldig fil.
+    expect(split).toContain('bad');
+  });
+
+  it('«Del rommet» av et rom med skrått tak gir takhøyder fra takets plan', () => {
+    const d = emptyBuilderDoc();
+    const r0 = addRect(d, { x: 0, z: 0 }, { x: 4000, z: 3000 }, 'Stue');
+    // Taket stiger 100 mm per meter mot høyre.
+    r0.ceilingCorners = [2400, 2800, 2800, 2400];
+    const r = splitRoom(d, r0.id, 'x', 2000);
+    if (!r.ok) throw new Error(r.message);
+    const at = (room: typeof r0, x: number) => room.ceilingCorners![room.polygon.findIndex((p) => p.x === x)]!;
+    expect(at(r.a, 0)).toBe(2400);
+    expect(at(r.a, 1950)).toBe(2595);
+    expect(at(r.b, 2050)).toBe(2605);
+    expect(at(r.b, 4000)).toBe(2800);
+  });
+
+  it('«Del rommet» tvers over en U (en side ville blitt to rom) avvises', () => {
+    const d = emptyBuilderDoc();
+    const u = addRoom(d, [
+      { x: 0, z: 0 },
+      { x: 1500, z: 0 },
+      { x: 1500, z: 3000 },
+      { x: 2500, z: 3000 },
+      { x: 2500, z: 0 },
+      { x: 4000, z: 0 },
+      { x: 4000, z: 4000 },
+      { x: 0, z: 4000 },
+    ]);
+    const r = splitRoom(d, u.id, 'z', 1500);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.message).toContain('formet som en U');
+    expect(d.rooms).toHaveLength(1);
+    // Under U-en (der den er hel) går det fint.
+    expect(splitRoom(d, u.id, 'z', 3500).ok).toBe(true);
+    // Og en L kan deles gjennom det innvendige hjørnet.
+    const e = emptyBuilderDoc();
+    const l = addRoom(e, [
+      { x: 0, z: 0 },
+      { x: 4000, z: 0 },
+      { x: 4000, z: 2000 },
+      { x: 2000, z: 2000 },
+      { x: 2000, z: 4000 },
+      { x: 0, z: 4000 },
+    ]);
+    expect(splitRoom(e, l.id, 'x', 2000).ok).toBe(true);
   });
 
   it('«Del rommet» utenfor rommet eller for nær kanten avvises', () => {

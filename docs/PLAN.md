@@ -241,9 +241,13 @@ You can also **open a drawing from a file** (`*.tegning.json`) to move work betw
     - «Roter 90°»: clockwise about the middle; openings follow; four turns give exactly the same room back;
     - «Del rommet»: a partition of the standard thickness straight through the room, vertical (at an x) or horizontal (at a z), suggested in the middle across the longer side.
       - One side keeps the room's id and name; the other becomes «‹navn› 2» with the same floor, ceiling and colour.
-      - Windows and doors follow their side; an opening across the split is removed, and the message says so.
+      - A sloped ceiling is kept: the old corners keep their heights, and the new corners at the split get theirs from the ceiling's plane.
+      - Windows and doors follow their side. A door into the room (from the room itself or from a neighbour) goes into the part it stands against.
       - Measured corners stay measured.
-      - A split that does not cross the room or leaves under 0.25 m² on a side is refused, and so is a room with a sloped ceiling;
+      - The split is refused, with a message naming the reason, if:
+        - it would cut through an opening, in the room or in the wall facing it from a neighbour;
+        - it does not cross the room, or leaves under 0.25 m² on a side;
+        - it crosses the room more than once (a U-shape), which would make one side two rooms;
   - edge: length; for an exterior wall, its thickness and material; for a partition, its **thickness** (the neighbouring room moves); add door, window or opening; «Fordel vinduer jevnt»;
   - corner: x and z (negative values allowed);
   - opening: type, from the left or right corner as seen from inside the room, width, height, sill, «går inn i», hinge side, swing, entrance door, note.
@@ -298,7 +302,7 @@ Room by room, standing in the room:
 2. **A** closes the room. Corners are where the walls meet, and the room must not cross itself.
    - **The drawing's axis.** The room's direction comes from only two touches on the first wall: 1 cm off over 60 cm is about 1°, which would skew the whole room and every dimension. So, when the first wall is within 3° of the drawing's common axis, the axis is used as the direction, and every wall line goes through its own touches. That keeps the dimensions right, not only the angle.
      - In the emulated test, a second touch 1 cm off gives a partition of 100 ± 5 mm and a depth of 3000 ± 5 mm.
-     - Walls touched several times (grip) use the axis too when they are within 3°; deliberately slanted walls keep their own line.
+     - Walls touched several times (grip) use the axis too when they are within 3°, but only when the first wall does; deliberately slanted walls keep their own line.
      - The panel says how many degrees came from the axis and how far the corners moved.
    - A room more than 3° off is kept as measured, since it is taken to be skewed on purpose.
    - To keep a room as measured anyway, press **B** (back to the walls) and then **A**. B and A again uses the axis after all.

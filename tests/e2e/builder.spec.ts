@@ -533,6 +533,32 @@ test('«Del rommet» lager to rom med skillevegg midt i, og modellen er gyldig',
   await expect(page.getByTestId('builder-issues')).not.toContainText('✗');
 });
 
+test('«Del rommet» på en importert modell gir aldri en ugyldig fil (dører inn i rommet følger med)', async ({ page }) => {
+  await openBuilder(page);
+  await page.getByTestId('builder-from-current').click();
+  await page.getByTestId('builder-tool-select').click();
+  const doc = await builderDoc(page);
+  let splits = 0;
+  for (const room of doc.rooms) {
+    await page.evaluate((id) => (window as any).leilighet.builder.editor.select({ kind: 'room', room: id }), room.id);
+    await page.getByText('Del rommet').click();
+    await page.getByTestId('builder-split-go').click();
+    const after = await builderDoc(page);
+    if (after.rooms.length === doc.rooms.length) {
+      // Avvist: meldingen sier hvorfor (en åpning i veien, eller for lite plass).
+      await expect(page.getByTestId('builder-message')).toContainText(/går gjennom|minst 0,25 m²|formet som en U/);
+      continue;
+    }
+    splits++;
+    await expect(page.getByTestId('builder-message')).toContainText('Delt i');
+    await expect(page.getByTestId('builder-issues')).not.toContainText('✗');
+    await expect(page.getByTestId('builder-issues')).not.toContainText('ikke ligger ved veggen');
+    await page.getByTestId('builder-undo').click();
+    expect((await builderDoc(page)).rooms).toHaveLength(doc.rooms.length);
+  }
+  expect(splits).toBeGreaterThan(0);
+});
+
 test('åpning: dra enden for å gjøre den bredere – håndtakene ligger aldri oppå hverandre', async ({ page }) => {
   await openBuilder(page);
   await page.getByTestId('builder-new').click();

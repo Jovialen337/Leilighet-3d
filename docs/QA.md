@@ -408,6 +408,25 @@ Dimensions: visual 7, performance 8, options 8, intuitive 8, code 8, robustness 
   - the short-baseline warning.
 - **The published file:** zero overlaps at 1280×800, at 1920×1080 and in the Quest Browser, with nothing, the bathroom or the living room selected.
 
+### Gatekeeper (round 3, pass 1 at f34405e): **FAIL**
+- **Gates:**
+  - all green: 243 unit tests and 76 browser tests, with no console errors;
+  - draw calls per eye: 32 when walking the file, 32 on a builder preview, 10 in passthrough;
+  - textures about 4.7 MB;
+  - capture on the axis, labels, handles and the small fixes checked out.
+- **Blocking (both fixed):**
+  1. «Del rommet» left doors pointing at the old room. Splitting «Bad» on the real file made «Baddør» invalid, and saving was blocked.
+     - **Fix:** a door into the split room now goes into the part it stands against: its own doors get the new part, and doors in neighbours get «går inn i» worked out again.
+     - New tests: a door from a neighbour, and every room of the published file in a unit test and through the UI in a browser test. Every allowed split gives a valid file.
+  2. Splitting a U-shaped room across the U made one «room» out of two pieces, joined by walls on top of each other. Validation accepted it.
+     - **Fix:** the split is refused when the line crosses the room more than once. There is a U test, and an L split through its inside corner still works.
+- **Remarks, fixed:**
+  - A split that would cut through an opening is now refused with the opening's name, instead of silently removing it. This also covers openings in a neighbour's wall facing the room.
+  - Rooms with a sloped ceiling can be split; the new corners take their height from the ceiling's plane. On the real file, every allowed split of every room gives a valid file.
+  - The overlay reads a room label's size from the page only when its name or area changes, not on every redraw.
+  - The «Velg» hint says that selecting a room shows all its corners and dimensions.
+  - A grip-touched wall uses the drawing's axis only when the first wall does. B + A is offered whenever the axis changed anything.
+
 ### Test on the Quest (phase 2c)
 1. **Laptop, background image:** in «Lag ny modell», open «Bakgrunnsbilde» and load the sketch or a floor plan. Set the scale with a known wall length, then trace the rooms on top of it.
 2. **Quest Browser, 2D:**

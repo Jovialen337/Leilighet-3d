@@ -361,6 +361,18 @@ describe('nye rom legges langs tegningens akse', () => {
     expect(Math.abs(lines[1]!.u.x)).toBeCloseTo(Math.sin(a), 6);
   });
 
+  it('et rom som er skrått med vilje, får ingen vegger lagt på tegningens akse', () => {
+    const walls = touches(Math.round(600 * Math.tan((6 * Math.PI) / 180)));
+    // Vegg 2 berørt to steder med grep, 1° fra tegningens akse.
+    walls[1] = [
+      { x: 6000, z: 500 },
+      { x: 6000 + Math.round(2000 * Math.tan(Math.PI / 180)), z: 2500 },
+    ];
+    const lines = wallLines(walls, commonAxis(drawing()));
+    expect(Math.abs(lines[1]!.u.x)).toBeGreaterThan(0.01);
+    expect(closeRoom(walls, commonAxis(drawing()))).toMatchObject({ ok: true, turned: 0, moved: 0 });
+  });
+
   it('aksen følger tegningen også når den er dreid', () => {
     const d = emptyBuilderDoc();
     const a = (30 * Math.PI) / 180;

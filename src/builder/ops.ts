@@ -224,17 +224,65 @@ function clipPolygon(poly: readonly BPoint[], axis: 'x' | 'z', at: number, side:
 export type SplitResult = { ok: true; a: BRoom; b: BRoom; dropped: number } | { ok: false; message: string };
 
 /**
+ * Antall sammenhengende strekk av kanter som ligger på linja `axis` = `at`.
+ * Et klippet polygon som er én del, har ett (kuttet); flere betyr at linja
+ * gikk ut og inn av rommet (f.eks. tvers over en U), og at «polygonet» er
+ * flere biter bundet sammen langs kuttet.
+ */
+function runsOnLine(poly: readonly BPoint[], axis: 'x' | 'z', at: number): number {
+  const on = poly.map((p, i) => {
+    const q = poly[(i + 1) % poly.length]!;
+    return Math.abs(p[axis] - at) < 1 && Math.abs(q[axis] - at) < 1;
+  });
+  if (on.every(Boolean)) return 1;
+  let runs = 0;
+  for (let i = 0; i < on.length; i++) if (on[i] && !on[(i - 1 + on.length) % on.length]) runs++;
+  return runs;
+}
+
+/**
+ * Takhøyden i et punkt for et rom med skrått tak: planet som passer best
+ * gjennom hjørnene (minste kvadraters sum), som i modellen.
+ */
+function ceilingPlane(room: BRoom): ((p: P2) => number) | null {
+  const pts = room.polygon.map((p, i) => ({ x: p.x, z: p.z, h: room.ceilingCorners?.[i] ?? room.ceiling }));
+  const n = pts.length;
+  const mx = pts.reduce((s, p) => s + p.x, 0) / n;
+  const mz = pts.reduce((s, p) => s + p.z, 0) / n;
+  const mh = pts.reduce((s, p) => s + p.h, 0) / n;
+  let sxx = 0;
+  let sxz = 0;
+  let szz = 0;
+  let sxh = 0;
+  let szh = 0;
+  for (const p of pts) {
+    const dx = p.x - mx;
+    const dz = p.z - mz;
+    const dh = p.h - mh;
+    sxx += dx * dx;
+    sxz += dx * dz;
+    szz += dz * dz;
+    sxh += dx * dh;
+    szh += dz * dh;
+  }
+  const det = sxx * szz - sxz * sxz;
+  if (Math.abs(det) < 1e-6) return null;
+  const a = (sxh * szz - szh * sxz) / det;
+  const b = (szh * sxx - sxh * sxz) / det;
+  return (p) => mh + a * (p.x - mx) + b * (p.z - mz);
+}
+
+/**
  * «Del rommet»: deler et rom i to med en skillevegg (standard tykkelse) langs
  * en loddrett (`axis` = 'x', ved x = `at`) eller vannrett linje. Rommet
  * beholder navn og id på den ene siden; den andre siden blir et nytt rom.
- * Vinduer og dører følger siden de står på; en åpning som krysser skillet,
- * fjernes (antallet gis tilbake).
+ * Vinduer og dører følger siden de står på, og dører inn i rommet går inn i
+ * den delen de står mot. Går skillet gjennom en åpning (i rommet eller i
+ * veggen mot det), avvises delingen med en melding om hvilken.
  */
 export function splitRoom(doc: BuilderDoc, roomId: string, axis: 'x' | 'z', at: number): SplitResult {
   const room = doc.rooms.find((r) => r.id === roomId);
   if (!room || room.polygon.length < 3) return { ok: false, message: 'Velg et rom først.' };
-  if (room.ceilingCorners?.some((h) => h !== null && h !== undefined))
-    return { ok: false, message: 'Rommet har skrått tak. Gjør taket flatt før du deler det (eller del det og sett takhøydene etterpå).' };
   const half = doc.settings.interiorThickness / 2;
   const pa = clipPolygon(room.polygon, axis, at - half, -1);
   const pb = clipPolygon(room.polygon, axis, at + half, 1);
@@ -243,6 +291,36 @@ export function splitRoom(doc: BuilderDoc, roomId: string, axis: 'x' | 'z', at: 
     if (problem || Math.abs(polygonArea(p)) < 250_000)
       return { ok: false, message: 'Skillet må gå tvers gjennom rommet, med minst 0,25 m² på hver side.' };
   }
+  if (runsOnLine(pa, axis, at - half) > 1 || runsOnLine(pb, axis, at + half) > 1)
+    return {
+      ok: false,
+      message: 'Skillet går ut og inn av rommet flere steder (rommet er formet som en U), så en av sidene ville blitt to rom. Del det et annet sted, eller del det i to omganger.',
+    };
+  // En åpning i rommet – eller i veggen mot det fra et naborom – som skillet går gjennom,
+  // ville havnet over et veggskille: be om et annet sted heller enn å fjerne den.
+  for (const o of doc.openings) {
+    const r = doc.rooms.find((x) => x.id === o.room);
+    const e = r ? edgesOf(r.polygon)[o.edge] : undefined;
+    if (!r || !e) continue;
+    if (o.room !== roomId && !linkedEdges(doc, o.room, o.edge).some((l) => l.room === roomId)) continue;
+    const a = alongEdge(e, o.offset);
+    const b = alongEdge(e, o.offset + o.width);
+    if (Math.min(a[axis], b[axis]) >= at + half || Math.max(a[axis], b[axis]) <= at - half) continue;
+    const what = o.name ? `«${o.name}»` : o.type === 'door' ? 'en dør' : o.type === 'window' ? 'et vindu' : 'en åpning';
+    return { ok: false, message: `Skillet går gjennom ${what} i «${r.name}». Del rommet et annet sted, eller flytt åpningen først.` };
+  }
+  // Skrått tak: takhøyden i hvert hjørne, også de nye ved skillet (fra takets plan).
+  const sloped = room.ceilingCorners?.some((h) => h !== null && h !== undefined);
+  const plane = sloped ? ceilingPlane(room) : null;
+  const cornersFor = (poly: BPoint[]): (number | null)[] | undefined => {
+    if (!sloped) return undefined;
+    return poly.map((p) => {
+      const k = room.polygon.findIndex((q) => q.x === p.x && q.z === p.z);
+      const own = k >= 0 ? room.ceilingCorners?.[k] : undefined;
+      if (own !== undefined && own !== null) return own;
+      return plane ? Math.round(plane(p)) : room.ceiling;
+    });
+  };
   // Åpningene: midtpunkt og ende i den gamle tegningen, så de kan festes til siden de står på.
   const old = edgesOf(room.polygon);
   const mine = doc.openings.filter((o) => o.room === roomId);
@@ -273,7 +351,13 @@ export function splitRoom(doc: BuilderDoc, roomId: string, axis: 'x' | 'z', at: 
   const eb = edgeOpts(pb);
   if (eb) b.edges = eb;
   else delete b.edges;
+  const cb = cornersFor(pb);
+  const ca = cornersFor(pa);
+  if (cb) b.ceilingCorners = cb;
+  else delete b.ceilingCorners;
   room.polygon = pa;
+  if (ca) room.ceilingCorners = ca;
+  else delete room.ceilingCorners;
   const ea = edgeOpts(pa);
   if (ea) room.edges = ea;
   else delete room.edges;
@@ -296,6 +380,8 @@ export function splitRoom(doc: BuilderDoc, roomId: string, axis: 'x' | 'z', at: 
         o.room = r.id;
         o.edge = e.i;
         o.offset = Math.round(Math.max(0, s0));
+        // En dør inn i det delte rommet går inn i den delen den står på.
+        if (o.into === roomId) o.into = r.id;
         placed = true;
         break;
       }
@@ -306,6 +392,9 @@ export function splitRoom(doc: BuilderDoc, roomId: string, axis: 'x' | 'z', at: 
       dropped++;
     }
   }
+  // Dører i andre rom som gikk inn i det delte rommet: «går inn i» regnes ut på nytt
+  // (rommet på den andre siden av veggen – den delen døra nå står mot).
+  for (const o of doc.openings) if (o.room !== roomId && o.room !== b.id && o.into === roomId) delete o.into;
   return { ok: true, a: room, b, dropped };
 }
 

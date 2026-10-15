@@ -138,6 +138,9 @@ export class BuilderOverlay {
     return this.el('line', { x1: sa.x, y1: sa.y, x2: sb.x, y2: sb.y, ...attrs });
   }
 
+  /** Størrelsen på romnavn-etikettene (px), etter navn og areal – leses fra siden bare når de endres. */
+  private readonly labelSizes = new Map<string, { w: number; h: number }>();
+
   /** Håndtakene i denne runden, viktigst først. */
   private planned: PlannedHandle[] = [];
 
@@ -269,10 +272,20 @@ export class BuilderOverlay {
     for (const r of doc.rooms) {
       if (r.polygon.length < 3) continue;
       const c = this.s(centroid(r.polygon));
-      const el = document.querySelector<HTMLElement>(`.labels .label.room[data-room="${CSS.escape(r.id)}"]`);
       const area = `${(polygonArea(r.polygon) / 1e6).toLocaleString('nb-NO', { maximumFractionDigits: 1 })} m²`;
-      const w = (el?.offsetWidth || Math.max(r.name.length, area.length) * 7.5 + 14) + 4;
-      const h = (el?.offsetHeight || 36) + 4;
+      const key = `${r.id}|${r.name}|${area}`;
+      let size = this.labelSizes.get(key);
+      if (!size) {
+        // Én lesing fra siden per ny etikett (ikke hver gang overlegget tegnes, f.eks. under et drag).
+        const el = document.querySelector<HTMLElement>(`.labels .label.room[data-room="${CSS.escape(r.id)}"]`);
+        if (el?.offsetWidth) {
+          size = { w: el.offsetWidth, h: el.offsetHeight };
+          if (this.labelSizes.size > 200) this.labelSizes.clear();
+          this.labelSizes.set(key, size);
+        }
+      }
+      const w = (size?.w ?? Math.max(r.name.length, area.length) * 7.5 + 14) + 4;
+      const h = (size?.h ?? 36) + 4;
       taken.push({ x0: c.x - w / 2, y0: c.y - h / 2, x1: c.x + w / 2, y1: c.y + h / 2 });
     }
     for (const h of this.planned) taken.push({ x0: h.p.x - h.r, y0: h.p.y - h.r, x1: h.p.x + h.r, y1: h.p.y + h.r });

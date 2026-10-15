@@ -66,7 +66,7 @@ export const TOOL_TEXT: Record<BuilderTool, string> = {
 export const TOOL_KEYS: Record<string, BuilderTool> = { s: 'select', r: 'rect', m: 'poly', i: 'beside', d: 'door', v: 'window', o: 'passage', å: 'passage' };
 
 export const TOOL_HINT: Record<BuilderTool, string> = {
-  select: 'Klikk et rom, et hjørne, en kant eller en åpning. Dra de runde og firkantede håndtakene for å flytte.',
+  select: 'Klikk et rom, et hjørne, en kant eller en åpning. Dra de runde og firkantede håndtakene for å flytte. Velg et rom for å se alle hjørnene og målene.',
   rect: 'Klikk ett hjørne og så det motsatte hjørnet – eller skriv bredde og dybde.',
   poly: 'Klikk hjørne for hjørne. Skriv lengden og trykk Enter for nøyaktige mål. Klikk første hjørne (eller «Ferdig») for å lukke rommet.',
   beside: 'Klikk en kant: et nytt rom legges på den andre siden, med en skillevegg imellom.',

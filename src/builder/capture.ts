@@ -100,12 +100,16 @@ export function onAxis(u: P2, axisDeg: number | null | undefined): P2 | null {
  */
 export function wallLines(walls: readonly (readonly P2[])[], axisDeg?: number | null): Line[] {
   const lines: Line[] = [];
+  // Aksen brukes bare når første vegg følger den: et rom som er skrått med vilje, får
+  // ikke noen vegger lagt på tegningens akse og andre ikke.
+  let onDrawingAxis = false;
   for (let i = 0; i < walls.length; i++) {
     const pts = walls[i]!;
     // Skrå vegg: berørt flere steder med god avstand – linja gjennom punktene.
     const fitted = pts.length >= 2 && spread(pts) >= MIN_WALL_SPAN ? fitLine(pts) : null;
     if (fitted) {
-      const snapped = onAxis(fitted.u, axisDeg);
+      const snapped: P2 | null = i === 0 || onDrawingAxis ? onAxis(fitted.u, axisDeg) : null;
+      if (i === 0) onDrawingAxis = !!snapped;
       lines.push(snapped ? { p: fitted.p, u: snapped } : fitted);
       continue;
     }

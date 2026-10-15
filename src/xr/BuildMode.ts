@@ -522,9 +522,10 @@ export class BuildMode {
         const r = closeRoom(this.walls, this.captureAxis());
         if (!r.ok) return this.fail(r.message, right);
         this.pending = { polygon: r.polygon, floor: null };
-        this.aligned = r.turned !== 0;
+        // Tegningens akse endret noe (første vegg eller en vegg berørt med grep): B + A beholder det som målt.
+        this.aligned = r.turned !== 0 || r.moved >= 1;
         this.phase = 'floor';
-        const fix = r.turned
+        const fix = this.aligned
           ? ` Rettet inn ${Math.abs(r.turned).toFixed(1).replace('.', ',')}° etter de andre rommene (hjørnene flyttet høyst ${formatLength(r.moved)}; B + A beholder det som målt).`
           : this.keepSkew
             ? ' Beholdt slik det ble målt.'
