@@ -1,6 +1,6 @@
 # Leilighet 3D – project plan
 
-Status: **Phase 1 live** at https://jovialen337.github.io/Leilighet-3d/ and checked on the Quest 3 (90 fps, 11.9 ms; movement and reach OK). Phases 2 and 2b are live and need a test on the Quest. **Phase 2c («Lag ny modell») is built** and ships when its pull request is merged. This file is updated in every phase.
+Status: **Phase 1 live** at https://jovialen337.github.io/Leilighet-3d/ and checked on the Quest 3 (90 fps, 11.9 ms; movement and reach OK). Phases 2, 2b and 2c are live and need a test on the Quest. **Phase 2d (the «wow» graphics round) is built** and ships when its pull request is merged. This file is updated in every phase.
 
 ## Goal
 
@@ -19,6 +19,7 @@ All UI text is Norwegian (bokmål). All geometry comes from one data file, `publ
 | 2 | **Guided measuring** in passthrough on the Quest: align the model to the real apartment, then touch or point at corners, floors, ceilings, openings and fixtures, step by step. The model updates as you go. | **built**, awaiting Quest test |
 | 2b | **Graphics, options and planning** (improvement rounds scored per [SCORING.md](SCORING.md)): new lighting and quality presets; saved settings; VR menu (X); go to room; dollhouse; **electrical and water planning** with drawing on PC and in VR; layer groups, presets and filters with x-ray | **built**, being scored |
 | 2c | **«Lag ny modell»** – make a new model from scratch or from the current one: draw rooms on the PC or in the Quest Browser (walls are made automatically), or measure the rooms by touching the walls in passthrough on the Quest 3. Doors, windows and openings, checks with one-click fixes, undo, autosave, walk through it in VR, and export as `apartment.json`. | **built**, being scored |
+| 2d | **«Wow» graphics on the Quest 3:** baked daylight from the windows, sun patches through the windows, a real sky with clouds and a distant tree line, clear glass, «Lys» (morgen/dag/kveld, lamps lit in the evening), a fade in from black facing the longest view, and sharper VR on «Høy» | **built**, being scored |
 | 3 | **Editing** in VR: grab, move, turn, add and delete furniture and fixtures; edit walls, doors and windows with snapping and live dimensions; wrist menu; undo | planned |
 | 4+ | *(proposal)* Planning: electrical and wiring routes, ventilation, workshop zone, GLB furniture import, notes in VR | – |
 
@@ -109,7 +110,7 @@ Guided measuring *moves and resizes* what is in the model: rooms, corners, walls
 
 - **Lighting:** hemisphere + key light from east-south-east + fill light, with Neutral tone mapping (keeps the JSON colours). Walls facing different directions now differ by about 20 % in brightness; the ceiling is no longer dark.
 - **Trim:** skirting boards along every room edge (broken at doors and passages), and door/window casings.
-- **Soft shading without shadow maps:** gradients along floor and ceiling edges and in inner corners, plus contact shadows under furniture. One extra draw call per layer; hidden with ceilings/layers.
+- **Soft shading without shadow maps:** contact shadows under furniture (one extra draw call per layer). Darker edges and corners are now baked into the colours (phase 2d).
 - **Sky dome and ground**, drawn last so only visible pixels cost anything; hidden in 2D, in passthrough and on «Rask».
 - **Cut faces:** in the 2D plan and the dollhouse, the inside of cut walls is dark, like an architectural drawing.
 - **«Grafikk» setting:**
@@ -361,6 +362,67 @@ Other details:
 - Room templates, an overlap warning in `validate.ts`, and a wall-top fallback.
 - **Real-device checks:** see QA.md «Test on the Quest (phase 2c)». They cover corners within 2 cm, the tape comparison, how easy the handles are to hit, and 90 fps. If the tape comparison is off by more than 2 cm, passthrough capture is reopened.
 
+## Phase 2d – «wow» graphics on the Quest 3
+
+Goal: «I want a wow experience when I put on the Quest 3». Scored per [SCORING.md](SCORING.md); the round is recorded in [QA.md](QA.md). Everything stays within the Quest 3 budget on «Standard»: **at most 25 draw calls per eye at the start** (was 32), at most 40 in every room and every light, about 8 MB of textures (limit 32 MB), and nothing new per frame.
+
+### The first seconds in VR
+
+- **Fade in from black** (0.15 s black, 0.9 s fade). The jump to the start point in the first frames is hidden, and the exposure rises a little over 1.6 s, as if your eyes adjust to the light. The black sphere is hidden afterwards, so it costs no draw calls.
+- **Facing the longest view:** you still start just inside the entrance door, but you now face the direction with the longest free sightline within 90° of «straight in». On the real file that looks through the openings to the living room and the kitchen, about 8 m, instead of at the hallway wall 1.7 m away. The view is computed from the walls and openings in `apartment.json` (`ApartmentModel.bestView`).
+- **«Gå til rom» and «Til start»:** black for a moment, then a fade in at the new place (no visible jump).
+
+### Daylight (all from `apartment.json`, computed once when the model is built)
+
+- **Baked daylight in the colours** (`bake.ts`). Floors, ceilings and walls are split into a 30 cm grid, and every corner of the grid gets a light factor:
+  - **light from each window in the room**, from how much of the window the point «sees» (the window's form factor). Points facing a window are bright, and the light falls off into the room;
+  - **reflected light:** rooms with more window area are brighter all over, and a share of the light from rooms you can see into (open transitions, doors and openings) is added;
+  - **darker edges and corners:** floors and ceilings along the walls, walls near the floor, ceiling and inner corners, and the bottom of furniture.
+  - The grid follows fixed world lines, so neighbouring surfaces share corners (no cracks). Building takes about 70 ms on this machine (estimated 150–250 ms on the Quest), only when the model changes. «Rask» shows the flat colours from the file.
+- **Sun patches through the windows** (`sunlight.ts`). The sun shines through each window that faces it. The glass and the hole in the wall on both sides are projected along the sun's rays onto the floor and walls of the room and clipped to what is lit through all three, so the patch has the window's shape, with the mullion's shadow and soft edges. The patches go up the far wall when the sun is low, and are cut at doors and openings (the light goes through). One draw call. «Screen» blending, so patches on white walls never burn out.
+- **Light rays («Høy» only):** faint columns from the glass into the room that fade out before they reach the floor.
+
+### Sky, outside and glass
+
+- **Sky shader:** gradient from horizon to zenith, a glow and a sun disc where the sun is, soft clouds (one 1024×512 texture made in code), and distant hills and a tree line along the horizon, computed in the shader with no geometry (so the «geometry only from `apartment.json`» gate holds).
+- **Ground:** grass with a little unevenness (a 256² tiling texture made in code).
+- **Glass:** almost clear straight on, more reflection of the sky at an angle (Fresnel), instead of blue panes.
+- The textures are made the first time the sky is shown (never on «Rask»).
+
+### «Lys»: morning, day, evening
+
+- **«Morgen»:** a low, warm sun from the east (the entrance side), long patches up the living room's back wall, a warm horizon.
+- **«Dag»** (default): exactly the lighting from phase 2b, with the sun through the front windows.
+- **«Kveld»:** a low sun from the west, an orange sky, a darker and warmer interior, and the **lamps lit**: a warm glow on the ceiling around each lamp point and a pool of light on the floor below (from the «light» fixtures in the file).
+- The compass direction is an assumption (the entrance wall faces east, −z). A `settings.north` field can come later.
+- **Where:** «Lys» on the laptop (under «Visning», next to «Grafikk»), the **L** key cycles it, and «Lys» in the VR menu (X → Visning). Saved per device like the other settings.
+
+### Graphics profile and presets
+
+One pure function, `graphicsProfile` (`src/scene/graphicsProfile.ts`), decides what is on for the laptop, the 2D plan, VR and passthrough. App and VR both use it.
+
+| | Rask | Standard (default) | Høy |
+|---|---|---|---|
+| Baked daylight | – | ✓ | ✓ |
+| Sun patches, sky, lamps (evening) | – | ✓ | ✓ |
+| Contact shadows under furniture | – | ✓ | ✓ |
+| Light rays | – | – | ✓ |
+| VR resolution | 1.0 | 1.0 | 1.3 (next time you enter VR) |
+| VR foveation (blur at the edges) | 1.0 | 1.0 | 0.25 (applies at once) |
+
+- In **passthrough** (measuring and «Lag ny modell») there is never sky or effects.
+- In the **2D plan** there is no sky, sun or lamps, but the baked light stays.
+- «Standard» keeps the phase 1 resolution and foveation until a reading on the real Quest shows headroom (see QA.md).
+
+### Later work (graphics)
+
+- Procedural surface detail (wood floor, tiles, paint) in one small texture array: a real depth cue in VR (Research A, proposal 4).
+- Floor reflections on «Høy» (one cube map per room).
+- A `settings.north` field so «Lys» follows the real compass; «Natt».
+- A quieter wrist panel that shows the room you are in; comfort options (seated mode, vignette during smooth turning) – Research B, proposals 4–5.
+- Per-effect toggles («Grafikk …» with «Egendefinert») on the laptop and in VR.
+- If the Quest shows headroom at 90 fps: foveation 0.5 on «Standard».
+
 ## Phase 3 – editing in VR (design principles)
 
 Intuitive first:
@@ -474,12 +536,14 @@ src/
   model/      ApartmentModel.ts (queries in mm: floor at a point, wall frames, wall top following ceilings,
               door geometry, thresholds, placements, spawn), ApartmentStore.ts (load / update / toJSON)
   scene/      buildWall.ts (face polygon with holes/notches, extruded), buildParts.ts (everything else),
-              ApartmentScene.ts (merge per layer+material, pick proxies, id→range map), materials.ts
+              ApartmentScene.ts (merge per layer+material, pick proxies, id→range map), materials.ts,
+              bake.ts (grid + baked daylight), sunlight.ts (sun patches, rays), lamps.ts, lighting.ts («Lys»),
+              sky.ts (sky shader, clouds, grass), graphicsProfile.ts (what is on where), shade.ts (contact shadows)
   state/      ViewState/LayerState (observable; shared by laptop UI and the future VR wrist menu)
   views/      DesktopView.ts (orbit + orthographic top-down with section cut, grid, scale)
   measure/    tasks.ts (guided list), MeasureSession.ts (log, undo, local save, export), applyMeasurements.ts +
               fit.ts (solver), align.ts (two touches → rig pose), types.ts (observations)
-  xr/         XRManager.ts (session, controllers, teleport, snap turn, floor follow, measure mode), teleport.ts (arc),
+  xr/         XRManager.ts (session, controllers, teleport, snap turn, floor follow, measure mode), teleport.ts (arc), fade.ts,
               rig.ts (pure rig maths), WristPanel.ts (seed of the phase 3 wrist menu), emulator.ts (IWER),
               MeasureMode.ts, MeasureOverlay.ts, InfoPanel.ts (passthrough measuring)
   builder/    «Lag ny modell»: types.ts (rooms + openings drawing), walls.ts (walls from rooms), compile.ts (drawing →
@@ -495,7 +559,7 @@ src/
 ```
 
 - **Single source of truth:** `ApartmentStore` holds the raw document (including `{value, measured}`). It validates, then builds an `ApartmentModel`. The scene is rebuilt from the model.
-- **Performance:** static geometry is merged into one mesh per (layer, material): 13 meshes and about 4 000 triangles for the whole apartment. The renderer uses Lambert materials with flat vertex colours, has no shadows, and uses hemisphere + ambient + two directional lights. That is 14 draw calls per eye in VR.
+- **Performance:** static geometry is merged into one mesh per (layer, material): about 20 meshes and 20 000 triangles for the whole apartment (the 30 cm grid for the baked light). The renderer uses Lambert materials with baked vertex colours, has no shadow maps, and uses hemisphere + two directional lights. That is about 25 draw calls per eye in VR at the start on «Standard» (at most 40 anywhere, checked by a browser test in every room).
 - **Teleport:** a parabolic arc is raycast against per-object invisible proxies. Each segment is pre-filtered by bounding box. A landing is valid only on a floor (rooms, thresholds, outdoor areas), so both floor levels work. Walls, ceilings and furniture block the arc.
 - **Room-scale walking:** each frame the floor level under the head is looked up in the model and the rig height follows it smoothly. Walking physically up the step lifts you 180 mm.
 
@@ -510,10 +574,10 @@ src/
 
 - **Laptop, 3D:** drag to rotate, scroll to zoom, right-drag to pan.
 - **Laptop, Ovenfra (2D):** drag to pan, scroll to zoom. The plan is cut at `settings.planCutHeight` like an architectural drawing, with a 1 m grid, scale bar and cursor coordinates in mm. F toggles FPS.
-- **Quest:** left stick forward = aim the teleport arc, release = jump. Right stick left/right = snap turn 30°. Y = show/hide FPS. You start standing just inside the entrance door, facing in.
+- **Quest:** left stick forward = aim the teleport arc, release = jump. Right stick left/right = snap turn 30°. Y = show/hide FPS. You start standing just inside the entrance door, facing the longest view (through the openings to the living room and the kitchen), after a short fade in from black.
 - **Quest, measuring:** see the controls table in phase 2.
 - **Quest, menu (X):** point with the right controller and pull the trigger. Tabs: Visning, Lag, Tegn, Gå til, Komfort. Right stick back turns 180°.
-- **Laptop, keys:** 1/2 (3D/2D), T (ceilings), U (placeholders), K (dollhouse), R (reset view), F (FPS), H (help), S/E/V/P (draw tools), Enter/Backspace/Esc/Delete/Ctrl+Z while drawing.
+- **Laptop, keys:** 1/2 (3D/2D), T (ceilings), U (placeholders), K (dollhouse), R (reset view), F (FPS), L (light: morning → day → evening), H (help), S/E/V/P (draw tools), Enter/Backspace/Esc/Delete/Ctrl+Z while drawing.
 - **Laptop, «Lag ny modell»:**
   - tools S/R/M/I/D/V/O; type numbers for lengths;
   - Enter/double-click/right-click to finish a polygon, Backspace (last point or delete), Esc, Delete;

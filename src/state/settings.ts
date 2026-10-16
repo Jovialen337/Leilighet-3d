@@ -6,6 +6,7 @@
  */
 import { PersistedSettings, inRange, isBool, oneOf, type KV } from './persist';
 import { QUALITIES, TURN_MODES, XR_RATES, type ViewState } from './ViewState';
+import { LIGHT_IDS } from '../scene/lighting';
 
 export const SETTINGS_KEY = 'leilighet:innstillinger:v1';
 
@@ -25,6 +26,7 @@ export class SettingsBinding {
     s.bind('tak', view.ceilings, isBool);
     s.bind('umalte', view.measureHighlight, isBool);
     s.bind('kvalitet', view.quality, oneOf(QUALITIES));
+    s.bind('lys', view.light, oneOf(LIGHT_IDS));
     s.bind('bildefrekvens', view.xrRate, oneOf(XR_RATES));
     s.bind('snu', view.turn, oneOf(TURN_MODES));
     s.bind('snitthoyde', view.sectionHeight, isSection);
@@ -48,6 +50,7 @@ export class SettingsBinding {
     v.ceilings.set(true);
     v.measureHighlight.set(false);
     v.quality.set('medium');
+    v.light.set('dag');
     v.xrRate.set(90);
     v.turn.set(30);
     v.sectionHeight.set(null);

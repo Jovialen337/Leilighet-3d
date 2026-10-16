@@ -496,3 +496,55 @@ All six dimensions scored 8: visual quality, performance, options and control, i
    - Is there one partition between the hallway and the living room, with no skew warning in «Sjekk»?
    - Measure one wall with a tape and compare. **Please report the difference; the target is at most 2 cm.**
 5. **«Gå gjennom i VR»:** does it feel like the real apartment?
+
+## Phase 2d – «wow» graphics on the Quest 3 – 2026-10-16
+
+Goal from the user: «Do a graphics update. I want a wow experience when I put on the Quest 3!!!» One improvement round per [SCORING.md](SCORING.md); what was built is in PLAN.md «Phase 2d».
+
+### Research (round 1)
+
+**Research A (graphics), taken:**
+1. Baked daylight and ambient occlusion in the vertex colours. It replaces the room shade meshes, so there are 2 fewer draw calls per eye.
+2. Sun patches through the windows. Also built: patches up the walls, the mullion's shadow, and «screen» blending.
+3. An outdoor view and believable glass. The sky clouds, horizon hills and tree line are in a shader plus one small texture instead of a 2048×1024 panorama: about 2.8 MB instead of 11 MB, and the colours follow «Lys». Grass on the ground. Fresnel glass.
+5. The entrance moment: fade from black, exposure rise, and a short black on «Gå til rom».
+6. Sharpness per preset: foveation and resolution on «Høy». Foveation applies at once.
+
+**Research A, not taken this round:** procedural surface detail (4), the controller mesh merge (7) and floor reflections (8). They are listed as later work in PLAN.md.
+
+**Research B (options and control), taken:**
+1. Fade, plus facing the longest view. This is computed from the walls and openings, so it stays data-driven.
+2. «Lys» (Morgen/Dag/Kveld). «Dag» is exactly the old lighting, so the lighting test still passes. It is on the laptop (with the L key) and in the VR menu, and saved per device.
+3. One graphics profile, as a pure function with a unit-tested matrix: passthrough never shows sky or effects; the 2D plan has no sun, sky or lamps.
+6. Budget guards in the tests: `stats()` now reports `drawCallsPerEye` and `textureBytes`. A browser test visits every room in four directions on «Standard» (morning, day and evening) and on «Høy» (evening).
+7. «Grafikk» and «Lys» moved to the top of «Visning» on the laptop; the help lists L.
+
+**Research B, not taken this round:** the quieter wrist panel (4), comfort options (5) and per-effect toggles (part of 3). They are listed as later work in PLAN.md.
+
+### How it was tested
+
+- **Unit tests** (all green):
+  - the lighting presets: «Dag» is the old lighting; the morning sun is lower; the evening is darker with the lamps on;
+  - the grid keeps the surface area, and neighbouring triangles share the same corners along their edge (no cracks);
+  - the form factor checked against known cases (a large plane ≈ 1, behind = 0, a small window ≈ A/(πd²));
+  - the bake: bright 1 m in front of a window, darker at the back and in corners, within limits, unchanged outside;
+  - the sun patches: inside the window's room, on the floor or between floor and ceiling, window coordinates within 0–1, none when the sun is low or behind; and convex clipping;
+  - the rays fade to 0; the lamp glow sits on the ceiling and floor in the lamp's layer;
+  - the graphics profile for every quality in the laptop, 2D, VR and passthrough;
+  - the fade: black, then in, then hidden, with the exposure back at 1; a jump moves at once;
+  - the start direction: on the placeholder it looks through the openings (sightline > 5 m) rather than at the hallway wall (< 2.5 m), and sightlines stop at walls and windows but not at openings.
+- **Browser tests in the emulated Quest 3** (new file `graphics.spec.ts`):
+  - entering VR fades in and hides the sphere afterwards, faces +x, and «Gå til rom» goes black then fades in;
+  - every room in four directions: at most 40 draw calls per eye and at most 32 MB of textures on «Standard» (morning, day, evening) and «Høy» (evening);
+  - «Lys» in the VR menu: the evening lights the lamps and is remembered after a reload;
+  - on the PC: «Lys» and L, sun on «Standard», rays only on «Høy», flat colours on «Rask», no sun or sky in 2D;
+  - passthrough has no sky, sun, lamps or fade.
+
+  The existing tests were updated for the new start direction and the «Høy» message in VR.
+- **Screenshots** from the emulated Quest 3 compared before and after (at the start point, in the living room, and in the morning, day and evening).
+- **Numbers:**
+  - draw calls per eye at the start on «Standard»: 25 (was 32);
+  - living room: 16 on «Standard», 18 on «Høy», 14 in the evening;
+  - textures: about 8 MB (clouds 2.8 MB, grass 0.35 MB, plus the menu and wrist canvases);
+  - about 20 000 triangles;
+  - building the scene with the bake takes about 110 ms in the browser here.

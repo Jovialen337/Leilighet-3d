@@ -32,6 +32,9 @@ import { QUALITIES, type Quality, type TurnMode, type XRRate } from '../state/Vi
 import { WATER_FIXTURES } from '../schema/types';
 import { LAYER_GROUPS, LAYER_PRESETS, applyPreset, groupState, setGroup } from '../state/layerGroups';
 import { followFloor, placeAtSpawn, snapTurn, teleportTo } from './rig';
+import { Fade } from './fade';
+import { graphicsProfile } from '../scene/graphicsProfile';
+import { LIGHT_IDS, type LightId } from '../scene/lighting';
 
 export type XRSupport = 'checking' | 'supported' | 'unsupported' | 'insecure' | 'no-webxr';
 /** walk = VR; measure = oppmåling av fila; build = oppmåling av ny modell (begge gjennomsyn). */
@@ -65,6 +68,9 @@ export interface XRDebugState {
   floorUnderHead: number | null;
   menu: { open: boolean; tab: MenuTab; hovered: string | null };
   draw: { tool: string | null; points: number; hover: { x: number; h: number; z: number } | null };
+  /** Overgangen fra svart: hvor svart (0–1) og om den pågår. */
+  fade: { opacity: number; visible: boolean; active: boolean };
+  exposure: number;
 }
 
 export class XRManager {
@@ -101,7 +107,12 @@ export class XRManager {
   /** Aktivt tegneverktøy i VR (id fra DRAW_ITEMS), eller null. */
   private drawTool: string | null = null;
   /** Om denne VR-økten startet med «Høy» (høyere oppløsning kan bare settes før økten starter). */
-  private sessionHigh = false;
+  /** Oppløsningen VR-økten startet med (endres først neste gang). */
+  private sessionScale = 1;
+  /** Eksponeringen fra «Lys» (overgangen løfter mot denne). */
+  exposure = 1;
+  /** Overgang fra svart ved start og hopp. */
+  readonly fade: Fade;
   private aWasPressed = false;
   private lastHelp = 0;
   private bWasPressed = false;
@@ -142,6 +153,7 @@ export class XRManager {
 
     this.rig.name = 'spillerrigg';
     this.rig.add(this.camera);
+    this.fade = new Fade(this.camera);
     scene.add(this.rig);
 
     for (let i = 0; i < 2; i++) {
@@ -180,7 +192,7 @@ export class XRManager {
     const dirty = (): void => {
       this.menuDirty = true;
     };
-    for (const o of [view.ceilings, view.measureHighlight, view.fps, view.quality, view.turn, view.xrRate, view.showExisting, view.showPlanned, view.xray, view.circuit] as const)
+    for (const o of [view.ceilings, view.measureHighlight, view.fps, view.quality, view.light, view.turn, view.xrRate, view.showExisting, view.showPlanned, view.xray, view.circuit] as const)
       (o as { subscribe: (l: () => void) => void }).subscribe(dirty);
     view.xrRate.subscribe(() => void this.applyFrameRate());
     view.fps.subscribe(() => this.updateWristFps(), true);
@@ -216,8 +228,8 @@ export class XRManager {
     this.requestedMode = 'walk';
     try {
       // «Høy» grafikk: litt høyere oppløsning i VR (må settes før økten starter).
-      this.sessionHigh = this.view.quality.value === 'high';
-      this.renderer.xr.setFramebufferScaleFactor(this.sessionHigh ? 1.2 : 1);
+      this.sessionScale = this.profile().framebufferScale;
+      this.renderer.xr.setFramebufferScaleFactor(this.sessionScale);
       const session = await navigator.xr.requestSession('immersive-vr', {
         optionalFeatures: ['local-floor', 'bounded-floor'],
       });
@@ -226,6 +238,18 @@ export class XRManager {
     } catch (e) {
       this.error.set(`Kunne ikke starte VR: ${(e as Error).message}`);
     }
+  }
+
+  /** Beskjed når grafikkvalget endrer oppløsningen (gjelder fra neste VR-økt). */
+  private qualityNote(): string | null {
+    if (this.mode !== 'walk' || !this.presenting) return null;
+    const scale = this.profile().framebufferScale;
+    if (scale === this.sessionScale) return null;
+    return scale > this.sessionScale ? 'Skarpere nå – full oppløsning neste gang du går inn i VR.' : 'Oppløsningen endres neste gang du går inn i VR.';
+  }
+
+  private profile() {
+    return graphicsProfile({ quality: this.view.quality.value, top: false, passthrough: false });
   }
 
   /** Bildefrekvens fra innstillingene (eller ?hz= i adressen), hvis hodesettet støtter den. */
@@ -243,23 +267,28 @@ export class XRManager {
   goToRoom(roomId: string): boolean {
     const vp = this.getModel()?.roomViewpoint(roomId);
     if (!vp || !this.presenting || this.mode !== 'walk') return false;
-    placeAtSpawn(
-      this.rig,
-      this.camera.position,
-      this.camera.quaternion,
-      new THREE.Vector3(vp.position.x * MM, vp.level * MM, vp.position.z * MM),
-      vp.facing,
-    );
-    this.teleports++;
-    this.camera.getWorldPosition(this.head);
+    // Et langt hopp: kort svart, så fade inn på det nye stedet.
+    this.fade.jump(() => {
+      placeAtSpawn(
+        this.rig,
+        this.camera.position,
+        this.camera.quaternion,
+        new THREE.Vector3(vp.position.x * MM, vp.level * MM, vp.position.z * MM),
+        vp.facing,
+      );
+      this.teleports++;
+      this.camera.getWorldPosition(this.head);
+    });
     return true;
   }
 
   /** Tilbake til inngangsdøra. */
   goToStart(): boolean {
     if (!this.presenting || this.mode !== 'walk') return false;
-    this.spawn(this.camera.position, this.camera.quaternion);
-    this.camera.getWorldPosition(this.head);
+    this.fade.jump(() => {
+      this.spawn(this.camera.position, this.camera.quaternion);
+      this.camera.getWorldPosition(this.head);
+    });
     return true;
   }
 
@@ -334,12 +363,17 @@ export class XRManager {
       this.mode = 'walk';
       this.pendingSpawn = true;
       this.spawn(new THREE.Vector3(), new THREE.Quaternion());
+      // Inn fra svart: hopper til startpunktet de første bildene synes ikke.
+      this.fade.enter();
+      this.renderer.toneMappingExposure = this.exposure * this.fade.update(0);
     }
     this.view.inXR.set(true);
   }
 
   private onSessionEnd(): void {
     this.aiming = false;
+    this.fade.stop();
+    this.renderer.toneMappingExposure = this.exposure;
     this.setMenuOpen(false);
     // Tegning i VR avsluttes sammen med økten: et halvferdig strekk forkastes og
     // verktøyet går tilbake til «Velg» (et verktøy valgt på PC beholdes).
@@ -407,6 +441,7 @@ export class XRManager {
     }
 
     this.camera.getWorldPosition(this.head);
+    if (this.fade.active) this.renderer.toneMappingExposure = this.exposure * this.fade.update(dt);
 
     if (this.pendingSpawn && this.frames >= 3) {
       this.pendingSpawn = false;
@@ -490,6 +525,7 @@ export class XRManager {
       highlight: this.view.measureHighlight.value,
       fps: this.view.fps.value,
       quality: this.view.quality.value,
+      light: this.view.light.value,
       turn: this.view.turn.value,
       rate: this.view.xrRate.value,
       layers: this.view.layers.layers.map((l) => ({ id: l.id, name: l.name, visible: this.view.layers.isVisible(l.id) })),
@@ -506,10 +542,7 @@ export class XRManager {
       drawCircuit: this.plan?.options.value.circuit ?? null,
       filterCircuit: this.view.circuit.value,
       drawBlocked: !this.canDraw(),
-      qualityNote:
-        this.mode === 'walk' && this.presenting && (this.view.quality.value === 'high') !== this.sessionHigh
-          ? 'Skarpheten endres neste gang du går inn i VR.'
-          : null,
+      qualityNote: this.qualityNote(),
     };
   }
 
@@ -537,6 +570,9 @@ export class XRManager {
         break;
       case 'quality':
         if ((QUALITIES as readonly string[]).includes(arg)) v.quality.set(arg as Quality);
+        break;
+      case 'light':
+        if ((LIGHT_IDS as readonly string[]).includes(arg)) v.light.set(arg as LightId);
         break;
       case 'layer':
         v.layers.toggle(arg);
@@ -684,6 +720,11 @@ export class XRManager {
     return buildMenu(this.menuState()).labels;
   }
 
+  /** Knappene i menyen slik den ser ut nå (for tester). */
+  menuItemsNow(): { id: string; active: boolean }[] {
+    return buildMenu(this.menuState()).items.map((i) => ({ id: i.id, active: i.active }));
+  }
+
   /** Midtpunktet av en menyknapp i verden (for tester). */
   menuItemWorld(id: string): { x: number; y: number; z: number } | null {
     const p = this.menu.itemWorld(id);
@@ -825,6 +866,8 @@ export class XRManager {
         points: this.plan?.draft.points.length ?? 0,
         hover: this.plan?.hover ? { x: this.plan.hover.p.x, h: this.plan.hover.h, z: this.plan.hover.p.z } : null,
       },
+      fade: { opacity: this.fade.opacity, visible: this.fade.mesh.visible, active: this.fade.active },
+      exposure: this.renderer.toneMappingExposure,
     };
   }
 }

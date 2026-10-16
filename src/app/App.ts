@@ -12,8 +12,10 @@ import { ApartmentStore } from '../model/ApartmentStore';
 import type { ApartmentModel } from '../model/ApartmentModel';
 import { ApartmentScene, passes } from '../scene/ApartmentScene';
 import { Materials } from '../scene/materials';
-import { addLights, configureRenderer } from '../scene/lighting';
-import { createSky, setGroundLevel } from '../scene/sky';
+import { addLights, applyLights, configureRenderer, LIGHTS, type Lights } from '../scene/lighting';
+import { createSky, prepareSky, setGroundLevel, setSkyLight } from '../scene/sky';
+import { textureBytes } from '../scene/textureBudget';
+import { graphicsProfile } from '../scene/graphicsProfile';
 import { MM } from '../scene/geom';
 import { localStore } from '../state/persist';
 import { SettingsBinding } from '../state/settings';
@@ -51,6 +53,7 @@ export class App {
   readonly fps = new FpsMeter();
   readonly labels: Labels;
   readonly sky = createSky();
+  readonly lights: Lights;
   measure: MeasureSession | null = null;
   readonly settings: SettingsBinding;
   /** Tegnede endringer (el og vann) oppå fila, lagret lokalt. */
@@ -108,7 +111,7 @@ export class App {
     root.appendChild(this.renderer.domElement);
 
     this.scene.add(this.apartment.root);
-    addLights(this.scene);
+    this.lights = addLights(this.scene);
     this.scene.add(this.sky);
     this.scene.add(this.planOverlay.root);
 
@@ -467,7 +470,6 @@ export class App {
     this.scene.background = new THREE.Color(model.settings.backgroundColor);
     const lowest = Math.min(model.lowestFloor, ...model.outdoor.map((a) => a.area.level));
     setGroundLevel(this.sky, (lowest - 30) * MM);
-    this.apartment.setShadesVisible(this.view.quality.value !== 'low');
     if (!this.loaded) this.desktop.fit(model);
     this.desktop.setSectionHeight(this.view.sectionHeight.value, model);
     this.loaded = true;
@@ -491,6 +493,7 @@ export class App {
     this.view.cameraMode.subscribe(() => this.applyCameraMode());
     this.view.dollhouse.subscribe(() => this.applyCameraMode());
     this.view.quality.subscribe(() => this.applyQuality());
+    this.view.light.subscribe(() => this.applyLight(), true);
     const filter = (): void =>
       this.apartment.setFilter({ existing: this.view.showExisting.value, planned: this.view.showPlanned.value, circuit: this.view.circuit.value });
     this.view.showExisting.subscribe(filter);
@@ -528,21 +531,32 @@ export class App {
     this.applyQuality();
   }
 
-  /**
-   * Grafikkvalitet: «Rask» = bare modellen; «Standard» = + myke skygger og
-   * himmel; «Høy» = + skarpere bilde (høyere oppløsning, også i VR neste gang).
-   */
+  /** Grafikkvalitet og effekter etter grafikkprofilen (se graphicsProfile.ts). */
   private applyQuality(): void {
-    const q = this.view.quality.value;
-    const top = this.view.cameraMode.value === 'top' && !this.view.inXR.value;
-    this.apartment.setShadesVisible(q !== 'low');
-    this.sky.visible = q !== 'low' && !top && !this.xr.measuring.value;
+    const prof = graphicsProfile({
+      quality: this.view.quality.value,
+      top: this.view.cameraMode.value === 'top' && !this.view.inXR.value,
+      passthrough: this.xr.measuring.value,
+    });
+    this.apartment.setEffects(prof.effects);
+    if (prof.sky) prepareSky(this.sky);
+    this.sky.visible = prof.sky;
+    // Foveeringen kan endres mens man er i VR; oppløsningen settes når økten starter.
+    this.renderer.xr.setFoveation(prof.foveation);
     if (!this.renderer.xr.isPresenting) {
-      // «Høy» tegner med 1,5 × skjermens oppløsning (skarpere kanter), «Rask» med lav.
-      const dpr = window.devicePixelRatio || 1;
-      this.renderer.setPixelRatio(q === 'high' ? Math.min(dpr * 1.5, 3) : q === 'low' ? Math.min(dpr, 1.25) : Math.min(dpr, 2));
+      this.renderer.setPixelRatio(prof.pixelRatio(window.devicePixelRatio || 1));
       this.resize();
     }
+  }
+
+  /** «Lys» (morgen/dag/kveld): lysene, eksponeringen, himmelen, sola og lampene. */
+  private applyLight(): void {
+    const preset = LIGHTS[this.view.light.value];
+    applyLights(this.lights, preset);
+    configureRenderer(this.renderer, preset);
+    this.xr.exposure = preset.exposure;
+    setSkyLight(this.sky, preset);
+    this.apartment.setLight(preset);
   }
 
   /* ---------------- Tegning med mus og tastatur (PC) ---------------- */
@@ -690,6 +704,9 @@ export class App {
     const s = this.apartment.stats();
     return {
       drawCalls: info.render.calls,
+      // I VR tegnes hvert objekt én gang per øye.
+      drawCallsPerEye: info.render.calls / (this.renderer.xr.isPresenting ? 2 : 1),
+      textureBytes: textureBytes(this.scene, [this.materials.detail.detailMap.value]),
       trianglesRendered: info.render.triangles,
       mergedMeshes: s.meshes,
       sceneTriangles: s.triangles,

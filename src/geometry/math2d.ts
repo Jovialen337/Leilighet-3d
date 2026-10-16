@@ -124,3 +124,14 @@ export function distToSegment(p: P2, a: P2, b: P2): number {
   const t = Math.max(0, Math.min(1, dot(sub(p, a), ab) / l2));
   return dist(p, add(a, scale(ab, t)));
 }
+
+/** Korteste avstand mellom to polygoners kanter (0 når de berører hverandre). */
+export function polygonGap(a: readonly P2[], b: readonly P2[]): number {
+  let m = Infinity;
+  for (const [p, q] of [
+    [a, b],
+    [b, a],
+  ] as const)
+    for (const v of p) for (let i = 0; i < q.length; i++) m = Math.min(m, distToSegment(v, q[i]!, q[(i + 1) % q.length]!));
+  return m;
+}
