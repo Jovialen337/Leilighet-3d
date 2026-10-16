@@ -22,5 +22,5 @@ PS-REPORT v1 in three tool calls:
 
 Values: phase `plan|bygg|evaluer|fiks|ferdig`; item status `apen|pagar|venter|ferdig`; `summary` = 1–2 plain Norwegian sentences; `nextAfter` = one concrete next step in Norwegian.
 
-Then run `bash .claude/hooks/ps-report-check.sh mark` (the Stop hook asks once per session and per new commit until this is done).
+Report on your own; there is no Stop hook in this repo.
 <!-- PS-REPORT:END -->
