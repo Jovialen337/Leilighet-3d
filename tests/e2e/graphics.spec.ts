@@ -44,6 +44,7 @@ test('VR: tegnekall og teksturer i alle rom, på «Standard» og «Høy», dag o
   const runs = [
     { quality: 'medium', light: 'kveld', yaws: [0, Math.PI / 2, Math.PI, -Math.PI / 2] },
     { quality: 'medium', light: 'dag', yaws: [0] },
+    { quality: 'medium', light: 'morgen', yaws: [0] },
     { quality: 'high', light: 'kveld', yaws: [0] },
   ];
   for (const { quality, light, yaws } of runs) {

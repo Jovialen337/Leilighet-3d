@@ -18,7 +18,8 @@ jobs:
   build:
     name: Bygg og test
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Hele nettlesertestsuiten (laptop + emulert Quest 3, ~85 tester) tar ca. 22 min.
+    timeout-minutes: 35
     env:
       # GitHub Pages serverer prosjektet under /<repo-navn>/.
       VITE_BASE: /${{ github.event.repository.name }}/

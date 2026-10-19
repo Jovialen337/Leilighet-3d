@@ -27,17 +27,6 @@ export function inwardNormal(a: P2, b: P2, poly: readonly P2[]): P2 {
   return pointInPolygon(add(mid, scale(left, 20)), poly) ? left : { x: -left.x, z: -left.z };
 }
 
-/** Er hjørnet i polygonet «innvendig» (vinkel < 180° sett fra rommet)? */
-export function isInnerCorner(poly: readonly P2[], i: number): boolean {
-  const n = poly.length;
-  const v = poly[i]!;
-  const p = poly[(i + n - 1) % n]!;
-  const q = poly[(i + 1) % n]!;
-  const bis = add(normalize(sub(p, v)), normalize(sub(q, v)));
-  if (len(bis) < 1e-6) return false;
-  return pointInPolygon(add(v, scale(normalize(bis), 30)), poly);
-}
-
 /**
  * Stykkene av kanten a→b som har en vegg (en veggflate langs kanten).
  * Åpne overganger mellom rom (f.eks. to nivåer på badet) har ingen vegg –

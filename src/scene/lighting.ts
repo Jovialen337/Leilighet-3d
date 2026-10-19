@@ -13,6 +13,7 @@
  * så lyssettingen kan testes uten GPU.
  */
 import * as THREE from 'three';
+import type { BakeMix } from './bake';
 
 export type LightId = 'morgen' | 'dag' | 'kveld';
 export const LIGHT_IDS: readonly LightId[] = ['morgen', 'dag', 'kveld'];
@@ -32,6 +33,8 @@ export interface LightPreset {
   sun: { color: string; strength: number };
   /** Lampene lyser (0 = av, 1 = fullt). */
   lamps: number;
+  /** Hvor mye av det bakte grunnlyset, dagslyset fra vinduene og lampelyset som brukes. */
+  bake: BakeMix;
 }
 
 export const LIGHTS: Record<LightId, LightPreset> = {
@@ -43,6 +46,7 @@ export const LIGHTS: Record<LightId, LightPreset> = {
     sky: { zenith: '#7da9dc', horizon: '#f6dcc4', glow: '#ffd2a1', hills: '#8f9aa6', clouds: '#fff1e2' },
     sun: { color: '#ffd6a6', strength: 0.8 },
     lamps: 0,
+    bake: { ambient: 1, window: 0.9, lamp: 0 },
   },
   dag: {
     hemi: { sky: '#ffffff', ground: '#efe9df', intensity: 2.35 },
@@ -52,15 +56,17 @@ export const LIGHTS: Record<LightId, LightPreset> = {
     sky: { zenith: '#6fa6e0', horizon: '#e6edf1', glow: '#fff6e0', hills: '#9aa8a6', clouds: '#ffffff' },
     sun: { color: '#ffe6c0', strength: 0.75 },
     lamps: 0,
+    bake: { ambient: 1, window: 1, lamp: 0 },
   },
   kveld: {
-    hemi: { sky: '#d9d6e0', ground: '#e6d2bb', intensity: 1.7 },
+    hemi: { sky: '#d9d6e0', ground: '#e6d2bb', intensity: 1.1 },
     key: { color: '#ffd2a6', intensity: 0.8, from: [1.6, 0.75, 4] },
     fill: { color: '#cdd6f0', intensity: 0.35, from: [-4, 1.5, -3] },
     exposure: 1.0,
     sky: { zenith: '#3f5f9a', horizon: '#f2a46e', glow: '#ff9a50', hills: '#5c5f78', clouds: '#ffc9a0' },
     sun: { color: '#ffbb80', strength: 0.75 },
     lamps: 1,
+    bake: { ambient: 0.85, window: 0.3, lamp: 1 },
   },
 };
 

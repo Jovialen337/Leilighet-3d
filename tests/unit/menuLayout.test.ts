@@ -58,8 +58,8 @@ describe('VR-menyen', () => {
   });
 
   it('beskjed om skarphet vises under grafikkvalget', () => {
-    expect(buildMenu({ ...state('visning', 13), qualityNote: 'Skarpheten endres neste gang du går inn i VR.' }).labels.map((l) => l.text)).toContain(
-      'Skarpheten endres neste gang du går inn i VR.',
+    expect(buildMenu({ ...state('visning', 13), qualityNote: 'Skarpere nå – full oppløsning neste gang du går inn i VR.' }).labels.map((l) => l.text)).toContain(
+      'Skarpere nå – full oppløsning neste gang du går inn i VR.',
     );
   });
 });

@@ -116,6 +116,8 @@ test('PC: kabler og rør synes i 2D-planen også over snitthøyden', async ({ pa
 });
 
 test('VR: tegn et kaldtvannsrør på veggen med strålen, avslutt med A og angre med B', async ({ page }) => {
+  // Langt scenario i emulert Quest 3: tar 40–50 s på en travel maskin.
+  test.setTimeout(90_000);
   const errors = collectErrors(page);
   await enterVR(page);
   await press(page, 'left', 'x-button');

@@ -16,8 +16,10 @@
  */
 import * as THREE from 'three';
 import { frameAt, type ApartmentModel, type RoomInfo } from '../model/ApartmentModel';
+import { polygonGap } from '../geometry/math2d';
 import { roomEdges } from './roomEdges';
 import { MM } from './geom';
+import { WINDOW_FRAME } from './buildParts';
 
 export interface V3 {
   x: number;
@@ -25,8 +27,6 @@ export interface V3 {
   z: number;
 }
 
-/** Karmbredden i vinduene (samme som i buildParts). */
-export const WINDOW_FRAME = 60;
 
 export const SUN_PATCH = {
   /** Hvor langt fra flaten flekken ligger (mm), så den ikke flimrer. */
@@ -220,39 +220,46 @@ export function sunPatches(model: ApartmentModel, towardSun: readonly [number, n
   const travel = sunTravel(towardSun);
   const out: SunPatch[] = [];
   for (const w of sunWindows(model, travel)) {
-    const surfaces = roomSurfaces(model, w.room);
-    surfaces.forEach((s, si) => {
-      let poly: Pt[] = s.region;
-      for (const ap of w.apertures) {
-        const q = ap.map((p) => project(p, travel, s));
-        if (q.some((x) => !x)) {
-          poly = [];
-          break;
-        }
-        poly = clipConvex(poly, q as Pt[]);
-        if (!poly.length) break;
-      }
-      if (poly.length < 3) return;
-      const lift = SUN_PATCH.lift;
-      const to3 = (p: Pt): V3 => addS(addS(addS(s.origin, s.ax, p.x), s.ay, p.y), s.normal, lift);
-      const tris = THREE.ShapeUtils.triangulateShape(
-        poly.map((p) => new THREE.Vector2(p.x, p.y)),
-        [],
-      );
-      const points: V3[] = [];
-      const uv: [number, number, number][] = [];
-      for (const tri of tris) {
-        for (const i of tri) {
-          const p = to3(poly[i!]!);
-          points.push(p);
-          const [u, v] = windowUv(w, p, travel);
-          uv.push([u, v, w.mullion]);
-        }
-      }
-      if (points.length) out.push({ window: w.id, room: w.room.room.id, points, uv, surface: si === 0 ? 'floor' : 'wall' });
-    });
+    // Lyset når også rom uten vegg imellom (f.eks. badets andre del).
+    const rooms = [...model.rooms.values()].filter((r) => r === w.room || polygonGap(r.polygon, w.room.polygon) < 5);
+    for (const room of rooms) roomPatches(model, w, room, travel, out);
   }
   return out;
+}
+
+/** Solflekkene fra ett vindu på gulvet og veggene i ett rom. */
+function roomPatches(model: ApartmentModel, w: WindowLight, room: RoomInfo, travel: V3, out: SunPatch[]): void {
+  const surfaces = roomSurfaces(model, room);
+  surfaces.forEach((s, si) => {
+    let poly: Pt[] = s.region;
+    for (const ap of w.apertures) {
+      const q = ap.map((p) => project(p, travel, s));
+      if (q.some((x) => !x)) {
+        poly = [];
+        break;
+      }
+      poly = clipConvex(poly, q as Pt[]);
+      if (!poly.length) break;
+    }
+    if (poly.length < 3) return;
+    const lift = SUN_PATCH.lift;
+    const to3 = (p: Pt): V3 => addS(addS(addS(s.origin, s.ax, p.x), s.ay, p.y), s.normal, lift);
+    const tris = THREE.ShapeUtils.triangulateShape(
+      poly.map((p) => new THREE.Vector2(p.x, p.y)),
+      [],
+    );
+    const points: V3[] = [];
+    const uv: [number, number, number][] = [];
+    for (const tri of tris) {
+      for (const i of tri) {
+        const p = to3(poly[i!]!);
+        points.push(p);
+        const [u, v] = windowUv(w, p, travel);
+        uv.push([u, v, w.mullion]);
+      }
+    }
+    if (points.length) out.push({ window: w.id, room: room.room.id, points, uv, surface: si === 0 ? 'floor' : 'wall' });
+  });
 }
 
 /** Solflekkene som én geometri per lag (meter), med `sunUv` (u, v, midtpost). */
@@ -324,6 +331,8 @@ export function buildSunShafts(model: ApartmentModel, towardSun: readonly [numbe
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(b.pos, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(b.col, 4));
+    // Normaler: strålene fades ut når en flate sees fra siden (materials.ts).
+    g.computeVertexNormals();
     g.computeBoundingSphere();
     out.set(layer, g);
   }

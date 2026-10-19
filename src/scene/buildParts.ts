@@ -14,7 +14,7 @@ import {
 import { add, centroid, p2, scale, type P2 } from '../geometry/math2d';
 import { planeY } from '../geometry/plane';
 import { buildWallGeometry } from './buildWall';
-import { roomEdges } from './roomEdges';
+import { roomEdges, type EdgePiece } from './roomEdges';
 import {
   GeoBuilder,
   UP,
@@ -65,8 +65,12 @@ export interface Part {
   circuit?: string;
 }
 
+/** Bredden på vinduskarmen (mm); sollyset (sunlight.ts) går gjennom glasset innenfor. */
+export const WINDOW_FRAME = 60;
+
 /** Fotlist og gerikter (mm). Bare presentasjon; plasseringen kommer fra fila. */
-export const TRIM = { skirtingHeight: 70, skirtingDepth: 12, casingWidth: 60, casingDepth: 12 } as const;
+/** Geriktene er tykkere enn fotlistene, så de ligger foran der de møtes (ingen flater oppå hverandre). */
+export const TRIM = { skirtingHeight: 70, skirtingDepth: 12, casingWidth: 60, casingDepth: 18 } as const;
 
 export const COLORS = {
   floor: '#b5a48f',
@@ -138,10 +142,13 @@ export function buildParts(model: ApartmentModel): Part[] {
     polygonSurface(ceil, info.polygon, (p) => planeY(info.plane, p.x, p.z), n);
     push({ id: room.id, kind: 'ceiling', layer, bucket: 'ceiling', pick: 'blocker', geometry: ceil.build(), color: col(room.ceiling.color ?? COLORS.ceiling) });
 
-    // Fotlist langs veggene, avbrutt ved dører og åpninger.
+    // Fotlist langs veggene, avbrutt ved dører og åpninger (og bak geriktene ved dører).
     const skirt = new GeoBuilder();
-    for (const e of roomEdges(model, info, true)) {
-      const l = Math.hypot(e.b.x - e.a.x, e.b.z - e.a.z);
+    for (const piece of roomEdges(model, info, true)) {
+      const e = behindCasings(model, piece);
+      // Lengden langs kanten (negativ hvis biten er borte bak geriktene).
+      const l = (e.b.x - e.a.x) * e.dir.x + (e.b.z - e.a.z) * e.dir.z;
+      if (l < 1) continue;
       const c = add(scale(add(e.a, e.b), 0.5), scale(e.inward, TRIM.skirtingDepth / 2));
       const yaw = Math.atan2(-e.dir.z, e.dir.x);
       skirt.addGeometry(boxGeo(l, TRIM.skirtingHeight, TRIM.skirtingDepth), placeMatrix(c.x, room.floorLevel + TRIM.skirtingHeight / 2, c.z, yaw));
@@ -317,7 +324,7 @@ function buildOpening(model: ApartmentModel, o: Opening, push: Push): void {
   }
 
   if (o.type === 'window') {
-    const fw = 60;
+    const fw = WINDOW_FRAME;
     const depth = Math.min(90, thick);
     const frame = new GeoBuilder();
     wallBox(frame, f, midU, span.bottom + fw / 2, midN, width, fw, depth);
@@ -361,6 +368,30 @@ function casing(f: WallFrame, span: { u0: number; u1: number; bottom: number; to
     wallBox(g, f, (span.u0 + span.u1) / 2, span.top + w / 2, n, span.u1 - span.u0, w, t);
   }
   return g.build();
+}
+
+/**
+ * Fotlisten stopper bak geriktene ved dører (ikke kant i kant med åpningen),
+ * så endene ikke ligger i samme plan som geriktens innerside.
+ */
+function behindCasings(model: ApartmentModel, e: EdgePiece): EdgePiece {
+  let a = e.a;
+  let b = e.b;
+  for (const o of model.data.openings) {
+    if (o.type !== 'door') continue;
+    const span = model.openingSpan(o);
+    if (!span) continue;
+    for (const n of [span.frame.nMin, span.frame.nMax]) {
+      for (const u of [span.u0, span.u1]) {
+        const p = frameAt(span.frame, u, n);
+        // Litt inn bak gerikten, så endeflaten ikke ligger i samme plan som gerikten.
+        const back = TRIM.casingWidth - 2;
+        if (Math.hypot(p.x - e.a.x, p.z - e.a.z) < 5) a = add(e.a, scale(e.dir, back));
+        if (Math.hypot(p.x - e.b.x, p.z - e.b.z) < 5) b = add(e.b, scale(e.dir, -back));
+      }
+    }
+  }
+  return { ...e, a, b };
 }
 
 /** Hjelper for tester: finn deler for et objekt. */

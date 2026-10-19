@@ -44,7 +44,7 @@ function lambertWithCutFaces(params: THREE.MeshLambertMaterialParameters, detail
         `#include <color_fragment>
 	if ( vSurf > 0.5 && detailAmount > 0.0 ) {
 		float layer = floor( vSurf - 0.5 );
-		float metres = layer < 0.5 ? ${DETAIL.woodMeters.toFixed(2)} : ${DETAIL.tileMeters.toFixed(2)};
+		float metres = layer < 0.5 ? ${DETAIL.woodMeters.toFixed(2)} : layer < 1.5 ? ${DETAIL.tileMeters.toFixed(2)} : ${DETAIL.vinylMeters.toFixed(2)};
 		float d = texture( detailMap, vec3( vDetailUv / metres, layer ) ).r;
 		diffuseColor.rgb *= mix( 1.0, 0.5 + d, detailAmount );
 	}`,
@@ -70,8 +70,8 @@ function glassMaterial(): THREE.MeshLambertMaterial {
 	{
 		float facing = abs( dot( normalize( vViewPosition ), normal ) );
 		float fres = pow( 1.0 - facing, 4.0 );
-		gl_FragColor.rgb = mix( gl_FragColor.rgb, vec3( 0.86, 0.92, 0.98 ), 0.35 + 0.4 * fres );
-		gl_FragColor.a = opacity * ( 0.08 + 0.5 * fres );
+		gl_FragColor.rgb = mix( gl_FragColor.rgb, vec3( 0.86, 0.92, 0.98 ), 0.1 + 0.45 * fres );
+		gl_FragColor.a = opacity * ( 0.05 + 0.35 * fres );
 	}`,
     );
   };
@@ -89,6 +89,34 @@ const SCREEN = {
   blendDst: THREE.OneMinusSrcColorFactor,
   premultipliedAlpha: true,
 } as const;
+
+/**
+ * Lysstråler (sunlight.ts): flater som lyser opp det bak. Sett på skrå
+ * fades de ut (etter vinkelen mot blikket), så det aldri blir en lys strek
+ * når man ser en flate rett fra siden.
+ */
+function shaftMaterial(): THREE.MeshBasicMaterial {
+  const m = new THREE.MeshBasicMaterial({
+    vertexColors: true,
+    transparent: true,
+    ...SCREEN,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    toneMapped: false,
+  });
+  m.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vShaftN;\nvarying vec3 vShaftV;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\n\tvShaftN = normalize( normalMatrix * normal );\n\tvShaftV = - mvPosition.xyz;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vShaftN;\nvarying vec3 vShaftV;')
+      .replace(
+        '#include <alphamap_fragment>',
+        '#include <alphamap_fragment>\n\tdiffuseColor.a *= smoothstep( 0.15, 0.6, abs( dot( normalize( vShaftV ), normalize( vShaftN ) ) ) );',
+      );
+  };
+  return m;
+}
 
 /**
  * Solflekker (sunlight.ts): lyser opp fargen under («skjerm»). Hjørnene har
@@ -152,17 +180,7 @@ export class Materials {
   /** Solflekker gjennom vinduene. */
   readonly sun = sunPatchMaterial();
   /** Lysstråler: hvitt med alfa per hjørne, lyser opp det bak («skjerm»). */
-  readonly glow = new THREE.MeshBasicMaterial({
-    vertexColors: true,
-    transparent: true,
-    ...SCREEN,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-    polygonOffset: true,
-    polygonOffsetFactor: -1,
-    polygonOffsetUnits: -4,
-    toneMapped: false,
-  });
+  readonly glow = shaftMaterial();
   /** Lampelys om kvelden (varmt, «skjerm»). */
   readonly lamp = new THREE.MeshBasicMaterial({
     color: '#ffc98a',

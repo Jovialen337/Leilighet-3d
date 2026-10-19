@@ -365,7 +365,10 @@ Other details:
 
 ## Phase 2d – «wow» graphics on the Quest 3
 
-Goal: «I want a wow experience when I put on the Quest 3». Scored per [SCORING.md](SCORING.md); the round is recorded in [QA.md](QA.md). Everything stays within the Quest 3 budget on «Standard»: **at most 25 draw calls per eye at the start** (was 32), at most 40 in every room and every light, about 8 MB of textures (limit 32 MB), and nothing new per frame.
+Goal: «I want a wow experience when I put on the Quest 3». Scored per [SCORING.md](SCORING.md); the round is recorded in [QA.md](QA.md). It stays within the Quest 3 budget on «Standard» with the real `apartment.json`, as measured by the gatekeeper:
+- **draw calls per eye:** 32 at the start (unchanged, though the view now looks through the whole apartment), at most 33 in any room and direction (limit 40);
+- **textures:** about 10 MB (limit 32 MB);
+- **per frame:** nothing new.
 
 ### The first seconds in VR
 
@@ -379,7 +382,19 @@ Goal: «I want a wow experience when I put on the Quest 3». Scored per [SCORING
   - **light from each window in the room**, from how much of the window the point «sees» (the window's form factor). Points facing a window are bright, and the light falls off into the room;
   - **reflected light:** rooms with more window area are brighter all over, and a share of the light from rooms you can see into (open transitions, doors and openings) is added;
   - **darker edges and corners:** floors and ceilings along the walls, walls near the floor, ceiling and inner corners, and the bottom of furniture.
-  - The grid follows fixed world lines, so neighbouring surfaces share corners (no cracks). Building takes about 70 ms on this machine (estimated 150–250 ms on the Quest), only when the model changes. «Rask» shows the flat colours from the file.
+  - **lamp light:** each lamp point («light» fixture) lights the room it hangs in, most of all straight below, falling off with distance.
+  - The three parts (base light, daylight from the windows, lamp light) are stored separately for every corner. «Lys» mixes them again on the CPU when it changes: no new bake, no new shader and no new draw calls. The bright end flattens out softly (at most 1.3), so walls never go flat white.
+  - The grid follows fixed world lines, so neighbouring surfaces share corners (no cracks).
+  - **When it is baked:**
+    - The bake runs only when it is needed (never on «Rask»).
+    - It is cached per part: when the model changes, only parts whose own geometry changed, or whose rooms, walls or openings changed, are baked again.
+    - Merged meshes made of exactly the same parts as last time are reused, so drawing a cable or a pipe merges only the el/vann mesh again.
+    - A rebuild takes about 20 ms in the browser on this machine (about 70 ms at 4× CPU slowdown). Before phase 2d it took about 40 ms; in round 1, about 120 ms.
+    - Unit tests check that a cached rebuild takes under 60 % of a full bake, and that the walls, floors and ceilings keep the same meshes when you draw.
+  - **No surfaces on top of each other:**
+    - A wall end that is covered by another wall's face in the same plane (at flush corners) is not drawn.
+    - Door casings are thicker than the skirting, and the skirting stops behind them.
+    - Otherwise two faces with slightly different baked light would flicker; a test checks that no visible wall faces overlap.
 - **Sun patches through the windows** (`sunlight.ts`). The sun shines through each window that faces it. The glass and the hole in the wall on both sides are projected along the sun's rays onto the floor and walls of the room and clipped to what is lit through all three, so the patch has the window's shape, with the mullion's shadow and soft edges. The patches go up the far wall when the sun is low, and are cut at doors and openings (the light goes through). One draw call. «Screen» blending, so patches on white walls never burn out.
 - **Light rays («Høy» only):** faint columns from the glass into the room that fade out before they reach the floor.
 
@@ -387,14 +402,27 @@ Goal: «I want a wow experience when I put on the Quest 3». Scored per [SCORING
 
 - **Sky shader:** gradient from horizon to zenith, a glow and a sun disc where the sun is, soft clouds (one 1024×512 texture made in code), and distant hills and a tree line along the horizon, computed in the shader with no geometry (so the «geometry only from `apartment.json`» gate holds).
 - **Ground:** grass with a little unevenness (a 256² tiling texture made in code).
-- **Glass:** almost clear straight on, more reflection of the sky at an angle (Fresnel), instead of blue panes.
+- **Glass:** almost clear straight on, with a little reflection of the sky at a steep angle (Fresnel), instead of blue panes. The outside stays visible at 60–70°.
 - The textures are made the first time the sky is shown (never on «Rask»).
+
+### Floors
+
+- **Wood boards** (150 mm wide, 1.2 m long, staggered joints, grain, a slightly different tone per board), **tiles** (200 mm, grout lines) and a calm **vinyl** (soft mottling, no lines), from one small texture made in code. It has three layers, 1024², grey only, with mipmaps: 4.2 MB.
+- The pattern multiplies the colour from the file, so the room keeps its colour, and it lies in world coordinates.
+- **Which floor gets which:**
+  - **tiles** in rooms with a floor drain, and in rooms with no wall to them (the raised part of the bathroom);
+  - **wood** where the floor colour looks like wood (hue 15–50°, not grey);
+  - **vinyl** everywhere else. The grey-green grow room and the grey kitchen get no wood boards.
+- A `room.floorFinish` field can replace this rule later (see «Ideas backlog», floor types).
 
 ### «Lys»: morning, day, evening
 
 - **«Morgen»:** a low, warm sun from the east (the entrance side), long patches up the living room's back wall, a warm horizon.
 - **«Dag»** (default): exactly the lighting from phase 2b, with the sun through the front windows.
-- **«Kveld»:** a low sun from the west, an orange sky, a darker and warmer interior, and the **lamps lit**: a warm glow on the ceiling around each lamp point and a pool of light on the floor below (from the «light» fixtures in the file).
+- **«Kveld»:** a low sun from the west, an orange sky and a darker, warmer interior.
+  - Daylight from the windows is cut to 30 %, and the hemisphere light from 1.7 to 1.1. The start view is about half as bright as the day.
+  - The **lamps are lit:** the lamp's underside glows, and its light is baked into the room. A warm glow on the ceiling follows the ceiling, even when it slopes, and a pool of light lies on the floor below. Both stop at the room's walls.
+  - The light belongs to the room's layer, so layer choices for el do not switch the evening light off, and it follows the existing, planned and circuit filters.
 - The compass direction is an assumption (the entrance wall faces east, −z). A `settings.north` field can come later.
 - **Where:** «Lys» on the laptop (under «Visning», next to «Grafikk»), the **L** key cycles it, and «Lys» in the VR menu (X → Visning). Saved per device like the other settings.
 
@@ -407,6 +435,7 @@ One pure function, `graphicsProfile` (`src/scene/graphicsProfile.ts`), decides w
 | Baked daylight | – | ✓ | ✓ |
 | Sun patches, sky, lamps (evening) | – | ✓ | ✓ |
 | Contact shadows under furniture | – | ✓ | ✓ |
+| Wood floors and tiles | – | ✓ | ✓ |
 | Light rays | – | – | ✓ |
 | VR resolution | 1.0 | 1.0 | 1.3 (next time you enter VR) |
 | VR foveation (blur at the edges) | 1.0 | 1.0 | 0.25 (applies at once) |
@@ -417,7 +446,7 @@ One pure function, `graphicsProfile` (`src/scene/graphicsProfile.ts`), decides w
 
 ### Later work (graphics)
 
-- Procedural surface detail (wood floor, tiles, paint) in one small texture array: a real depth cue in VR (Research A, proposal 4).
+- Wall finishes in the same texture array as the floors (paint, wallpaper, wet-room tiles); see «Ideas backlog».
 - Floor reflections on «Høy» (one cube map per room).
 - A `settings.north` field so «Lys» follows the real compass; «Natt».
 - A quieter wrist panel that shows the room you are in; comfort options (seated mode, vignette during smooth turning) – Research B, proposals 4–5.
@@ -618,7 +647,7 @@ src/
 ```
 
 - **Single source of truth:** `ApartmentStore` holds the raw document (including `{value, measured}`). It validates, then builds an `ApartmentModel`. The scene is rebuilt from the model.
-- **Performance:** static geometry is merged into one mesh per (layer, material): about 20 meshes and 20 000 triangles for the whole apartment (the 30 cm grid for the baked light). The renderer uses Lambert materials with baked vertex colours, has no shadow maps, and uses hemisphere + two directional lights. That is about 25 draw calls per eye in VR at the start on «Standard» (at most 40 anywhere, checked by a browser test in every room).
+- **Performance:** static geometry is merged into one mesh per (layer, material): about 20 meshes and 20 000 triangles for the whole apartment (the 30 cm grid for the baked light). The renderer uses Lambert materials with baked vertex colours, has no shadow maps, and uses hemisphere + two directional lights. That is about 32 draw calls per eye in VR at the start on «Standard», and at most 40 anywhere, which a browser test checks in every room. When the model changes, only parts whose geometry or light (rooms, walls, openings) changed are baked again.
 - **Teleport:** a parabolic arc is raycast against per-object invisible proxies. Each segment is pre-filtered by bounding box. A landing is valid only on a floor (rooms, thresholds, outdoor areas), so both floor levels work. Walls, ceilings and furniture block the arc.
 - **Room-scale walking:** each frame the floor level under the head is looked up in the model and the rig height follows it smoothly. Walking physically up the step lifts you 180 mm.
 

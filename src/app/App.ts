@@ -500,7 +500,10 @@ export class App {
     this.view.showPlanned.subscribe(filter);
     this.view.circuit.subscribe(filter);
     filter();
-    this.view.xray.subscribe((on) => this.materials.setXray(on), true);
+    this.view.xray.subscribe((on) => {
+      this.materials.setXray(on);
+      this.applyQuality();
+    }, true);
     this.view.sectionHeight.subscribe((mm) => this.desktop.setSectionHeight(mm));
     this.view.ceilings.subscribe((v) => this.apartment.setCeilingsVisible(v));
     this.view.measureHighlight.subscribe((v) => this.apartment.setMeasureHighlight(v));
@@ -537,6 +540,7 @@ export class App {
       quality: this.view.quality.value,
       top: this.view.cameraMode.value === 'top' && !this.view.inXR.value,
       passthrough: this.xr.measuring.value,
+      xray: this.view.xray.value,
     });
     this.apartment.setEffects(prof.effects);
     if (prof.sky) prepareSky(this.sky);

@@ -1,22 +1,23 @@
 /**
- * Overflater på gulvet: tregulv med bord, fuger og årer, og fliser i rom
- * med sluk. Uten mønster ser flate farger like ut på alle avstander; med et
- * lite mønster ser øynene dybden og størrelsen i VR.
+ * Overflater på gulvet: tregulv med bord, fuger og årer, fliser i rom med
+ * sluk, og et rolig belegg (vinyl) på andre gulv. Uten mønster ser flate
+ * farger like ut på alle avstander; med et lite mønster ser øynene dybden og
+ * størrelsen i VR.
  *
  * - Mønsteret er gråtoner rundt 0,5 (0,5 = fargen fra fila), laget i koden
- *   (ingen bildefiler) i én liten tekstur med to lag (tre og fliser),
+ *   (ingen bildefiler) i én liten tekstur med tre lag (tre, fliser, belegg),
  *   med mipmaps så det ikke flimrer på avstand.
  * - Hvert hjørne i gulvet får et tall for overflaten (`surf`); skyggeleggeren
  *   (materials.ts) ganger fargen med mønsteret, lagt ut i verdenskoordinater.
  * - Hvilken overflate et gulv får, er presentasjon: rom med sluk får fliser,
- *   resten tregulv.
+ *   gulv med trefarge (brunt nok) får tregulv, resten belegg.
  */
 import * as THREE from 'three';
 import type { ApartmentModel } from '../model/ApartmentModel';
 import { pointInPolygon, polygonGap, p2 } from '../geometry/math2d';
 
 /** Overflatene (verdien i `surf`; lag i teksturen = verdi − 1). */
-export const SURF = { none: 0, wood: 1, tile: 2 } as const;
+export const SURF = { none: 0, wood: 1, tile: 2, vinyl: 3 } as const;
 export type Surf = (typeof SURF)[keyof typeof SURF];
 
 export const DETAIL = {
@@ -24,6 +25,7 @@ export const DETAIL = {
   size: 1024,
   woodMeters: 2.4,
   tileMeters: 1.2,
+  vinylMeters: 1.2,
   /** Bordbredde og -lengde, og flisene (mm). */
   plank: 150,
   plankLength: 1200,
@@ -78,7 +80,7 @@ const seam = (d: number, half: number, px: number, depth: number): number => {
  * [tre, fliser], hvert `size × size`. Fliser sømløst.
  */
 export function detailLayers(size: number = DETAIL.size): Uint8Array {
-  const out = new Uint8Array(size * size * 2);
+  const out = new Uint8Array(size * size * 3);
   const put = (i: number, val: number): void => {
     out[i] = val <= 0 ? 0 : val >= 1 ? 255 : (val * 255 + 0.5) | 0;
   };
@@ -135,13 +137,46 @@ export function detailLayers(size: number = DETAIL.size): Uint8Array {
       put(base + y * size + x, tone * seam(Math.min(colDist[x]!, rowDist), DETAIL.grout / 2, pxT, 0.72));
     }
   }
+  // Belegg: rolige, store skyer og fine prikker (ingen linjer).
+  const vbase = 2 * size * size;
+  // Glatt støy som går rundt: et rutenett med tilfeldige tall, glatt mellom punktene.
+  const lattice = (c: number, k: number): Float32Array => {
+    const g = new Float32Array(c * c);
+    for (let j = 0; j < c; j++) for (let i = 0; i < c; i++) g[j * c + i] = hash(i * 131 + j * 7919 + k * 104729);
+    return g;
+  };
+  const layers = [
+    { c: 8, amp: 0.06, g: lattice(8, 0) },
+    { c: 32, amp: 0.035, g: lattice(32, 1) },
+  ];
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      let val = 0.5 + 0.03 * (hash(x * 977 + y * 131 + 7) - 0.5);
+      for (const { c, amp, g } of layers) {
+        const fx = (x / size) * c;
+        const fy = (y / size) * c;
+        const ix = Math.floor(fx);
+        const iy = Math.floor(fy);
+        const tx = fx - ix;
+        const ty = fy - iy;
+        const sx = tx * tx * (3 - 2 * tx);
+        const sy = ty * ty * (3 - 2 * ty);
+        const i1 = (ix + 1) % c;
+        const j1 = (iy + 1) % c;
+        const a = g[iy * c + ix]! + (g[iy * c + i1]! - g[iy * c + ix]!) * sx;
+        const b = g[j1 * c + ix]! + (g[j1 * c + i1]! - g[j1 * c + ix]!) * sx;
+        val += amp * (a + (b - a) * sy - 0.5);
+      }
+      put(vbase + y * size + x, val);
+    }
+  }
   return out;
 }
 
-/** Teksturen med begge lagene (mipmaps, skarp på skrå med anisotropi). */
+/** Teksturen med alle lagene (mipmaps, skarp på skrå med anisotropi). */
 export function detailTexture(): THREE.DataArrayTexture {
   const size = DETAIL.size;
-  const tex = new THREE.DataArrayTexture(detailLayers(size), size, size, 2);
+  const tex = new THREE.DataArrayTexture(detailLayers(size), size, size, 3);
   tex.format = THREE.RedFormat;
   tex.type = THREE.UnsignedByteType;
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
@@ -154,11 +189,20 @@ export function detailTexture(): THREE.DataArrayTexture {
   return tex;
 }
 
+/** Ser fargen ut som tre (brun-gul tone, ikke grå)? */
+export function woodLike(hex: string): boolean {
+  const hsl = { h: 0, s: 0, l: 0 };
+  new THREE.Color(hex).getHSL(hsl);
+  const deg = hsl.h * 360;
+  return deg >= 15 && deg <= 50 && hsl.s > 0.18 && hsl.l > 0.2 && hsl.l < 0.85;
+}
+
 /**
  * Overflaten på gulvet i et rom: fliser der det er sluk i gulvet – også i en
- * del av rommet uten vegg imellom (f.eks. badets hevede del) – ellers tre.
+ * del av rommet uten vegg imellom (f.eks. badets hevede del) – tre der
+ * gulvfargen ser ut som tre, ellers belegg.
  */
-export function floorSurface(model: ApartmentModel, roomId: string): Surf {
+export function floorSurface(model: ApartmentModel, roomId: string, defaultColor = '#b5a48f'): Surf {
   const info = model.rooms.get(roomId);
   if (!info) return SURF.none;
   const wet = [...model.rooms.values()].filter((r) => r === info || polygonGap(r.polygon, info.polygon) < 5);
@@ -167,5 +211,5 @@ export function floorSurface(model: ApartmentModel, roomId: string): Surf {
     const pl = model.fixturePlacement(fx);
     if (pl && wet.some((r) => pointInPolygon(p2(pl.x, pl.z), r.polygon))) return SURF.tile;
   }
-  return SURF.wood;
+  return woodLike(info.room.floorColor ?? defaultColor) ? SURF.wood : SURF.vinyl;
 }

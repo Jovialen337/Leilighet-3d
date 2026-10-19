@@ -510,7 +510,9 @@ Goal from the user: «Do a graphics update. I want a wow experience when I put o
 5. The entrance moment: fade from black, exposure rise, and a short black on «Gå til rom».
 6. Sharpness per preset: foveation and resolution on «Høy». Foveation applies at once.
 
-**Research A, not taken this round:** procedural surface detail (4), the controller mesh merge (7) and floor reflections (8). They are listed as later work in PLAN.md.
+**Research A, also taken:** 4, procedural surface detail, for the floors only: wood boards, and tiles where there is a drain. Walls come later.
+
+**Research A, not taken this round:** the controller mesh merge (7) and floor reflections (8). They are listed as later work in PLAN.md.
 
 **Research B (options and control), taken:**
 1. Fade, plus facing the longest view. This is computed from the walls and openings, so it stays data-driven.
@@ -542,12 +544,44 @@ Goal from the user: «Do a graphics update. I want a wow experience when I put o
 
   The existing tests were updated for the new start direction and the «Høy» message in VR.
 - **Screenshots** from the emulated Quest 3 compared before and after (at the start point, in the living room, and in the morning, day and evening).
-- **Numbers:**
+- **Numbers** (on the placeholder; the gatekeeper's numbers on the real file are below):
   - draw calls per eye at the start on «Standard»: 25 (was 32);
   - living room: 16 on «Standard», 18 on «Høy», 14 in the evening;
-  - textures: about 8 MB (clouds 2.8 MB, grass 0.35 MB, plus the menu and wrist canvases);
+  - textures: about 10–11 MB (clouds 2.8 MB, floor pattern 2.8 MB, grass 0.35 MB, plus the menu and wrist canvases);
   - about 20 000 triangles;
   - building the scene with the bake takes about 110 ms in the browser here.
+
+### Gatekeeper (pass 1 at 0cdd44e, docs-only commits after it): **PASS**
+
+- **Checks:**
+  - typecheck, validate, 271 unit tests, the build and 82/82 browser tests all pass;
+  - 0 console errors or warnings in every combination of quality and light, on the laptop, in 2D and in VR, on the real file;
+  - CI is green.
+- **Budget on the real `apartment.json`** («Standard»):
+
+  | Measure | Result |
+  |---|---|
+  | Draw calls per eye, at the start | 32 |
+  | Draw calls per eye, worst | 33 (Dag, the hallway) |
+  | Draw calls per eye, Morgen and Kveld | 29 |
+  | Draw calls per eye, «Høy» | 30 |
+  | Draw calls per eye, «Rask» | 21 |
+  | Textures | 10.3 MB |
+  | Per-frame allocations | none |
+
+  Heavier effects are only on «Høy». The bake gives no NaN values and its factors stay within 0.40–1.45. Bad storage falls back to the defaults.
+- **Merged as PR #8** (d1d4529), at the user's request.
+- **Non-blocking remarks, all fixed in the follow-up:**
+  1. **Rebuilding the model was about 3× slower**, so every el/vann drawing re-baked everything. The bake is now cached per part and only redone when the part, or the rooms, walls or openings that light it, change. A rebuild after drawing a cable takes about 35 ms instead of about 90 ms, about the same as before the round. A unit test checks that it reuses unchanged parts and re-bakes when a window moves.
+  2. The docs disagreed with the code (floor pattern, texture MB). Fixed.
+  3. A stale comment. Fixed.
+  4. `isInnerCorner` was dead code. Removed.
+  5. The window frame width was in two places. Now one constant, `WINDOW_FRAME` in buildParts.
+  6. **Lamp light went past the walls and ignored the filters.** The glow now stops at the room's walls, and it follows the existing, planned and circuit filters. Both are tested.
+  7. **Sun patches only fell in the window's own room.** They now also land in rooms with no wall in between. The evening sun through the bathroom window now lights the rest of the bathroom (tested on the real file).
+  8. **In x-ray, sun patches lit up the see-through walls.** Sun, rays and lamps are now off in x-ray (the graphics profile, tested).
+  9. **In the VR menu, the «Høy» note was under «Lys».** It is now directly under «Grafikk».
+  10. **The wall grid does not line up with the floor grid on walls that are not axis-aligned.** No change needed: they are not in the same plane, so there are no cracks.
 
 ### Test on the Quest (phase 2d)
 1. **The first seconds:** «Gå inn i VR».
@@ -564,3 +598,72 @@ Goal from the user: «Do a graphics update. I want a wow experience when I put o
    - Is it sharper at once?
    - Are the faint light rays from the windows nice, or too much?
    - Does it still hold 90 fps after you leave VR and enter again?
+
+### Judge (round 1, scored at d1d4529): **7.25 – not accepted**
+
+| # | Item | Score | Verdict |
+|---|---|---|---|
+| 1 | Baked daylight and ambient occlusion | 6 | 🟡 Rebuilds are 3× slower; flicker in the bathroom corner; flat white walls by the glass wall |
+| 2 | Sun patches, rays, lamp glow | 7 | 🟡 A ray line seen edge-on; the lamp glow spills past the walls and sits on the el layer; patches show through x-ray |
+| 3 | Sky, ground, glass, floor pattern | 7 | 🟡 The glass turns milky at an angle; wood boards on the green grow-room floor; docs out of date |
+| 4 | «Lys» | 7 | 🟡 «Kveld» doesn't read as evening (no lamp light, same daylight); the «Høy» note sits in the wrong place |
+| 5 | VR entry | 8 | ✅ |
+| 6 | Profile, budget guards, tests, docs | 7 | 🟡 No test for rebuild time; docs disagree with the code; leftover code |
+
+Dimensions:
+- visual quality 7;
+- performance 7;
+- options and control 7;
+- intuitive use 8;
+- code quality 7;
+- robustness 8.
+
+Weighted total **7.25**. Another round is worth it (round 2 of 4).
+
+### Round 2 – the judge's list
+
+1. **Bake only what changed, and only when needed.**
+   - The bake and the grid are cached per part, and merged meshes made of the same parts are reused.
+   - Rebuilding after a drawing takes about **20 ms** in the browser here (target ≤ 50 ms) and about **72 ms** at 4× CPU slowdown (target ≤ 150 ms). Round 1 took 117–133 ms and 320–390 ms.
+   - Tests require a cached rebuild to take under 60 % of a full bake, and the building's meshes to be reused when you draw.
+   - Nothing is baked on «Rask».
+   - Measured on the real file in emulated VR, worst draw calls per eye in any room and direction:
+
+     | Setting | Draw calls per eye |
+     |---|---|
+     | Standard, Dag | 26 |
+     | Standard, Morgen | 25 |
+     | Standard, Kveld | 27 |
+     | Høy, Kveld | 29 |
+     | Rask | 17 |
+
+     Textures are 11.7 MB, with 0 console errors.
+2. **The bathroom flicker is gone.**
+   - Cause: a wall end in the same plane as another wall's face (at flush corners), and the casing and skirting sharing a front.
+   - Covered wall ends are no longer drawn, the casings are thicker than the skirting, and the skirting stops behind them.
+   - A test finds no visible wall faces on top of each other, in either file.
+3. **The bright end flattens softly** (at most 1.3, with a lower room fill). The day start view has 0 % of pixels above 245.
+4. **«Kveld» reads as evening.**
+   - The bake stores base light, daylight and lamp light separately, and «Lys» mixes them again.
+   - Kveld uses daylight ×0.3, hemisphere light 1.1, baked lamp light and a lit lamp face.
+   - The start view is **48 %** of the day brightness (target ≤ 65 %).
+   - The lamp area is the brightest part of the living room in the evening (tested).
+5. **Lamp light:**
+   - The glow stops at the walls, follows the sloped ceiling, sits on the room's layer and follows the filters.
+   - Sun, rays and lamps are off in x-ray.
+   - Sun patches continue into rooms with no wall in between.
+6. **Glass:** clearer at an angle; the outside is visible through the living room's side windows.
+7. **Rays:** they fade out when a face is seen from the side, so there is no bright line.
+8. **Floors:**
+   - wood only where the floor colour looks like wood;
+   - tiles where there is a floor drain;
+   - a calm vinyl elsewhere (a third texture layer).
+9. **Laptop and VR menu:**
+   - on the laptop, the long hint is split into one under «Grafikk» and one under «Lys»;
+   - in the VR menu, the «Høy» note is directly under «Grafikk».
+10. **Docs and code:**
+    - the docs match the code, and the numbers are measured on the real file;
+    - one `WINDOW_FRAME` constant; `isInnerCorner` removed; a stale comment fixed;
+    - new tests: rebuild speed, morning in the VR budget run, lamp light inside the room, and the evening mix.
+11. **Long VR scenarios:** the pipe-drawing test and the step-walking test now have 90 s limits, like the other long VR tests. Alone they take 40–47 s, so they timed out when the machine was busy with other work.
+12. **CI:** the job limit went from 20 to 35 minutes. The suite has about 85 tests: the PR #8 run took 19 minutes, and the first PR #9 run was cut off at test 71, with every test up to then passing.
