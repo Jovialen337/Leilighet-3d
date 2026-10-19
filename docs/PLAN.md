@@ -387,8 +387,10 @@ Goal: «I want a wow experience when I put on the Quest 3». Scored per [SCORING
   - The grid follows fixed world lines, so neighbouring surfaces share corners (no cracks).
   - **When it is baked:**
     - The bake runs only when it is needed (never on «Rask»).
-    - It is cached per part: when the model changes, only parts whose own geometry changed, or whose rooms, walls or openings changed, are baked again. Drawing a cable or a pipe rebuilds in about 35 ms instead of about 90 ms on this machine.
-    - A unit test checks that a cached rebuild takes under 60 % of a full bake.
+    - It is cached per part: when the model changes, only parts whose own geometry changed, or whose rooms, walls or openings changed, are baked again.
+    - Merged meshes made of exactly the same parts as last time are reused, so drawing a cable or a pipe merges only the el/vann mesh again.
+    - A rebuild takes about 20 ms in the browser on this machine (about 70 ms at 4× CPU slowdown). Before phase 2d it took about 40 ms; in round 1, about 120 ms.
+    - Unit tests check that a cached rebuild takes under 60 % of a full bake, and that the walls, floors and ceilings keep the same meshes when you draw.
   - **No surfaces on top of each other:**
     - A wall end that is covered by another wall's face in the same plane (at flush corners) is not drawn.
     - Door casings are thicker than the skirting, and the skirting stops behind them.

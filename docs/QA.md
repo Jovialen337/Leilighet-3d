@@ -623,9 +623,21 @@ Weighted total **7.25**. Another round is worth it (round 2 of 4).
 ### Round 2 – the judge's list
 
 1. **Bake only what changed, and only when needed.**
-   - The bake and the grid are cached per part.
-   - A cached rebuild after a drawing takes about 35 ms instead of about 90 ms; a test requires under 60 % of a full bake.
+   - The bake and the grid are cached per part, and merged meshes made of the same parts are reused.
+   - Rebuilding after a drawing takes about **20 ms** in the browser here (target ≤ 50 ms) and about **72 ms** at 4× CPU slowdown (target ≤ 150 ms). Round 1 took 117–133 ms and 320–390 ms.
+   - Tests require a cached rebuild to take under 60 % of a full bake, and the building's meshes to be reused when you draw.
    - Nothing is baked on «Rask».
+   - Measured on the real file in emulated VR, worst draw calls per eye in any room and direction:
+
+     | Setting | Draw calls per eye |
+     |---|---|
+     | Standard, Dag | 26 |
+     | Standard, Morgen | 25 |
+     | Standard, Kveld | 27 |
+     | Høy, Kveld | 29 |
+     | Rask | 17 |
+
+     Textures are 11.7 MB, with 0 console errors.
 2. **The bathroom flicker is gone.**
    - Cause: a wall end in the same plane as another wall's face (at flush corners), and the casing and skirting sharing a front.
    - Covered wall ends are no longer drawn, the casings are thicker than the skirting, and the skirting stops behind them.
@@ -654,3 +666,4 @@ Weighted total **7.25**. Another round is worth it (round 2 of 4).
     - one `WINDOW_FRAME` constant; `isInnerCorner` removed; a stale comment fixed;
     - new tests: rebuild speed, morning in the VR budget run, lamp light inside the room, and the evening mix.
 11. **Long VR scenarios:** the pipe-drawing test and the step-walking test now have 90 s limits, like the other long VR tests. Alone they take 40–47 s, so they timed out when the machine was busy with other work.
+12. **CI:** the job limit went from 20 to 35 minutes. The suite has about 85 tests: the PR #8 run took 19 minutes, and the first PR #9 run was cut off at test 71, with every test up to then passing.

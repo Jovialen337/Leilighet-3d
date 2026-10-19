@@ -468,6 +468,28 @@ describe('mønster på gulvet', () => {
   });
 });
 
+describe('meshene som ikke er endret, gjenbrukes', () => {
+  it('en ny kabel slår bare sammen kablenes mesh på nytt', () => {
+    const scene = new ApartmentScene(new Materials());
+    const doc = loadDoc();
+    scene.build(modelOf(doc));
+    const geoOf = (layer: string, bucket: string) => scene.merged.find((m) => m.layer === layer && m.bucket === bucket)?.mesh.geometry;
+    const wall = geoOf('structure', 'wall');
+    const solid = geoOf('structure', 'solid');
+    const wiredLayer = doc.wiring[0]!.layer;
+    const wires = geoOf(wiredLayer, 'lines');
+    const wired = loadDoc();
+    wired.wiring.push({ id: 'ny-kabel', layer: wiredLayer, status: 'planned', points: [[500, 300, 500], [900, 300, 500]] } as never);
+    scene.build(modelOf(wired));
+    expect(geoOf('structure', 'wall')).toBe(wall);
+    expect(geoOf('structure', 'solid')).toBe(solid);
+    expect(geoOf(wiredLayer, 'lines')).not.toBe(wires);
+    // Meshene ligger i lagene igjen, og områdene per objekt peker på dem.
+    expect(geoOf('structure', 'wall') && scene.layerGroups.get('structure')!.children.some((c) => (c as THREE.Mesh).geometry === wall)).toBe(true);
+    expect(scene.ranges.get('ny-kabel')?.[0]?.mesh.mesh.geometry).toBe(geoOf(wiredLayer, 'lines'));
+  });
+});
+
 describe('bakt lys gjenbrukes når modellen bygges på nytt', () => {
   const floorGeo = (scene: ApartmentScene): THREE.BufferGeometry =>
     scene.merged.find((m) => m.layer === 'structure' && m.bucket === 'solid')!.mesh.geometry;
@@ -492,6 +514,7 @@ describe('bakt lys gjenbrukes når modellen bygges på nytt', () => {
     expect(after.length).toBe(before.size);
     expect(after.every((t) => before.has(t))).toBe(true);
     expect(Array.from(floorGeo(scene).getAttribute('color').array as Float32Array)).toEqual(Array.from(colors));
+
 
     // Et vindu flyttes: lyset bakes på nytt (nye flater), og de gamle frigjøres.
     const moved = loadDoc();

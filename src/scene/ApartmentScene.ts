@@ -36,6 +36,8 @@ export interface MergedMesh {
   bakedColors: Float32Array;
   /** Det bakte lyset per hjørne, delt i grunnlys, dagslys og lampelys (null før det er bakt). */
   light: LightArrays | null;
+  /** Hva meshen er laget av (deler, farger, målestatus, lys); lik ved neste bygging = gjenbrukes. */
+  sig: string;
   measureColors: Float32Array;
 }
 
@@ -114,6 +116,10 @@ export class ApartmentScene {
   private baked = false;
   /** Overflaten på gulvet i hvert rom (tre eller fliser). */
   private readonly floorSurf = new Map<string, number>();
+  /** Nøkkel per del: type, id og kontrollsum av geometrien. */
+  private readonly partKeys = new Map<Part, string>();
+  /** Nøkkelen for det som lyser opp modellen (rom, vegger, åpninger) ved siste baking. */
+  private lightKey = '';
   private measureOn = false;
   private filter: PartFilter = NO_FILTER;
   /** Treffflatene i synlige lag; bygges på nytt bare når lag/tak endres (ikke hver ramme). */
@@ -129,6 +135,7 @@ export class ApartmentScene {
     this.model = model;
     this.parts = buildParts(model);
     for (const id of model.rooms.keys()) this.floorSurf.set(id, floorSurface(model, id, COLORS.floor));
+    for (const p of this.parts) this.partKeys.set(p, `${p.kind}|${p.id}|${geometryHash(p.geometry)}`);
     if (this.effects.baked) this.bakeParts(model);
 
     for (const layer of model.data.layers) {
@@ -166,12 +173,13 @@ export class ApartmentScene {
   /** Deler opp og baker lyset for delene; gjenbruker det som ikke er endret siden sist. */
   private bakeParts(model: ApartmentModel): void {
     const lightKey = bakeLightKey(model);
+    this.lightKey = lightKey;
     let baker: Baker | null = null;
     const next = new Map<string, { tess: THREE.BufferGeometry | null; bake: LightArrays }>();
     for (const p of this.parts) {
       if (p.bucket !== 'solid' && p.bucket !== 'wall' && p.bucket !== 'ceiling') continue;
       if (!BAKED_KINDS.has(p.kind)) continue;
-      const key = `${lightKey}|${p.kind}|${p.id}|${geometryHash(p.geometry)}`;
+      const key = `${lightKey}|${this.partKeys.get(p)}`;
       let entry = next.get(key) ?? this.bakeCache.get(key);
       if (!entry) {
         baker ??= new Baker(model);
@@ -206,12 +214,14 @@ export class ApartmentScene {
     }
   }
 
-  /** Slår sammen delene (som passerer filteret) til én mesh per lag og materiale. */
+  /**
+   * Slår sammen delene (som passerer filteret) til én mesh per lag og
+   * materiale. En mesh som er laget av nøyaktig de samme delene som sist
+   * (samme geometri, farge, målestatus og lys), gjenbrukes: tegner man et rør,
+   * bygges bare rørenes mesh på nytt, ikke vegger, gulv og tak.
+   */
   private merge(): void {
-    for (const m of this.merged) {
-      m.mesh.removeFromParent();
-      m.mesh.geometry.dispose();
-    }
+    const old = new Map(this.merged.map((m) => [`${m.layer}|${m.bucket}`, m]));
     this.merged.length = 0;
     this.ranges.clear();
     const buckets = new Map<string, Part[]>();
@@ -224,8 +234,41 @@ export class ApartmentScene {
     }
     for (const [key, list] of buckets) {
       const [layer, bucket] = key.split('|') as [string, Bucket];
-      this.mergeBucket(layer, bucket, list);
+      const sig = this.bucketSig(bucket, list);
+      const prev = old.get(key);
+      if (prev && prev.sig === sig) {
+        old.delete(key);
+        this.reuseBucket(prev, list);
+      } else this.mergeBucket(layer, bucket, list, sig);
     }
+    for (const m of old.values()) {
+      m.mesh.removeFromParent();
+      m.mesh.geometry.dispose();
+    }
+  }
+
+  /** Alt en sammenslått mesh avhenger av, som én streng. */
+  private bucketSig(bucket: Bucket, list: Part[]): string {
+    const baked = list.some((p) => this.render.has(p));
+    const head = `${bucket}|${baked ? this.lightKey : 'flat'}`;
+    return [
+      head,
+      ...list.map((p) => `${this.partKeys.get(p)}|${p.color.getHexString()}|${p.measure}|${p.kind === 'floor' ? (this.floorSurf.get(p.id) ?? 0) : ''}`),
+    ].join('\n');
+  }
+
+  /** Bruker en mesh fra forrige bygging igjen: bare plasseringen i laget og områdene per objekt. */
+  private reuseBucket(m: MergedMesh, list: Part[]): void {
+    let offset = 0;
+    for (const p of list) {
+      const n = (this.render.get(p)?.geo ?? p.geometry).getAttribute('position').count;
+      const ranges = this.ranges.get(p.id) ?? [];
+      ranges.push({ mesh: m, start: offset, count: n });
+      this.ranges.set(p.id, ranges);
+      offset += n;
+    }
+    this.merged.push(m);
+    this.layerGroups.get(m.layer)?.add(m.mesh);
   }
 
   /** Endrer filteret for installasjoner; slår sammen på nytt uten å bygge geometrien igjen. */
@@ -244,7 +287,7 @@ export class ApartmentScene {
     if (this.measureOn) this.setMeasureHighlight(true);
   }
 
-  private mergeBucket(layer: string, bucket: Bucket, list: Part[]): void {
+  private mergeBucket(layer: string, bucket: Bucket, list: Part[], sig: string): void {
     let count = 0;
     for (const p of list) count += (this.render.get(p)?.geo ?? p.geometry).getAttribute('position').count;
     const pos = new Float32Array(count * 3);
@@ -265,6 +308,7 @@ export class ApartmentScene {
       bakedColors,
       light,
       measureColors,
+      sig,
     };
     let offset = 0;
     for (const p of list) {
@@ -445,7 +489,8 @@ export class ApartmentScene {
   }
 
   clear(): void {
-    for (const m of this.merged) m.mesh.geometry.dispose();
+    // De sammenslåtte meshene beholdes til neste sammenslåing (de kan gjenbrukes).
+    for (const m of this.merged) m.mesh.removeFromParent();
     for (const m of [...this.shades, ...this.lightMeshes]) m.geometry.dispose();
     this.shades.length = 0;
     this.lightMeshes.length = 0;
@@ -454,7 +499,7 @@ export class ApartmentScene {
     this.baked = false;
     this.floorSurf.clear();
     for (const p of this.parts) p.geometry.dispose();
-    this.merged.length = 0;
+    this.partKeys.clear();
     this.proxies.length = 0;
     this.parts = [];
     this.ranges.clear();
