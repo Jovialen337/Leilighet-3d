@@ -316,16 +316,26 @@ describe('lampelys om kvelden', () => {
     const g = [...glow.values()][0]!;
     const c = g.getAttribute('color');
     const p = g.getAttribute('position');
+    const lamp = lamps[0]!;
+    const pl = model.fixturePlacement(lamp)!;
+    const info = model.roomAt({ x: pl.x, z: pl.z })!;
+    const floor = info.room.floorLevel;
     let max = 0;
-    const ys = new Set<number>();
+    const kinds = { floor: 0, bulb: 0, ceiling: 0 };
     for (let i = 0; i < c.count; i++) {
       max = Math.max(max, c.getW(i));
-      ys.add(Math.round(p.getY(i) * 1000));
+      const y = p.getY(i) * 1000;
+      const at = { x: p.getX(i) * 1000, z: p.getZ(i) * 1000 };
+      if (Math.abs(y - (floor + LAMP.lift)) < 0.5) kinds.floor++;
+      else if (Math.abs(y - (model.ceilingAt(info, at) - LAMP.lift)) < 0.5) kinds.ceiling++;
+      else kinds.bulb++;
     }
     // Selve lampa lyser sterkest.
     expect(max).toBeCloseTo(LAMP.bulb, 6);
-    // Tre høyder: gløden i taket, lampas underside og flekken på gulvet.
-    expect(ys.size).toBe(3);
+    // Gløden følger taket (også skrått), flekken ligger på gulvet, og lampas underside lyser.
+    expect(kinds.floor).toBeGreaterThan(0);
+    expect(kinds.ceiling).toBeGreaterThan(0);
+    expect(kinds.bulb).toBe(LAMP.segments * 3);
     expect([...buildLampGlow(model, 0.5).values()][0]!.getAttribute('color').getW(0)).toBeCloseTo(LAMP.halo.alpha / 2, 6);
   });
 });
@@ -631,5 +641,30 @@ describe('lampelyset bakes inn, og «Lys» blander lyset på nytt', () => {
     scene.setEffects({ shades: true, baked: true, sun: true, shafts: false, lamps: true, detail: true });
     expect(cache.size).toBe(0); // byttet ut med et nytt kart
     expect((scene as unknown as { bakeCache: Map<string, unknown> }).bakeCache.size).toBeGreaterThan(5);
+  });
+});
+
+describe('å bygge modellen på nytt etter en tegning går raskt', () => {
+  it('med lagret bakt lys tar det under 60 % av tiden det tar å bake alt', () => {
+    const doc = JSON.parse(readFileSync(PUBLISHED_PATH, 'utf8'));
+    const scene = new ApartmentScene(new Materials());
+    const time = (f: () => void): number => {
+      const t0 = performance.now();
+      f();
+      return performance.now() - t0;
+    };
+    const cache = () => scene as unknown as { bakeCache: Map<string, unknown> };
+    scene.build(modelOf(doc)); // varmer opp
+    let cold = 0;
+    let warm = 0;
+    for (let i = 0; i < 3; i++) {
+      cache().bakeCache = new Map();
+      cold += time(() => scene.build(modelOf(doc)));
+      // Ett nytt rørpunkt (som når man tegner): resten er uendret.
+      const drawn = JSON.parse(JSON.stringify(doc));
+      drawn.pipes = [...(drawn.pipes ?? []), { id: `nytt-ror-${i}`, layer: 'plumbing-planned', kind: 'cold', status: 'planned', points: [[1000, 300, 1000], [1500, 300, 1000]] }];
+      warm += time(() => scene.build(modelOf(drawn)));
+    }
+    expect(warm).toBeLessThan(cold * 0.6);
   });
 });

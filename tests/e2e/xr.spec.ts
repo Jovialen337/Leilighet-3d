@@ -73,6 +73,8 @@ test('snu 30° med høyre stikke, rundt hodet', async ({ page }) => {
 });
 
 test('går man fysisk opp trinnet, følger gulvhøyden etter', async ({ page }) => {
+  // 25 skritt med flere bilder hver: tar 40–50 s på en travel maskin.
+  test.setTimeout(90_000);
   await enterVR(page);
   // Gå mot +x i leiligheten (mot stua): retningen i det fysiske rommet følger riggens vinkel.
   const yaw = (await xrState(page)).rig.yaw;

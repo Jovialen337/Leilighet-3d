@@ -598,3 +598,59 @@ Goal from the user: «Do a graphics update. I want a wow experience when I put o
    - Is it sharper at once?
    - Are the faint light rays from the windows nice, or too much?
    - Does it still hold 90 fps after you leave VR and enter again?
+
+### Judge (round 1, scored at d1d4529): **7.25 – not accepted**
+
+| # | Item | Score | Verdict |
+|---|---|---|---|
+| 1 | Baked daylight and ambient occlusion | 6 | 🟡 Rebuilds are 3× slower; flicker in the bathroom corner; flat white walls by the glass wall |
+| 2 | Sun patches, rays, lamp glow | 7 | 🟡 A ray line seen edge-on; the lamp glow spills past the walls and sits on the el layer; patches show through x-ray |
+| 3 | Sky, ground, glass, floor pattern | 7 | 🟡 The glass turns milky at an angle; wood boards on the green grow-room floor; docs out of date |
+| 4 | «Lys» | 7 | 🟡 «Kveld» doesn't read as evening (no lamp light, same daylight); the «Høy» note sits in the wrong place |
+| 5 | VR entry | 8 | ✅ |
+| 6 | Profile, budget guards, tests, docs | 7 | 🟡 No test for rebuild time; docs disagree with the code; leftover code |
+
+Dimensions:
+- visual quality 7;
+- performance 7;
+- options and control 7;
+- intuitive use 8;
+- code quality 7;
+- robustness 8.
+
+Weighted total **7.25**. Another round is worth it (round 2 of 4).
+
+### Round 2 – the judge's list
+
+1. **Bake only what changed, and only when needed.**
+   - The bake and the grid are cached per part.
+   - A cached rebuild after a drawing takes about 35 ms instead of about 90 ms; a test requires under 60 % of a full bake.
+   - Nothing is baked on «Rask».
+2. **The bathroom flicker is gone.**
+   - Cause: a wall end in the same plane as another wall's face (at flush corners), and the casing and skirting sharing a front.
+   - Covered wall ends are no longer drawn, the casings are thicker than the skirting, and the skirting stops behind them.
+   - A test finds no visible wall faces on top of each other, in either file.
+3. **The bright end flattens softly** (at most 1.3, with a lower room fill). The day start view has 0 % of pixels above 245.
+4. **«Kveld» reads as evening.**
+   - The bake stores base light, daylight and lamp light separately, and «Lys» mixes them again.
+   - Kveld uses daylight ×0.3, hemisphere light 1.1, baked lamp light and a lit lamp face.
+   - The start view is **48 %** of the day brightness (target ≤ 65 %).
+   - The lamp area is the brightest part of the living room in the evening (tested).
+5. **Lamp light:**
+   - The glow stops at the walls, follows the sloped ceiling, sits on the room's layer and follows the filters.
+   - Sun, rays and lamps are off in x-ray.
+   - Sun patches continue into rooms with no wall in between.
+6. **Glass:** clearer at an angle; the outside is visible through the living room's side windows.
+7. **Rays:** they fade out when a face is seen from the side, so there is no bright line.
+8. **Floors:**
+   - wood only where the floor colour looks like wood;
+   - tiles where there is a floor drain;
+   - a calm vinyl elsewhere (a third texture layer).
+9. **Laptop and VR menu:**
+   - on the laptop, the long hint is split into one under «Grafikk» and one under «Lys»;
+   - in the VR menu, the «Høy» note is directly under «Grafikk».
+10. **Docs and code:**
+    - the docs match the code, and the numbers are measured on the real file;
+    - one `WINDOW_FRAME` constant; `isInnerCorner` removed; a stale comment fixed;
+    - new tests: rebuild speed, morning in the VR budget run, lamp light inside the room, and the evening mix.
+11. **Long VR scenarios:** the pipe-drawing test and the step-walking test now have 90 s limits, like the other long VR tests. Alone they take 40–47 s, so they timed out when the machine was busy with other work.

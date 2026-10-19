@@ -48,9 +48,20 @@ export function rayToEdge(c: P2, d: P2, poly: readonly P2[]): number {
 /**
  * Sirkel i planet med høyden `y` (mm): alfa `a` i midten, 0 ved radius `r`
  * (hjørnefarge RGBA). Med `room` stopper sirkelen ved kanten av rommet, og
- * alfaen der er det den ville vært i den avstanden.
+ * alfaen der er det den ville vært i den avstanden. Med `heightAt` følger
+ * sirkelen en skrå flate (taket) i stedet for å være vannrett.
  */
-function disc(pos: number[], col: number[], x: number, y: number, z: number, r: number, a: number, room?: readonly P2[]): void {
+function disc(
+  pos: number[],
+  col: number[],
+  x: number,
+  y: number,
+  z: number,
+  r: number,
+  a: number,
+  room?: readonly P2[],
+  heightAt?: (x: number, z: number) => number,
+): void {
   const n = LAMP.segments;
   const rim: { x: number; z: number; a: number }[] = [];
   for (let i = 0; i < n; i++) {
@@ -59,10 +70,12 @@ function disc(pos: number[], col: number[], x: number, y: number, z: number, r: 
     const reach = room ? Math.min(r, rayToEdge(p2(x, z), d, room)) : r;
     rim.push({ x: x + d.x * reach, z: z + d.z * reach, a: a * (1 - reach / r) });
   }
+  const h = (px: number, pz: number): number => (heightAt ? heightAt(px, pz) : y);
+  const yc = h(x, z);
   for (let i = 0; i < n; i++) {
     const p = rim[i]!;
     const q = rim[(i + 1) % n]!;
-    pos.push(x * MM, y * MM, z * MM, p.x * MM, y * MM, p.z * MM, q.x * MM, y * MM, q.z * MM);
+    pos.push(x * MM, yc * MM, z * MM, p.x * MM, h(p.x, p.z) * MM, p.z * MM, q.x * MM, h(q.x, q.z) * MM, q.z * MM);
     col.push(1, 1, 1, a, 1, 1, 1, p.a, 1, 1, 1, q.a);
   }
 }
@@ -86,7 +99,9 @@ export function buildLampGlow(
     let b = byLayer.get(layer);
     if (!b) byLayer.set(layer, (b = { pos: [], col: [] }));
     const room = info?.polygon;
-    disc(b.pos, b.col, pl.x, Math.min(ceiling, pl.y + 200) - LAMP.lift, pl.z, LAMP.halo.radius, LAMP.halo.alpha * strength, room);
+    // Gløden følger taket (som kan være skrått).
+    const underCeiling = info ? (px: number, pz: number): number => model.ceilingAt(info, p2(px, pz)) - LAMP.lift : undefined;
+    disc(b.pos, b.col, pl.x, Math.min(ceiling, pl.y + 200) - LAMP.lift, pl.z, LAMP.halo.radius, LAMP.halo.alpha * strength, room, underCeiling);
     disc(b.pos, b.col, pl.x, floor + LAMP.lift, pl.z, LAMP.pool.radius, LAMP.pool.alpha * strength, room);
     // Lampa selv: lys underside (jevnt lys, ikke fade ut mot kanten).
     const [w, h] = fixtureSize(fx);

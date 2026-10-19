@@ -382,7 +382,17 @@ Goal: «I want a wow experience when I put on the Quest 3». Scored per [SCORING
   - **light from each window in the room**, from how much of the window the point «sees» (the window's form factor). Points facing a window are bright, and the light falls off into the room;
   - **reflected light:** rooms with more window area are brighter all over, and a share of the light from rooms you can see into (open transitions, doors and openings) is added;
   - **darker edges and corners:** floors and ceilings along the walls, walls near the floor, ceiling and inner corners, and the bottom of furniture.
-  - The grid follows fixed world lines, so neighbouring surfaces share corners (no cracks). Building takes about 70 ms on this machine (estimated 150–250 ms on the Quest), only when the model changes. «Rask» shows the flat colours from the file.
+  - **lamp light:** each lamp point («light» fixture) lights the room it hangs in, most of all straight below, falling off with distance.
+  - The three parts (base light, daylight from the windows, lamp light) are stored separately for every corner. «Lys» mixes them again on the CPU when it changes: no new bake, no new shader and no new draw calls. The bright end flattens out softly (at most 1.3), so walls never go flat white.
+  - The grid follows fixed world lines, so neighbouring surfaces share corners (no cracks).
+  - **When it is baked:**
+    - The bake runs only when it is needed (never on «Rask»).
+    - It is cached per part: when the model changes, only parts whose own geometry changed, or whose rooms, walls or openings changed, are baked again. Drawing a cable or a pipe rebuilds in about 35 ms instead of about 90 ms on this machine.
+    - A unit test checks that a cached rebuild takes under 60 % of a full bake.
+  - **No surfaces on top of each other:**
+    - A wall end that is covered by another wall's face in the same plane (at flush corners) is not drawn.
+    - Door casings are thicker than the skirting, and the skirting stops behind them.
+    - Otherwise two faces with slightly different baked light would flicker; a test checks that no visible wall faces overlap.
 - **Sun patches through the windows** (`sunlight.ts`). The sun shines through each window that faces it. The glass and the hole in the wall on both sides are projected along the sun's rays onto the floor and walls of the room and clipped to what is lit through all three, so the patch has the window's shape, with the mullion's shadow and soft edges. The patches go up the far wall when the sun is low, and are cut at doors and openings (the light goes through). One draw call. «Screen» blending, so patches on white walls never burn out.
 - **Light rays («Høy» only):** faint columns from the glass into the room that fade out before they reach the floor.
 
@@ -390,20 +400,27 @@ Goal: «I want a wow experience when I put on the Quest 3». Scored per [SCORING
 
 - **Sky shader:** gradient from horizon to zenith, a glow and a sun disc where the sun is, soft clouds (one 1024×512 texture made in code), and distant hills and a tree line along the horizon, computed in the shader with no geometry (so the «geometry only from `apartment.json`» gate holds).
 - **Ground:** grass with a little unevenness (a 256² tiling texture made in code).
-- **Glass:** almost clear straight on, more reflection of the sky at an angle (Fresnel), instead of blue panes.
+- **Glass:** almost clear straight on, with a little reflection of the sky at a steep angle (Fresnel), instead of blue panes. The outside stays visible at 60–70°.
 - The textures are made the first time the sky is shown (never on «Rask»).
 
 ### Floors
 
-- **Wood boards** (150 mm wide, 1.2 m long, staggered joints, grain, a slightly different tone per board) and **tiles** (200 mm, grout lines), from one small texture made in code. It has two layers, 1024², grey only, with mipmaps: 2.8 MB.
+- **Wood boards** (150 mm wide, 1.2 m long, staggered joints, grain, a slightly different tone per board), **tiles** (200 mm, grout lines) and a calm **vinyl** (soft mottling, no lines), from one small texture made in code. It has three layers, 1024², grey only, with mipmaps: 4.2 MB.
 - The pattern multiplies the colour from the file, so the room keeps its colour, and it lies in world coordinates.
-- **Tiles** in rooms with a floor drain and in rooms with no wall to them (the raised part of the bathroom). Wood everywhere else. A `room.floorFinish` field can replace this rule later (see «Ideas backlog», floor types).
+- **Which floor gets which:**
+  - **tiles** in rooms with a floor drain, and in rooms with no wall to them (the raised part of the bathroom);
+  - **wood** where the floor colour looks like wood (hue 15–50°, not grey);
+  - **vinyl** everywhere else. The grey-green grow room and the grey kitchen get no wood boards.
+- A `room.floorFinish` field can replace this rule later (see «Ideas backlog», floor types).
 
 ### «Lys»: morning, day, evening
 
 - **«Morgen»:** a low, warm sun from the east (the entrance side), long patches up the living room's back wall, a warm horizon.
 - **«Dag»** (default): exactly the lighting from phase 2b, with the sun through the front windows.
-- **«Kveld»:** a low sun from the west, an orange sky, a darker and warmer interior, and the **lamps lit**: a warm glow on the ceiling around each lamp point and a pool of light on the floor below (from the «light» fixtures in the file).
+- **«Kveld»:** a low sun from the west, an orange sky and a darker, warmer interior.
+  - Daylight from the windows is cut to 30 %, and the hemisphere light from 1.7 to 1.1. The start view is about half as bright as the day.
+  - The **lamps are lit:** the lamp's underside glows, and its light is baked into the room. A warm glow on the ceiling follows the ceiling, even when it slopes, and a pool of light lies on the floor below. Both stop at the room's walls.
+  - The light belongs to the room's layer, so layer choices for el do not switch the evening light off, and it follows the existing, planned and circuit filters.
 - The compass direction is an assumption (the entrance wall faces east, −z). A `settings.north` field can come later.
 - **Where:** «Lys» on the laptop (under «Visning», next to «Grafikk»), the **L** key cycles it, and «Lys» in the VR menu (X → Visning). Saved per device like the other settings.
 
