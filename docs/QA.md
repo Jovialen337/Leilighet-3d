@@ -548,3 +548,19 @@ Goal from the user: «Do a graphics update. I want a wow experience when I put o
   - textures: about 8 MB (clouds 2.8 MB, grass 0.35 MB, plus the menu and wrist canvases);
   - about 20 000 triangles;
   - building the scene with the bake takes about 110 ms in the browser here.
+
+### Test on the Quest (phase 2d)
+1. **The first seconds:** «Gå inn i VR».
+   - Does it fade in from black, with no jump?
+   - Do you face through the openings toward the living room and the kitchen?
+   - Is it a «wow»?
+2. **Daylight:** look around the hallway (glass wall) and the living room.
+   - Is it brighter near the windows, with darker corners?
+   - Are the sun patches on the floor sharp and still, with no flicker when you move your head?
+   - Do the wood boards in the floor shimmer at a distance?
+3. **X → Visning → Lys:** try «Morgen», then «Kveld» (the lamp in the living room should glow), then back to «Dag».
+4. **Frame rate (Y):** on «Standard», does it hold 90 fps with few dropped frames in every room? **Please report the ms number**: if it is well under 11 ms, «Standard» can get sharper edges as well (less foveation).
+5. **«Høy»:**
+   - Is it sharper at once?
+   - Are the faint light rays from the windows nice, or too much?
+   - Does it still hold 90 fps after you leave VR and enter again?
