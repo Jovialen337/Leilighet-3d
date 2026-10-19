@@ -22,6 +22,7 @@ All UI text is Norwegian (bokmål). All geometry comes from one data file, `publ
 | 2d | **«Wow» graphics on the Quest 3:** baked daylight from the windows, sun patches through the windows, a real sky with clouds and a distant tree line, clear glass, «Lys» (morgen/dag/kveld, lamps lit in the evening), a fade in from black facing the longest view, and sharper VR on «Høy» | **built**, being scored |
 | 3 | **Editing** in VR: grab, move, turn, add and delete furniture and fixtures; edit walls, doors and windows with snapping and live dimensions; wrist menu; undo | planned |
 | 4+ | *(proposal)* Planning: electrical and wiring routes, ventilation, workshop zone, GLB furniture import, notes in VR | – |
+| Ideas | **The user's idea list (2026-10-16)**, developed below under «Ideas backlog»: outside content, a garden category, a furniture collection and creator, wallpapers, floor types, a colouring tool, view modes (electric, water …), and a HUD and menu upgrade | backlog |
 
 The order was chosen so the model becomes the real apartment first, and all later planning happens on real numbers.
 
@@ -422,6 +423,64 @@ One pure function, `graphicsProfile` (`src/scene/graphicsProfile.ts`), decides w
 - A quieter wrist panel that shows the room you are in; comfort options (seated mode, vignette during smooth turning) – Research B, proposals 4–5.
 - Per-effect toggles («Grafikk …» with «Egendefinert») on the laptop and in VR.
 - If the Quest shows headroom at 90 fps: foveation 0.5 on «Standard».
+
+## Ideas backlog (from the user, 2026-10-16)
+
+The user's ideas for later updates, kept here so they survive between sessions. Some extend features that already exist (noted). Each one follows the project rules:
+- data in `apartment.json` (or a local plan saved in the browser, like el/vann);
+- Norwegian UI;
+- the same tools on the laptop and in VR;
+- the Quest 3 budget on «Standard».
+
+Suggested order: 8 → 6 → 5 → 7 → 3 → 4 → 1 → 2 → 9. The view modes and surfaces reuse what exists; the HUD upgrade goes with phase 3.
+
+1. **Outside content («Ute»).**
+   - **Today:** outdoor areas (path, garden, terrace) are flat slabs, and the horizon has shader hills.
+   - **Next:** outdoor objects as data, such as trees, bushes, hedges, fences, the terrace floor, garden furniture, the neighbouring wall and the parking space. They get their own `outdoorItems` list (or furniture with `layer: "outdoor"`), drawn with the same cheap merged geometry.
+   - Low-poly trees as merged cones and spheres, with leaves in one colour per tree. The ground disc follows the plot.
+   - Budget: one extra draw call per outdoor layer.
+2. **Garden category («Hage»).**
+   - A layer group and a drawing tool, like el/vann: beds, lawn, paths, planting points and the watering line. Plants come from a small library (height, spread, colour), and seasons can come later.
+   - It shows in the 2D plan, and you can walk the garden in VR.
+   - Grows out of item 1.
+3. **Furniture collection («Møbler»).**
+   - A built-in library of furniture made from simple parts (box, rounded box, cylinder), which is the format `furniture.parts` already uses.
+   - Contents: sofa, bed, table, chairs, shelves, wardrobe, kitchen units, fridge, washing machine, desk and lamp.
+   - Insert it from the laptop (drag into the plan) or in VR (point and place, snapped to the floor and walls), then rotate and move it.
+   - Saved as a local plan, and exported into `apartment.json`.
+   - Overlaps with phase 3 (editing in VR).
+4. **Furniture creator («Lag møbel»).**
+   - Make a piece from parts with sizes in mm and a colour per part, using the same number fields as the builder. A live 3D preview can be turned with the mouse or the controller.
+   - Save it to your own collection (local), and export or import it as JSON.
+   - Later: GLB import, which today is only a grey placeholder.
+5. **Wallpapers and wall finishes («Vegger»).**
+   - A finish per wall face (room side): paint colour, wallpaper patterns (stripes, small pattern, panel), tiles on wet walls, or concrete.
+   - Data: `wall.finish` per side, or `room.wallFinish`.
+   - Drawn with the same texture-array method as the floors (`detail.ts`): more layers in the same texture, no new draw calls.
+6. **Floor types («Gulv»).**
+   - Today wood, or tiles where there is a drain (a heuristic).
+   - Next: `room.floorFinish` = wood (with board direction), parquet (herringbone), tiles (size), vinyl, carpet or concrete, plus a colour. When set, it replaces the heuristic.
+   - Extends `detail.ts` and the floor shader.
+7. **Colouring tool («Farge»).**
+   - Point at a surface (wall face, floor, ceiling, door, furniture) on the laptop or in VR, and pick from a palette (common Norwegian paint shades plus your own) or a floor or wallpaper type from items 5 and 6.
+   - Saved as a local «decor plan» with undo, like el/vann. It can be compared before and after, and exported into `apartment.json`.
+8. **View modes («Visningsmodus»).**
+   - Partly exists today as layer presets and filters, x-ray and the circuit filter.
+   - Next, one tap (on the laptop and in VR) for each mode:
+     - **«Bolig»:** furnished, with the effects on;
+     - **«Elektrisk»:** the building greyed and see-through, electrical bright, with a circuit legend;
+     - **«Vann og avløp»;**
+     - **«Ventilasjon»;**
+     - **«Oppmåling»:** colours by measuring state;
+     - **«Hage»** (item 2).
+   - A mode sets layers, x-ray, filters and the legend together, and the mode is saved.
+9. **HUD and menu upgrade.**
+   - **Wrist HUD:** the room you are in («Du er i: Stue · 18,0 m²»), the mode and «Lys». It is compact after the first minute, as Research B proposed.
+   - **Quick menu:** a radial menu on the left stick for the most used choices (view mode, «Lys», «Gå til rom»).
+   - **Sharper text** with WebXR quad layers.
+   - **The menu:** larger and grouped, with recently used items and the same structure as the laptop panel.
+   - **Laptop:** a slimmer panel with tabs (Visning, Lag, Planlegg, Bygg).
+   - Goes with phase 3.
 
 ## Phase 3 – editing in VR (design principles)
 
