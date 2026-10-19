@@ -5,10 +5,14 @@
  * ingen ekte lyskilder, som ville kostet mye på Quest. Sirklene stopper ved
  * veggene i rommet lampa henger i.
  *
- * Mm inn, meter ut. Én geometri per lag (følger lampepunktets lag).
+ * Selve lampa lyser også: en lys flate på undersiden. Lyset i rommet er i
+ * tillegg bakt inn i fargene (bake.ts, lampelys).
+ *
+ * Mm inn, meter ut. Én geometri per lag: lyset hører til rommet lampa henger
+ * i (følger rommets lag), så det ikke slukkes av lagvalg for el.
  */
 import * as THREE from 'three';
-import type { ApartmentModel } from '../model/ApartmentModel';
+import { fixtureSize, type ApartmentModel } from '../model/ApartmentModel';
 import type { Fixture } from '../schema/types';
 import { cross, p2, sub, type P2 } from '../geometry/math2d';
 import { MM } from './geom';
@@ -21,6 +25,8 @@ export const LAMP = {
   segments: 24,
   /** Hvor langt fra flaten (mm). */
   lift: 3,
+  /** Selve lampa: alfa på den lysende undersiden. */
+  bulb: 0.95,
 } as const;
 
 /** Hvor langt (mm) fra `c` langs retningen `d` til kanten av polygonet (Infinity hvis ingen kant). */
@@ -76,11 +82,26 @@ export function buildLampGlow(
     const info = model.roomAt(at);
     const floor = model.floorOrDefault(at);
     const ceiling = info ? model.ceilingAt(info, at) : pl.y + 60;
-    let b = byLayer.get(fx.layer);
-    if (!b) byLayer.set(fx.layer, (b = { pos: [], col: [] }));
+    const layer = info?.room.layer ?? 'structure';
+    let b = byLayer.get(layer);
+    if (!b) byLayer.set(layer, (b = { pos: [], col: [] }));
     const room = info?.polygon;
     disc(b.pos, b.col, pl.x, Math.min(ceiling, pl.y + 200) - LAMP.lift, pl.z, LAMP.halo.radius, LAMP.halo.alpha * strength, room);
     disc(b.pos, b.col, pl.x, floor + LAMP.lift, pl.z, LAMP.pool.radius, LAMP.pool.alpha * strength, room);
+    // Lampa selv: lys underside (jevnt lys, ikke fade ut mot kanten).
+    const [w, h] = fixtureSize(fx);
+    const r = w / 2;
+    const y = pl.y - h / 2 - 1;
+    const n = LAMP.segments;
+    for (let i = 0; i < n; i++) {
+      const t0 = (i / n) * Math.PI * 2;
+      const t1 = ((i + 1) / n) * Math.PI * 2;
+      b.pos.push(pl.x * MM, y * MM, pl.z * MM);
+      b.pos.push((pl.x + Math.cos(t0) * r) * MM, y * MM, (pl.z + Math.sin(t0) * r) * MM);
+      b.pos.push((pl.x + Math.cos(t1) * r) * MM, y * MM, (pl.z + Math.sin(t1) * r) * MM);
+      const a = LAMP.bulb * strength;
+      b.col.push(1, 1, 1, a, 1, 1, 1, a, 1, 1, 1, a);
+    }
   }
   const out = new Map<string, THREE.BufferGeometry>();
   for (const [layer, b] of byLayer) {

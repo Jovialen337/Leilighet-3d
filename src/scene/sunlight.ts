@@ -331,6 +331,8 @@ export function buildSunShafts(model: ApartmentModel, towardSun: readonly [numbe
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(b.pos, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(b.col, 4));
+    // Normaler: strålene fades ut når en flate sees fra siden (materials.ts).
+    g.computeVertexNormals();
     g.computeBoundingSphere();
     out.set(layer, g);
   }

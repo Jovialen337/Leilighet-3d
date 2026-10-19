@@ -11,10 +11,10 @@
 import * as THREE from 'three';
 import type { ApartmentModel } from '../model/ApartmentModel';
 import type { MeasureState } from '../schema/types';
-import { buildParts, type Bucket, type Part, type PartKind, type PickRole } from './buildParts';
+import { buildParts, COLORS, type Bucket, type Part, type PartKind, type PickRole } from './buildParts';
 import { buildContactShade } from './shade';
 import { Materials } from './materials';
-import { Baker, BAKED_KINDS, TESSELLATED_KINDS, tessellate } from './bake';
+import { Baker, BAKED_KINDS, mixLight, TESSELLATED_KINDS, tessellate, type LightArrays } from './bake';
 import { buildSunPatches, buildSunShafts } from './sunlight';
 import { buildLampGlow } from './lamps';
 import { floorSurface, SURF } from './detail';
@@ -32,8 +32,10 @@ export interface MergedMesh {
   layer: string;
   bucket: Bucket;
   baseColors: Float32Array;
-  /** Fargene med bakt dagslys (bake.ts). */
+  /** Fargene med bakt lys (bake.ts), blandet etter «Lys». */
   bakedColors: Float32Array;
+  /** Det bakte lyset per hjørne, delt i grunnlys, dagslys og lampelys (null før det er bakt). */
+  light: LightArrays | null;
   measureColors: Float32Array;
 }
 
@@ -101,13 +103,15 @@ export class ApartmentScene {
   private parts: Part[] = [];
   private model: ApartmentModel | null = null;
   /** Oppdelt geometri og bakte lysfaktorer per del i modellen som vises. */
-  private readonly render = new Map<Part, { geo: THREE.BufferGeometry; bake: Float32Array }>();
+  private readonly render = new Map<Part, { geo: THREE.BufferGeometry; bake: LightArrays }>();
   /**
    * Bakt lys fra forrige bygging, gjenbrukt når delen og alt som lyser den
    * opp er uendret (f.eks. når man tegner el og vann: vegger, gulv og tak
    * bakes ikke på nytt). Nøkkel: bakeKey().
    */
-  private bakeCache = new Map<string, { tess: THREE.BufferGeometry | null; bake: Float32Array }>();
+  private bakeCache = new Map<string, { tess: THREE.BufferGeometry | null; bake: LightArrays }>();
+  /** Er lyset bakt for delene som vises (bakes først når det trengs, ikke på «Rask»)? */
+  private baked = false;
   /** Overflaten på gulvet i hvert rom (tre eller fliser). */
   private readonly floorSurf = new Map<string, number>();
   private measureOn = false;
@@ -124,8 +128,8 @@ export class ApartmentScene {
     this.visibleCache = null;
     this.model = model;
     this.parts = buildParts(model);
-    for (const id of model.rooms.keys()) this.floorSurf.set(id, floorSurface(model, id));
-    this.bakeParts(model);
+    for (const id of model.rooms.keys()) this.floorSurf.set(id, floorSurface(model, id, COLORS.floor));
+    if (this.effects.baked) this.bakeParts(model);
 
     for (const layer of model.data.layers) {
       const g = new THREE.Group();
@@ -163,7 +167,7 @@ export class ApartmentScene {
   private bakeParts(model: ApartmentModel): void {
     const lightKey = bakeLightKey(model);
     let baker: Baker | null = null;
-    const next = new Map<string, { tess: THREE.BufferGeometry | null; bake: Float32Array }>();
+    const next = new Map<string, { tess: THREE.BufferGeometry | null; bake: LightArrays }>();
     for (const p of this.parts) {
       if (p.bucket !== 'solid' && p.bucket !== 'wall' && p.bucket !== 'ceiling') continue;
       if (!BAKED_KINDS.has(p.kind)) continue;
@@ -180,6 +184,26 @@ export class ApartmentScene {
     // Det som ikke ble brukt nå, frigjøres.
     for (const [key, e] of this.bakeCache) if (!next.has(key)) e.tess?.dispose();
     this.bakeCache = next;
+    this.baked = true;
+  }
+
+  /** Blander det bakte lyset etter «Lys» inn i fargene. */
+  private mixBaked(m: MergedMesh): void {
+    const out = m.bakedColors;
+    const base = m.baseColors;
+    const l = m.light;
+    if (!l) {
+      out.set(base);
+      return;
+    }
+    const mix = this.light.bake;
+    for (let i = 0; i < l.amb.length; i++) {
+      const f = mixLight(l.amb[i]!, l.win[i]!, l.lamp[i]!, mix);
+      const j = i * 3;
+      out[j] = base[j]! * f;
+      out[j + 1] = base[j + 1]! * f;
+      out[j + 2] = base[j + 2]! * f;
+    }
   }
 
   /** Slår sammen delene (som passerer filteret) til én mesh per lag og materiale. */
@@ -209,8 +233,13 @@ export class ApartmentScene {
     if (f.existing === this.filter.existing && f.planned === this.filter.planned && f.circuit === this.filter.circuit) return;
     this.filter = { ...f };
     if (!this.parts.length) return;
-    this.merge();
+    this.remerge();
     this.buildLight();
+  }
+
+  /** Slår sammen på nytt (nytt filter eller nettopp bakt lys) og setter tak og markering igjen. */
+  private remerge(): void {
+    this.merge();
     this.setCeilingsVisible(this.ceilingsOn);
     if (this.measureOn) this.setMeasureHighlight(true);
   }
@@ -223,6 +252,8 @@ export class ApartmentScene {
     const baseColors = new Float32Array(count * 3);
     const bakedColors = new Float32Array(count * 3);
     const measureColors = new Float32Array(count * 3);
+    const anyBaked = list.some((p) => this.render.has(p));
+    const light: LightArrays | null = anyBaked ? { amb: new Float32Array(count).fill(1), win: new Float32Array(count), lamp: new Float32Array(count) } : null;
     // Overflaten per hjørne (mønsteret på gulvet; bare i «solid»).
     const surf = bucket === 'solid' ? new Float32Array(count) : null;
     const tmp = new THREE.Color();
@@ -232,6 +263,7 @@ export class ApartmentScene {
       bucket,
       baseColors,
       bakedColors,
+      light,
       measureColors,
     };
     let offset = 0;
@@ -246,15 +278,16 @@ export class ApartmentScene {
       const tint = TINT[p.measure];
       tmp.copy(p.color).lerp(tint.color, tint.amount);
       if (surf && p.kind === 'floor') surf.fill(this.floorSurf.get(p.id) ?? SURF.none, offset, offset + n);
+      if (r && light) {
+        light.amb.set(r.bake.amb, offset);
+        light.win.set(r.bake.win, offset);
+        light.lamp.set(r.bake.lamp, offset);
+      }
       for (let i = 0; i < n; i++) {
         const j = (offset + i) * 3;
-        const f = r ? r.bake[i]! : 1;
         baseColors[j] = p.color.r;
         baseColors[j + 1] = p.color.g;
         baseColors[j + 2] = p.color.b;
-        bakedColors[j] = p.color.r * f;
-        bakedColors[j + 1] = p.color.g * f;
-        bakedColors[j + 2] = p.color.b * f;
         measureColors[j] = tmp.r;
         measureColors[j + 1] = tmp.g;
         measureColors[j + 2] = tmp.b;
@@ -267,6 +300,7 @@ export class ApartmentScene {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+    this.mixBaked(merged);
     geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(this.colorsFor(merged)), 3));
     if (surf) geo.setAttribute('surf', new THREE.BufferAttribute(surf, 1));
     geo.computeBoundingBox();
@@ -298,6 +332,11 @@ export class ApartmentScene {
   setEffects(e: SceneEffects): void {
     const bakedChanged = e.baked !== this.effects.baked;
     this.effects = { ...e };
+    // Bakes først når det trengs (ikke på «Rask»); så bygges meshene på nytt med det bakte lyset.
+    if (e.baked && !this.baked && this.model) {
+      this.bakeParts(this.model);
+      this.remerge();
+    }
     for (const m of this.shades) m.visible = e.shades;
     this.materials.setDetail(e.detail);
     this.applyLightVisibility();
@@ -312,7 +351,11 @@ export class ApartmentScene {
   setLight(preset: LightPreset): void {
     if (preset === this.light) return;
     this.light = preset;
-    if (this.model) this.buildLight();
+    if (!this.model) return;
+    this.buildLight();
+    // Det bakte lyset blandes på nytt (dempet dagslys og lampelys om kvelden).
+    for (const m of this.merged) this.mixBaked(m);
+    this.applyColors();
   }
 
   /** Solflekker, lysstråler og lampelys for lyset som er valgt. */
@@ -408,6 +451,7 @@ export class ApartmentScene {
     this.lightMeshes.length = 0;
     // Den oppdelte geometrien eies av bakeCache (gjenbrukes ved neste bygging).
     this.render.clear();
+    this.baked = false;
     this.floorSurf.clear();
     for (const p of this.parts) p.geometry.dispose();
     this.merged.length = 0;

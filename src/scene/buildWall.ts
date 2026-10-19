@@ -77,9 +77,33 @@ export function buildWallGeometry(model: ApartmentModel, f: WallFrame): THREE.Bu
       { u: s.u1, v: s.top },
       { u: s.u0, v: s.top },
     ]);
-    extrude(g, f, clean, holePolys);
+    extrude(g, f, clean, holePolys, { start: sa <= EPS && capCovered(model, f, 0), end: sb >= f.length - EPS && capCovered(model, f, f.length) });
   }
   return g.build();
+}
+
+/**
+ * Er endeflaten til veggen ved `u` dekket av en annen veggs sideflate i samme
+ * plan (vanlig i hjørner der veggen er forlenget til ytterkanten av den andre)?
+ * Da tegnes den ikke: to flater oppå hverandre ville flimret.
+ */
+function capCovered(model: ApartmentModel, f: WallFrame, u: number): boolean {
+  const a = frameAt(f, u, f.nMin);
+  const b = frameAt(f, u, f.nMax);
+  for (const g of model.walls.values()) {
+    if (g === f || Math.abs(g.left.x * f.dir.x + g.left.z * f.dir.z) < 0.999) continue;
+    for (const n of [g.nMin, g.nMax]) {
+      const o = frameAt(g, 0, n);
+      const off = (p: { x: number; z: number }): number => (p.x - o.x) * g.left.x + (p.z - o.z) * g.left.z;
+      if (Math.abs(off(a)) > 1 || Math.abs(off(b)) > 1) continue;
+      const along = (p: { x: number; z: number }): number => (p.x - o.x) * g.dir.x + (p.z - o.z) * g.dir.z;
+      const lo = Math.min(along(a), along(b));
+      const hi = Math.max(along(a), along(b));
+      const sameFloor = (g.wall.base ?? 0) <= (f.wall.base ?? 0) && g.wall.height === undefined;
+      if (lo >= -1 && hi <= g.length + 1 && sameFloor) return true;
+    }
+  }
+  return false;
 }
 
 interface Notch {
@@ -136,8 +160,11 @@ const area = (pts: UV[]): number => {
   return a / 2;
 };
 
-/** Ekstruderer flaten (kontur mot klokka, hull med klokka) gjennom veggen. */
-function extrude(g: GeoBuilder, f: WallFrame, contourIn: UV[], holesIn: UV[][]): void {
+/**
+ * Ekstruderer flaten (kontur mot klokka, hull med klokka) gjennom veggen.
+ * `skip`: endeflatene (ved u = 0 og u = lengden) som er dekket av en annen vegg.
+ */
+function extrude(g: GeoBuilder, f: WallFrame, contourIn: UV[], holesIn: UV[][], skip = { start: false, end: false }): void {
   const contour = area(contourIn) < 0 ? [...contourIn].reverse() : contourIn;
   const holes = holesIn.map((h) => (area(h) > 0 ? [...h].reverse() : h));
 
@@ -170,6 +197,11 @@ function extrude(g: GeoBuilder, f: WallFrame, contourIn: UV[], holesIn: UV[][]):
       const dv = b.v - a.v;
       const l = Math.hypot(du, dv);
       if (l < 0.01) continue;
+      // Endeflate (loddrett kant i starten eller slutten av veggen) som er dekket.
+      if (loop === contour && Math.abs(du) < 0.01) {
+        if (skip.start && Math.abs(a.u) < EPS) continue;
+        if (skip.end && Math.abs(a.u - f.length) < EPS) continue;
+      }
       const nu = dv / l;
       const nv = -du / l;
       const n = new THREE.Vector3(f.dir.x * nu, nv, f.dir.z * nu);

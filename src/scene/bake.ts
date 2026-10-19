@@ -10,6 +10,12 @@
  *   videre til naborommene gjennom dører og åpne overganger.
  * - Hjørner og kanter blir mørkere («ambient occlusion»): gulv og tak langs
  *   veggene, veggene nær gulv, tak og innvendige hjørner, og nederst på møbler.
+ * - Lampelys: lampepunktene («light») lyser opp rommet de henger i, mest rett
+ *   under og avtagende med avstanden.
+ *
+ * De tre delene (grunnlys, dagslys fra vinduene og lampelys) lagres hver for
+ * seg per hjørne, så «Lys» (morgen/dag/kveld) kan blande dem på nytt uten å
+ * bake på nytt (`mixLight`).
  *
  * Store flater deles først opp i et rutenett (`tessellate`), så lyset kan
  * variere over dem. Rutene følger faste linjer i verden, så naboflater får
@@ -35,9 +41,11 @@ export const BAKE = {
   roomFill: 0.55,
   /** … og nabolagets vinduer teller med denne andelen. */
   neighbour: 0.3,
-  /** Høyeste og laveste faktor. */
-  max: 1.45,
-  min: 0.4,
+  /** Høyeste og laveste faktor; over 1 flater lyset mykt ut mot `max`. */
+  max: 1.3,
+  min: 0.35,
+  /** Lampelys: styrke og hvor mykt det faller av nær lampa (m²). */
+  lamp: { power: 2, soft: 0.3 },
   ao: {
     /** Mørkere langs veggene og i hjørner: styrke og bredde (mm). */
     edge: 0.2,
@@ -206,12 +214,46 @@ export function formFactor(p: V, n: V, poly: readonly V[]): number {
   return Math.min(1, Math.abs(sum) / (2 * Math.PI));
 }
 
+/** Hvor mye av hver del av det bakte lyset som brukes (fra «Lys»). */
+export interface BakeMix {
+  ambient: number;
+  window: number;
+  lamp: number;
+}
+
+/** Dagslys: grunnlys og vinduer, ingen lamper. */
+export const DAY_MIX: BakeMix = { ambient: 1, window: 1, lamp: 0 };
+
+/** Lyset i et punkt delt i grunnlys, dagslys fra vinduene og lampelys (alle med kantmørket). */
+export interface LightParts {
+  amb: number;
+  win: number;
+  lamp: number;
+}
+
+/** Det samme for alle hjørnene i en geometri. */
+export interface LightArrays {
+  amb: Float32Array;
+  win: Float32Array;
+  lamp: Float32Array;
+}
+
+/** Blander delene til én faktor; lyst flater mykt ut (ingen utbrente vegger). */
+export function mixLight(amb: number, win: number, lamp: number, m: BakeMix): number {
+  const f = m.ambient * amb + m.window * win + m.lamp * lamp;
+  if (f <= 1) return Math.max(BAKE.min, f);
+  const head = BAKE.max - 1;
+  return 1 + head * Math.tanh((f - 1) / head);
+}
+
 interface RoomLight {
   info: RoomInfo;
   /** Vinduene sett fra rommet: hjørnene på innsiden (mm). */
   windows: V[][];
   edges: EdgePiece[];
   fill: number;
+  /** Lampepunktene i rommet (mm). */
+  lamps: V[];
 }
 
 const segDist = (p: P2, a: P2, b: P2): number => distToSegment(p, a, b);
@@ -244,7 +286,14 @@ export class Baker {
         area += (span.u1 - span.u0) * (span.top - span.bottom);
       }
       winArea.set(info.room.id, area);
-      this.rooms.push({ info, windows, edges: roomEdges(model, info, false), fill: 0 });
+      this.rooms.push({ info, windows, edges: roomEdges(model, info, false), fill: 0, lamps: [] });
+    }
+    for (const fx of model.data.fixtures) {
+      if (fx.type !== 'light') continue;
+      const pl = model.fixturePlacement(fx);
+      const room = pl && model.roomAt({ x: pl.x, z: pl.z });
+      const r = room && this.rooms.find((x) => x.info === room);
+      if (pl && r) r.lamps.push({ x: pl.x, y: pl.y, z: pl.z });
     }
     // Gjenskinn: egne vinduer, og en del av vinduene i rom man ser inn i.
     for (const r of this.rooms) {
@@ -254,7 +303,7 @@ export class Baker {
         area += BAKE.neighbour * (winArea.get(o.info.room.id) ?? 0);
       }
       const floor = Math.max(1, polygonArea(r.info.polygon));
-      r.fill = Math.min(0.5, (BAKE.roomFill * area) / floor);
+      r.fill = Math.min(0.35, (BAKE.roomFill * area) / floor);
     }
   }
 
@@ -291,15 +340,33 @@ export class Baker {
     return null;
   }
 
-  /** Lysfaktoren i punktet `p` (mm) med normal `n`. */
+  /** Lysfaktoren i punktet `p` (mm) med normal `n`, i dagslys. */
   factor(p: V, n: V, kind: PartKind, hint?: string): number {
+    const l = this.parts(p, n, kind, hint);
+    return mixLight(l.amb, l.win, l.lamp, DAY_MIX);
+  }
+
+  /** Grunnlys, dagslys og lampelys i punktet `p` (mm) med normal `n`. */
+  parts(p: V, n: V, kind: PartKind, hint?: string): LightParts {
     // Gulv og tak hører til rommet sitt (men ikke sidekantene på gulvtrinn).
     const r = this.roomAt(p, n, (kind === 'floor' || kind === 'ceiling') && Math.abs(n.y) > 0.7 ? hint : undefined);
-    if (!r) return 1;
+    if (!r) return { amb: 1, win: 0, lamp: 0 };
     const A = BAKE.ao;
-    let light = BAKE.ambient + r.fill;
+    let win = r.fill;
     const q = { x: p.x + n.x, y: p.y + n.y, z: p.z + n.z };
-    for (const w of r.windows) light += BAKE.window * formFactor(q, n, w);
+    for (const w of r.windows) win += BAKE.window * formFactor(q, n, w);
+    let lamp = 0;
+    for (const L of r.lamps) {
+      const dx = (L.x - q.x) * MM;
+      const dy = (L.y - q.y) * MM;
+      const dz = (L.z - q.z) * MM;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      const d = Math.sqrt(d2) || 1;
+      const facing = Math.max(0, (dx * n.x + dy * n.y + dz * n.z) / d);
+      // Lampa lyser mest nedover.
+      const down = 0.3 + 0.7 * Math.max(0, dy / d);
+      lamp += (BAKE.lamp.power * facing * down) / (d2 + BAKE.lamp.soft);
+    }
     // Mørkere nær kanter og hjørner.
     let ao = 1;
     const p2 = { x: p.x, z: p.z };
@@ -317,18 +384,18 @@ export class Baker {
       ao *= 1 - A.ceiling * Math.exp(-Math.max(0, ceil - p.y) / A.heightWidth);
     }
     if (kind === 'furniture') ao *= 1 - A.furniture * Math.exp(-Math.max(0, p.y - floor) / A.furnitureWidth);
-    return Math.max(BAKE.min, Math.min(BAKE.max, light * ao));
+    return { amb: BAKE.ambient * ao, win: win * ao, lamp: lamp * ao };
   }
 
   /**
    * Faktorene for alle hjørnene i en geometri (meter). Trekantene deler
    * hjørner, så hvert hjørne (posisjon og normal) regnes ut bare én gang.
    */
-  factors(geo: THREE.BufferGeometry, kind: PartKind, hint?: string): Float32Array {
+  factors(geo: THREE.BufferGeometry, kind: PartKind, hint?: string): LightArrays {
     const pa = geo.getAttribute('position');
     const na = geo.getAttribute('normal');
-    const out = new Float32Array(pa.count);
-    const seen = new Map<string, number>();
+    const out: LightArrays = { amb: new Float32Array(pa.count), win: new Float32Array(pa.count), lamp: new Float32Array(pa.count) };
+    const seen = new Map<string, LightParts>();
     const p = { x: 0, y: 0, z: 0 };
     const n = { x: 0, y: 0, z: 0 };
     for (let i = 0; i < pa.count; i++) {
@@ -341,10 +408,12 @@ export class Baker {
       const key = `${Math.round(p.x)},${Math.round(p.y)},${Math.round(p.z)},${Math.round(n.x * 100)},${Math.round(n.y * 100)},${Math.round(n.z * 100)}`;
       let f = seen.get(key);
       if (f === undefined) {
-        f = this.factor(p, n, kind, hint);
+        f = this.parts(p, n, kind, hint);
         seen.set(key, f);
       }
-      out[i] = f;
+      out.amb[i] = f.amb;
+      out.win[i] = f.win;
+      out.lamp[i] = f.lamp;
     }
     return out;
   }
