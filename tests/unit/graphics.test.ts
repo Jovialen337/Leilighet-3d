@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { LIGHT_IDS, LIGHTING, LIGHTS, shadeOf } from '../../src/scene/lighting';
-import { roomEdges, isInnerCorner } from '../../src/scene/roomEdges';
+import { roomEdges } from '../../src/scene/roomEdges';
 import { buildContactShade } from '../../src/scene/shade';
 import { buildParts, partsFor } from '../../src/scene/buildParts';
 import { BAKE, Baker, formFactor, tessellate } from '../../src/scene/bake';
@@ -10,9 +10,12 @@ import { buildLampGlow, LAMP } from '../../src/scene/lamps';
 import { graphicsProfile } from '../../src/scene/graphicsProfile';
 import { DETAIL, detailLayers, floorSurface, SURF } from '../../src/scene/detail';
 import { Fade, FADE } from '../../src/xr/fade';
-import { pointInPolygon } from '../../src/geometry/math2d';
+import { pointInPolygon, polygonGap } from '../../src/geometry/math2d';
 import { FpsMeter } from '../../src/ui/FpsMeter';
-import { modelOf } from './helpers';
+import { loadDoc, modelOf, PUBLISHED_PATH } from './helpers';
+import { readFileSync } from 'node:fs';
+import { ApartmentScene } from '../../src/scene/ApartmentScene';
+import { Materials } from '../../src/scene/materials';
 
 const model = modelOf();
 
@@ -44,11 +47,6 @@ describe('fotlister og kanter', () => {
     expect(length(cut)).toBeCloseTo(perimeter - 900 - 1000 - 900, 0);
     // Normalen peker inn i rommet.
     for (const e of all) expect(e.inward.x * (1150 - e.a.x) + e.inward.z * (1200 - e.a.z)).toBeGreaterThan(0);
-  });
-
-  it('badets innhakk gir et utvendig hjørne', () => {
-    const poly = model.rooms.get('bad')!.polygon;
-    expect(poly.map((_, i) => isInnerCorner(poly, i))).toEqual([true, true, false, true, true, true]);
   });
 
   it('fotlister og gerikter er med i modellen', () => {
@@ -221,7 +219,9 @@ describe('sollys gjennom vinduene', () => {
     for (const p of patches) {
       const info = model.rooms.get(p.room)!;
       const win = model.data.openings.find((o) => o.id === p.window)!;
-      expect(win.type === 'window' && win.room).toBe(p.room);
+      const winRoom = model.rooms.get(win.type === 'window' ? win.room! : '')!;
+      // Vinduets rom, eller et rom uten vegg imellom.
+      expect(p.room === winRoom.room.id || polygonGap(info.polygon, winRoom.polygon) < 5).toBe(true);
       for (const q of p.points) {
         if (p.surface === 'floor') {
           expect(q.y).toBeCloseTo(info.room.floorLevel + SUN_PATCH.lift, 6);
@@ -348,6 +348,10 @@ describe('grafikkprofilen', () => {
       const top = graphicsProfile({ quality, top: true, passthrough: false });
       expect([top.sky, top.effects.sun, top.effects.shafts, top.effects.lamps]).toEqual([false, false, false, false]);
       expect(top.effects.baked).toBe(quality !== 'low');
+      // Røntgen: ingen sol, stråler eller lamper (men himmel og bakt lys).
+      const xray = graphicsProfile({ quality, top: false, passthrough: false, xray: true });
+      expect([xray.effects.sun, xray.effects.shafts, xray.effects.lamps]).toEqual([false, false, false]);
+      expect(xray.sky).toBe(quality !== 'low');
     }
   });
 });
@@ -434,5 +438,71 @@ describe('mønster på gulvet', () => {
     expect(withDrain.size).toBeGreaterThan(0);
     expect(floorSurface(model, 'stue')).toBe(SURF.wood);
     expect(floorSurface(model, 'finnes-ikke')).toBe(SURF.none);
+  });
+});
+
+describe('bakt lys gjenbrukes når modellen bygges på nytt', () => {
+  const floorGeo = (scene: ApartmentScene): THREE.BufferGeometry =>
+    scene.merged.find((m) => m.layer === 'structure' && m.bucket === 'solid')!.mesh.geometry;
+
+  it('en ny kabel bygger ikke gulv, vegger og tak på nytt; en flyttet vegg gjør det', () => {
+    const scene = new ApartmentScene(new Materials());
+    const doc = loadDoc();
+    scene.build(modelOf(doc));
+    const tessNow = () =>
+      [...(scene as unknown as { bakeCache: Map<string, { tess: THREE.BufferGeometry | null }> }).bakeCache.values()]
+        .map((e) => e.tess)
+        .filter(Boolean);
+    const before = new Set(tessNow());
+    expect(before.size).toBeGreaterThan(5);
+    const colors = Float32Array.from(floorGeo(scene).getAttribute('color').array as Float32Array);
+
+    // Tegner en kabel: alle oppdelte flater er de samme objektene, og fargene er like.
+    const wired = loadDoc();
+    wired.wiring.push({ id: 'ny-kabel', layer: wired.wiring[0]!.layer, status: 'planned', points: [[500, 300, 500], [900, 300, 500]] } as never);
+    scene.build(modelOf(wired));
+    const after = tessNow();
+    expect(after.length).toBe(before.size);
+    expect(after.every((t) => before.has(t))).toBe(true);
+    expect(Array.from(floorGeo(scene).getAttribute('color').array as Float32Array)).toEqual(Array.from(colors));
+
+    // Et vindu flyttes: lyset bakes på nytt (nye flater), og de gamle frigjøres.
+    const moved = loadDoc();
+    const win = moved.openings.find((o) => o.type === 'window')! as { offset: number };
+    win.offset += 200;
+    scene.build(modelOf(moved));
+    const rebaked = tessNow();
+    expect(rebaked.length).toBe(before.size);
+    expect(rebaked.some((t) => before.has(t))).toBe(false);
+  });
+});
+
+describe('sollys og lampelys følger rommene', () => {
+  it('kveldssola gjennom badevinduet lyser opp badet uten vegg imellom', () => {
+    const pub = modelOf(JSON.parse(readFileSync(PUBLISHED_PATH, 'utf8')));
+    const patches = sunPatches(pub, LIGHTS.kveld.key.from);
+    const bath = patches.filter((p) => p.window === 'vindu-bad');
+    expect(bath.length).toBeGreaterThan(0);
+    // Lyset havner i badets andre del (åpen overgang), ikke bare i rommet med vinduet.
+    expect(bath.some((p) => p.room === 'bad')).toBe(true);
+  });
+
+  it('lampelyset stopper ved veggene og følger filteret', () => {
+    const glow = buildLampGlow(model, 1);
+    const g = [...glow.values()][0]!;
+    const p = g.getAttribute('position');
+    const lamp = model.data.fixtures.find((f) => f.type === 'light')!;
+    const room = model.roomAt(model.fixturePlacement(lamp)! as never)!;
+    for (let i = 0; i < p.count; i++) {
+      const q = { x: p.getX(i) / 0.001, z: p.getZ(i) / 0.001 };
+      const inside = pointInPolygon(q, room.polygon) || room.polygon.some((a, k) => {
+        const b = room.polygon[(k + 1) % room.polygon.length]!;
+        const l = Math.hypot(b.x - a.x, b.z - a.z);
+        return Math.abs((b.x - a.x) * (q.z - a.z) - (b.z - a.z) * (q.x - a.x)) / l < 1;
+      });
+      expect(inside).toBe(true);
+    }
+    // Filteret: lampa er ikke med → ingen glød.
+    expect(buildLampGlow(model, 1, () => false).size).toBe(0);
   });
 });

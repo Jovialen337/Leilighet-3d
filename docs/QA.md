@@ -510,7 +510,9 @@ Goal from the user: «Do a graphics update. I want a wow experience when I put o
 5. The entrance moment: fade from black, exposure rise, and a short black on «Gå til rom».
 6. Sharpness per preset: foveation and resolution on «Høy». Foveation applies at once.
 
-**Research A, not taken this round:** procedural surface detail (4), the controller mesh merge (7) and floor reflections (8). They are listed as later work in PLAN.md.
+**Research A, also taken:** 4, procedural surface detail, for the floors only: wood boards, and tiles where there is a drain. Walls come later.
+
+**Research A, not taken this round:** the controller mesh merge (7) and floor reflections (8). They are listed as later work in PLAN.md.
 
 **Research B (options and control), taken:**
 1. Fade, plus facing the longest view. This is computed from the walls and openings, so it stays data-driven.
@@ -542,12 +544,44 @@ Goal from the user: «Do a graphics update. I want a wow experience when I put o
 
   The existing tests were updated for the new start direction and the «Høy» message in VR.
 - **Screenshots** from the emulated Quest 3 compared before and after (at the start point, in the living room, and in the morning, day and evening).
-- **Numbers:**
+- **Numbers** (on the placeholder; the gatekeeper's numbers on the real file are below):
   - draw calls per eye at the start on «Standard»: 25 (was 32);
   - living room: 16 on «Standard», 18 on «Høy», 14 in the evening;
-  - textures: about 8 MB (clouds 2.8 MB, grass 0.35 MB, plus the menu and wrist canvases);
+  - textures: about 10–11 MB (clouds 2.8 MB, floor pattern 2.8 MB, grass 0.35 MB, plus the menu and wrist canvases);
   - about 20 000 triangles;
   - building the scene with the bake takes about 110 ms in the browser here.
+
+### Gatekeeper (pass 1 at 0cdd44e, docs-only commits after it): **PASS**
+
+- **Checks:**
+  - typecheck, validate, 271 unit tests, the build and 82/82 browser tests all pass;
+  - 0 console errors or warnings in every combination of quality and light, on the laptop, in 2D and in VR, on the real file;
+  - CI is green.
+- **Budget on the real `apartment.json`** («Standard»):
+
+  | Measure | Result |
+  |---|---|
+  | Draw calls per eye, at the start | 32 |
+  | Draw calls per eye, worst | 33 (Dag, the hallway) |
+  | Draw calls per eye, Morgen and Kveld | 29 |
+  | Draw calls per eye, «Høy» | 30 |
+  | Draw calls per eye, «Rask» | 21 |
+  | Textures | 10.3 MB |
+  | Per-frame allocations | none |
+
+  Heavier effects are only on «Høy». The bake gives no NaN values and its factors stay within 0.40–1.45. Bad storage falls back to the defaults.
+- **Merged as PR #8** (d1d4529), at the user's request.
+- **Non-blocking remarks, all fixed in the follow-up:**
+  1. **Rebuilding the model was about 3× slower**, so every el/vann drawing re-baked everything. The bake is now cached per part and only redone when the part, or the rooms, walls or openings that light it, change. A rebuild after drawing a cable takes about 35 ms instead of about 90 ms, about the same as before the round. A unit test checks that it reuses unchanged parts and re-bakes when a window moves.
+  2. The docs disagreed with the code (floor pattern, texture MB). Fixed.
+  3. A stale comment. Fixed.
+  4. `isInnerCorner` was dead code. Removed.
+  5. The window frame width was in two places. Now one constant, `WINDOW_FRAME` in buildParts.
+  6. **Lamp light went past the walls and ignored the filters.** The glow now stops at the room's walls, and it follows the existing, planned and circuit filters. Both are tested.
+  7. **Sun patches only fell in the window's own room.** They now also land in rooms with no wall in between. The evening sun through the bathroom window now lights the rest of the bathroom (tested on the real file).
+  8. **In x-ray, sun patches lit up the see-through walls.** Sun, rays and lamps are now off in x-ray (the graphics profile, tested).
+  9. **In the VR menu, the «Høy» note was under «Lys».** It is now directly under «Grafikk».
+  10. **The wall grid does not line up with the floor grid on walls that are not axis-aligned.** No change needed: they are not in the same plane, so there are no cracks.
 
 ### Test on the Quest (phase 2d)
 1. **The first seconds:** «Gå inn i VR».

@@ -11,7 +11,8 @@
  *   oppløsning og mindre uskarpt i kantene av synsfeltet i VR).
  *
  * I gjennomsyn (oppmåling og «Lag ny modell») vises verken himmel eller
- * effekter. I 2D-planen er det verken himmel, sol eller lamper.
+ * effekter. I 2D-planen er det verken himmel, sol eller lamper, og i
+ * røntgen ingen sol eller lamper (de ville lyst opp vegger man ser gjennom).
  */
 import type { Quality } from '../state/ViewState';
 import type { SceneEffects } from './ApartmentScene';
@@ -22,6 +23,8 @@ export interface GraphicsInput {
   top: boolean;
   /** Gjennomsyn (oppmåling eller «Lag ny modell» på Quest). */
   passthrough: boolean;
+  /** Røntgen (gjennomsiktige vegger og tak). */
+  xray?: boolean;
 }
 
 export interface GraphicsProfile {
@@ -39,14 +42,15 @@ export function graphicsProfile(i: GraphicsInput): GraphicsProfile {
   const q = i.quality;
   const on = q !== 'low' && !i.passthrough;
   const scenic = on && !i.top;
+  const lit = scenic && !i.xray;
   return {
     sky: scenic,
     effects: {
       shades: on,
       baked: q !== 'low',
-      sun: scenic,
-      shafts: scenic && q === 'high',
-      lamps: scenic,
+      sun: lit,
+      shafts: lit && q === 'high',
+      lamps: lit,
       detail: on,
     },
     framebufferScale: q === 'high' && !i.passthrough ? 1.3 : 1,

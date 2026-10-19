@@ -365,7 +365,10 @@ Other details:
 
 ## Phase 2d – «wow» graphics on the Quest 3
 
-Goal: «I want a wow experience when I put on the Quest 3». Scored per [SCORING.md](SCORING.md); the round is recorded in [QA.md](QA.md). Everything stays within the Quest 3 budget on «Standard»: **at most 25 draw calls per eye at the start** (was 32), at most 40 in every room and every light, about 8 MB of textures (limit 32 MB), and nothing new per frame.
+Goal: «I want a wow experience when I put on the Quest 3». Scored per [SCORING.md](SCORING.md); the round is recorded in [QA.md](QA.md). It stays within the Quest 3 budget on «Standard» with the real `apartment.json`, as measured by the gatekeeper:
+- **draw calls per eye:** 32 at the start (unchanged, though the view now looks through the whole apartment), at most 33 in any room and direction (limit 40);
+- **textures:** about 10 MB (limit 32 MB);
+- **per frame:** nothing new.
 
 ### The first seconds in VR
 
@@ -390,6 +393,12 @@ Goal: «I want a wow experience when I put on the Quest 3». Scored per [SCORING
 - **Glass:** almost clear straight on, more reflection of the sky at an angle (Fresnel), instead of blue panes.
 - The textures are made the first time the sky is shown (never on «Rask»).
 
+### Floors
+
+- **Wood boards** (150 mm wide, 1.2 m long, staggered joints, grain, a slightly different tone per board) and **tiles** (200 mm, grout lines), from one small texture made in code. It has two layers, 1024², grey only, with mipmaps: 2.8 MB.
+- The pattern multiplies the colour from the file, so the room keeps its colour, and it lies in world coordinates.
+- **Tiles** in rooms with a floor drain and in rooms with no wall to them (the raised part of the bathroom). Wood everywhere else. A `room.floorFinish` field can replace this rule later (see «Ideas backlog», floor types).
+
 ### «Lys»: morning, day, evening
 
 - **«Morgen»:** a low, warm sun from the east (the entrance side), long patches up the living room's back wall, a warm horizon.
@@ -407,6 +416,7 @@ One pure function, `graphicsProfile` (`src/scene/graphicsProfile.ts`), decides w
 | Baked daylight | – | ✓ | ✓ |
 | Sun patches, sky, lamps (evening) | – | ✓ | ✓ |
 | Contact shadows under furniture | – | ✓ | ✓ |
+| Wood floors and tiles | – | ✓ | ✓ |
 | Light rays | – | – | ✓ |
 | VR resolution | 1.0 | 1.0 | 1.3 (next time you enter VR) |
 | VR foveation (blur at the edges) | 1.0 | 1.0 | 0.25 (applies at once) |
@@ -417,7 +427,7 @@ One pure function, `graphicsProfile` (`src/scene/graphicsProfile.ts`), decides w
 
 ### Later work (graphics)
 
-- Procedural surface detail (wood floor, tiles, paint) in one small texture array: a real depth cue in VR (Research A, proposal 4).
+- Wall finishes in the same texture array as the floors (paint, wallpaper, wet-room tiles); see «Ideas backlog».
 - Floor reflections on «Høy» (one cube map per room).
 - A `settings.north` field so «Lys» follows the real compass; «Natt».
 - A quieter wrist panel that shows the room you are in; comfort options (seated mode, vignette during smooth turning) – Research B, proposals 4–5.
@@ -618,7 +628,7 @@ src/
 ```
 
 - **Single source of truth:** `ApartmentStore` holds the raw document (including `{value, measured}`). It validates, then builds an `ApartmentModel`. The scene is rebuilt from the model.
-- **Performance:** static geometry is merged into one mesh per (layer, material): about 20 meshes and 20 000 triangles for the whole apartment (the 30 cm grid for the baked light). The renderer uses Lambert materials with baked vertex colours, has no shadow maps, and uses hemisphere + two directional lights. That is about 25 draw calls per eye in VR at the start on «Standard» (at most 40 anywhere, checked by a browser test in every room).
+- **Performance:** static geometry is merged into one mesh per (layer, material): about 20 meshes and 20 000 triangles for the whole apartment (the 30 cm grid for the baked light). The renderer uses Lambert materials with baked vertex colours, has no shadow maps, and uses hemisphere + two directional lights. That is about 32 draw calls per eye in VR at the start on «Standard», and at most 40 anywhere, which a browser test checks in every room. When the model changes, only parts whose geometry or light (rooms, walls, openings) changed are baked again.
 - **Teleport:** a parabolic arc is raycast against per-object invisible proxies. Each segment is pre-filtered by bounding box. A landing is valid only on a floor (rooms, thresholds, outdoor areas), so both floor levels work. Walls, ceilings and furniture block the arc.
 - **Room-scale walking:** each frame the floor level under the head is looked up in the model and the rig height follows it smoothly. Walking physically up the step lifts you 180 mm.
 

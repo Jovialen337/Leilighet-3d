@@ -100,8 +100,14 @@ export class ApartmentScene {
   private ceilingsOn = true;
   private parts: Part[] = [];
   private model: ApartmentModel | null = null;
-  /** Oppdelt geometri og bakte lysfaktorer per del (regnes ut én gang per modell). */
+  /** Oppdelt geometri og bakte lysfaktorer per del i modellen som vises. */
   private readonly render = new Map<Part, { geo: THREE.BufferGeometry; bake: Float32Array }>();
+  /**
+   * Bakt lys fra forrige bygging, gjenbrukt når delen og alt som lyser den
+   * opp er uendret (f.eks. når man tegner el og vann: vegger, gulv og tak
+   * bakes ikke på nytt). Nøkkel: bakeKey().
+   */
+  private bakeCache = new Map<string, { tess: THREE.BufferGeometry | null; bake: Float32Array }>();
   /** Overflaten på gulvet i hvert rom (tre eller fliser). */
   private readonly floorSurf = new Map<string, number>();
   private measureOn = false;
@@ -118,14 +124,8 @@ export class ApartmentScene {
     this.visibleCache = null;
     this.model = model;
     this.parts = buildParts(model);
-    const baker = new Baker(model);
     for (const id of model.rooms.keys()) this.floorSurf.set(id, floorSurface(model, id));
-    for (const p of this.parts) {
-      if (p.bucket !== 'solid' && p.bucket !== 'wall' && p.bucket !== 'ceiling') continue;
-      if (!BAKED_KINDS.has(p.kind)) continue;
-      const geo = TESSELLATED_KINDS.has(p.kind) ? tessellate(p.geometry) : p.geometry;
-      this.render.set(p, { geo, bake: baker.factors(geo, p.kind, p.id) });
-    }
+    this.bakeParts(model);
 
     for (const layer of model.data.layers) {
       const g = new THREE.Group();
@@ -159,6 +159,29 @@ export class ApartmentScene {
     if (this.measureOn) this.setMeasureHighlight(true);
   }
 
+  /** Deler opp og baker lyset for delene; gjenbruker det som ikke er endret siden sist. */
+  private bakeParts(model: ApartmentModel): void {
+    const lightKey = bakeLightKey(model);
+    let baker: Baker | null = null;
+    const next = new Map<string, { tess: THREE.BufferGeometry | null; bake: Float32Array }>();
+    for (const p of this.parts) {
+      if (p.bucket !== 'solid' && p.bucket !== 'wall' && p.bucket !== 'ceiling') continue;
+      if (!BAKED_KINDS.has(p.kind)) continue;
+      const key = `${lightKey}|${p.kind}|${p.id}|${geometryHash(p.geometry)}`;
+      let entry = next.get(key) ?? this.bakeCache.get(key);
+      if (!entry) {
+        baker ??= new Baker(model);
+        const tess = TESSELLATED_KINDS.has(p.kind) ? tessellate(p.geometry) : null;
+        entry = { tess, bake: baker.factors(tess ?? p.geometry, p.kind, p.id) };
+      }
+      next.set(key, entry);
+      this.render.set(p, { geo: entry.tess ?? p.geometry, bake: entry.bake });
+    }
+    // Det som ikke ble brukt nå, frigjøres.
+    for (const [key, e] of this.bakeCache) if (!next.has(key)) e.tess?.dispose();
+    this.bakeCache = next;
+  }
+
   /** Slår sammen delene (som passerer filteret) til én mesh per lag og materiale. */
   private merge(): void {
     for (const m of this.merged) {
@@ -187,6 +210,7 @@ export class ApartmentScene {
     this.filter = { ...f };
     if (!this.parts.length) return;
     this.merge();
+    this.buildLight();
     this.setCeilingsVisible(this.ceilingsOn);
     if (this.measureOn) this.setMeasureHighlight(true);
   }
@@ -317,7 +341,12 @@ export class ApartmentScene {
     };
     add('sol', buildSunPatches(model, p.key.from), this.materials.sun);
     add('stråler', buildSunShafts(model, p.key.from), this.materials.glow);
-    if (p.lamps > 0) add('lamper', buildLampGlow(model, p.lamps), this.materials.lamp);
+    if (p.lamps > 0) {
+      const f = this.filter;
+      const lit = (fx: { status: 'existing' | 'planned'; circuit?: string }): boolean =>
+        passes({ kind: 'fixture', status: fx.status, ...(fx.circuit ? { circuit: fx.circuit } : {}) }, f);
+      add('lamper', buildLampGlow(model, p.lamps, lit), this.materials.lamp);
+    }
     this.applyLightVisibility();
   }
 
@@ -377,7 +406,7 @@ export class ApartmentScene {
     for (const m of [...this.shades, ...this.lightMeshes]) m.geometry.dispose();
     this.shades.length = 0;
     this.lightMeshes.length = 0;
-    for (const r of this.render.values()) if (!this.parts.some((p) => p.geometry === r.geo)) r.geo.dispose();
+    // Den oppdelte geometrien eies av bakeCache (gjenbrukes ved neste bygging).
     this.render.clear();
     this.floorSurf.clear();
     for (const p of this.parts) p.geometry.dispose();
@@ -388,4 +417,25 @@ export class ApartmentScene {
     this.layerGroups.clear();
     this.root.clear();
   }
+}
+
+/** Rask kontrollsum (FNV-1a) over posisjonene i en geometri: lik geometri gir lik sum. */
+export function geometryHash(g: THREE.BufferGeometry): string {
+  const a = g.getAttribute('position').array as Float32Array;
+  const u = new Uint32Array(a.buffer, a.byteOffset, a.length);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < u.length; i++) h = Math.imul(h ^ u[i]!, 0x01000193);
+  return `${u.length}:${(h >>> 0).toString(36)}`;
+}
+
+/**
+ * Alt i modellen som påvirker det bakte lyset utenom delen selv: rom (form,
+ * gulv og tak), vegger og åpninger. Endres noe av dette, bakes alt på nytt.
+ */
+export function bakeLightKey(model: ApartmentModel): string {
+  const d = model.data;
+  const s = JSON.stringify([d.rooms, d.walls, d.openings]);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193);
+  return `${s.length}:${(h >>> 0).toString(36)}`;
 }

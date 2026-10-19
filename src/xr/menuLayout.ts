@@ -149,12 +149,15 @@ export function buildMenu(s: MenuState): { items: MenuItem[]; labels: MenuLabel[
         { id: 'quality:medium', label: 'Standard', active: s.quality === 'medium' },
         { id: 'quality:high', label: 'Høy', active: s.quality === 'high' },
       ]);
+      if (s.qualityNote) {
+        labels.push({ text: s.qualityNote, x: PAD, y: y + 22 });
+        y += 40;
+      }
       choices('Lys', [
         { id: 'light:morgen', label: 'Morgen', active: s.light === 'morgen' },
         { id: 'light:dag', label: 'Dag', active: s.light === 'dag' },
         { id: 'light:kveld', label: 'Kveld', active: s.light === 'kveld' },
       ]);
-      if (s.qualityNote) labels.push({ text: s.qualityNote, x: PAD, y: y + 30 });
       break;
     case 'lag': {
       labels.push({ text: 'Vis', x: PAD, y: y + 34 });

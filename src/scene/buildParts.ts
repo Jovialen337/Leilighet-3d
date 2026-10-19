@@ -65,6 +65,9 @@ export interface Part {
   circuit?: string;
 }
 
+/** Bredden på vinduskarmen (mm); sollyset (sunlight.ts) går gjennom glasset innenfor. */
+export const WINDOW_FRAME = 60;
+
 /** Fotlist og gerikter (mm). Bare presentasjon; plasseringen kommer fra fila. */
 export const TRIM = { skirtingHeight: 70, skirtingDepth: 12, casingWidth: 60, casingDepth: 12 } as const;
 
@@ -317,7 +320,7 @@ function buildOpening(model: ApartmentModel, o: Opening, push: Push): void {
   }
 
   if (o.type === 'window') {
-    const fw = 60;
+    const fw = WINDOW_FRAME;
     const depth = Math.min(90, thick);
     const frame = new GeoBuilder();
     wallBox(frame, f, midU, span.bottom + fw / 2, midN, width, fw, depth);

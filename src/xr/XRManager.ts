@@ -106,8 +106,7 @@ export class XRManager {
   private triggerEdge = false;
   /** Aktivt tegneverktøy i VR (id fra DRAW_ITEMS), eller null. */
   private drawTool: string | null = null;
-  /** Om denne VR-økten startet med «Høy» (høyere oppløsning kan bare settes før økten starter). */
-  /** Oppløsningen VR-økten startet med (endres først neste gang). */
+  /** Oppløsningen VR-økten startet med (kan bare settes før økten starter). */
   private sessionScale = 1;
   /** Eksponeringen fra «Lys» (overgangen løfter mot denne). */
   exposure = 1;
