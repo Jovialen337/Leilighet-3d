@@ -106,10 +106,17 @@ export async function enterVR(page: Page): Promise<void> {
   await page.waitForFunction(() => (window as any).leilighet.xr.presenting === true);
   // Vent til riggen er plassert ved inngangsdøra (skjer etter noen rammer).
   await page.waitForTimeout(400);
+  // Kontrollerne foran hodet, på samme sted i leiligheten uansett hvilken vei
+  // man starter (venstre 0,2 m mot +x og 0,3 m mot +z, høyre −0,2 m mot +x).
   await page.evaluate(() => {
+    const a = (window as any).leilighet;
     const d = (window as any).__iwer;
-    d.controllers.left.position.set(-0.2, 1.3, -0.3);
-    d.controllers.right.position.set(0.2, 1.3, -0.3);
+    const yaw = a.xr.debugState().rig.yaw;
+    const local = (wx: number, wz: number) => [wx * Math.cos(yaw) - wz * Math.sin(yaw), wx * Math.sin(yaw) + wz * Math.cos(yaw)];
+    const [lx, lz] = local(0.2, 0.3);
+    const [rx, rz] = local(-0.2, 0.3);
+    d.controllers.left.position.set(lx, 1.3, lz);
+    d.controllers.right.position.set(rx, 1.3, rz);
   });
   await frames(page, 4);
 }

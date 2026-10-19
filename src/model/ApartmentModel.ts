@@ -52,6 +52,8 @@ export const DEFAULTS = {
   wallTopStep: 50,
   /** Hvor langt innenfor inngangsdøra man starter (mm). */
   spawnInset: 700,
+  /** Øyehøyde over gulvet når vi ser etter lengste utsikt fra start (mm). */
+  eyeHeight: 1600,
   /** «Gå til rom»: hvor langt inn fra hjørnet man står (mm). */
   viewpointInset: 700,
 } as const;
@@ -477,12 +479,75 @@ export class ApartmentModel {
         const onWall = frameAt(f, mid, (f.nMin + f.nMax) / 2);
         const halfT = (f.nMax - f.nMin) / 2;
         const position = add(onWall, scale(g.intoNormal, halfT + DEFAULTS.spawnInset));
-        return { position, level: this.floorOrDefault(position), facing: g.intoNormal };
+        const level = this.floorOrDefault(position);
+        return { position, level, facing: this.bestView(position, level + DEFAULTS.eyeHeight, g.intoNormal) };
       }
     }
     const first = [...this.rooms.values()][0];
     const position = first ? centroid(first.polygon) : p2(0, 0);
     return { position, level: this.floorOrDefault(position), facing: p2(0, 1) };
+  }
+
+  /**
+   * Retningen med lengst fri sikt (gjennom dører og åpninger) innenfor 90° til
+   * hver side av `facing` – det første man ser i VR. Litt forskjell teller
+   * ikke: da beholdes retningen nærmest `facing`.
+   */
+  bestView(from: P2, eye: number, facing: P2): P2 {
+    const base = Math.atan2(facing.z, facing.x);
+    let best = facing;
+    let bestScore = this.sightline(from, facing, eye);
+    for (let deg = -90; deg <= 90; deg += 5) {
+      if (deg === 0) continue;
+      const a = base + (deg * Math.PI) / 180;
+      const d = p2(Math.cos(a), Math.sin(a));
+      // Små avvik fra rett inn må gi minst en halv meter lengre sikt for å vinne.
+      const score = this.sightline(from, d, eye) - 500 * (Math.abs(deg) / 90) - 500;
+      if (score > bestScore) {
+        bestScore = score;
+        best = d;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Hvor langt (mm) man ser fra `from` langs `dir` i høyden `eye` før en vegg
+   * er i veien. Dører og åpninger er åpne; vinduer stopper blikket (vi vil se
+   * inn i leiligheten). 0 hvis blikket går ut av leiligheten.
+   */
+  sightline(from: P2, dir: P2, eye: number): number {
+    const gaps = new Map<string, [number, number][]>();
+    for (const o of this.data.openings) {
+      if (o.type === 'window') continue;
+      const span = this.openingSpan(o);
+      if (!span || span.bottom > eye || span.top < eye) continue;
+      const list = gaps.get(span.frame.wall.id) ?? [];
+      list.push([span.u0, span.u1]);
+      gaps.set(span.frame.wall.id, list);
+    }
+    let nearest = Infinity;
+    for (const f of this.walls.values()) {
+      const bottom = this.lowestFloor + (f.wall.base ?? 0);
+      if (bottom > eye || (f.wall.height !== undefined && bottom + f.wall.height < eye)) continue;
+      const open = gaps.get(f.wall.id) ?? [];
+      for (const n of [f.nMin, f.nMax]) {
+        // Skjæring mellom strålen og veggflaten p(u) = p0 + dir·u + left·n.
+        const a = frameAt(f, 0, n);
+        const den = cross(dir, f.dir);
+        if (Math.abs(den) < 1e-9) continue;
+        const w = sub(a, from);
+        const t = cross(w, f.dir) / den;
+        const u = cross(w, dir) / den;
+        if (t <= 1 || u < 0 || u > f.length || t >= nearest) continue;
+        if (open.some(([u0, u1]) => u > u0 && u < u1)) continue;
+        nearest = t;
+      }
+    }
+    if (nearest === Infinity) return 0;
+    // Blikket må ende inne i leiligheten (ikke ut gjennom en åpen dør).
+    const end = add(from, scale(dir, nearest - 50));
+    return this.roomAt(end) ? nearest : 0;
   }
 
   /**

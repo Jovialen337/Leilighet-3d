@@ -394,11 +394,13 @@ test('VR: kurs for nye kabler velges i Tegn og står på håndleddet; «Høy» s
   const name = await app(page, `a.store.model.data.circuits.find((c) => c.id === ${JSON.stringify(after)})?.name ?? 'ingen kurs'`);
   expect(await app(page, 'a.xr.wrist.lines')).toContain(`Kurs: ${name}`);
 
-  // «Høy» i VR: beskjed om at skarpheten gjelder neste økt.
-  expect(await app(page, 'a.xr.menuLabels().map((l) => l.text)')).not.toContain('Skarpheten endres neste gang du går inn i VR.');
+  // «Høy» i VR: skarpere med en gang (foveering), full oppløsning fra neste økt.
+  const note = 'Skarpere nå – full oppløsning neste gang du går inn i VR.';
+  expect(await app(page, 'a.xr.menuLabels().map((l) => l.text)')).not.toContain(note);
   await menuPress(page, 'tab:visning');
   await menuPress(page, 'quality:high');
-  expect(await app(page, 'a.xr.menuLabels().map((l) => l.text)')).toContain('Skarpheten endres neste gang du går inn i VR.');
+  expect(await app(page, 'a.xr.menuLabels().map((l) => l.text)')).toContain(note);
+  expect(await app(page, 'a.renderer.xr.getFoveation()')).toBe(0.25);
 });
 
 test('PC: skarphet ved skjermskala 1 (Rask/Standard/Høy)', async ({ browser }) => {

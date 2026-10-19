@@ -4,6 +4,7 @@
  * de samme verdiene, så ingen av dem trenger å kjenne den andre.
  */
 import type { Layer } from '../schema/types';
+import type { LightId } from '../scene/lighting';
 import { Observable } from './Observable';
 
 export type CameraMode = 'orbit' | 'top';
@@ -72,6 +73,8 @@ export class ViewState {
   readonly inXR = new Observable(false);
   /* ---- innstillinger (lagres i nettleseren) ---- */
   readonly quality = new Observable<Quality>('medium');
+  /** Lys: tid på døgnet (morgen/dag/kveld). */
+  readonly light = new Observable<LightId>('dag');
   readonly xrRate = new Observable<XRRate>(90);
   readonly turn = new Observable<TurnMode>(30);
   /** Snitthøyde over laveste gulv (mm); null = fra fila (planCutHeight). */

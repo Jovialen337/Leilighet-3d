@@ -125,14 +125,31 @@ describe('leilighetsmodellen', () => {
     }
   });
 
-  it('starter rett innenfor inngangsdøra, med blikket inn', () => {
+  it('starter rett innenfor inngangsdøra, med blikket mot lengste utsikt', () => {
     const s = m.spawn();
     expect(s.level).toBe(0);
     expect(s.position.x).toBeGreaterThan(200);
     expect(s.position.x).toBeLessThan(1100);
     expect(s.position.z).toBeGreaterThan(300);
     expect(s.position.z).toBeLessThan(1200);
-    expect(s.facing.z).toBe(1);
+    // Rett inn (+z) ser man gangens yttervegg; mot +x ser man gjennom åpningene til stua og kjøkkenet.
+    expect(s.facing.x).toBeGreaterThan(0.9);
+    expect(s.facing.z).toBeGreaterThan(0);
+    expect(Math.hypot(s.facing.x, s.facing.z)).toBeCloseTo(1, 9);
+    const eye = s.level + 1600;
+    expect(m.sightline(s.position, s.facing, eye)).toBeGreaterThan(5000);
+    expect(m.sightline(s.position, { x: 0, z: 1 }, eye)).toBeLessThan(2500);
+  });
+
+  it('sikten stoppes av vegger og vinduer, men går gjennom åpninger', () => {
+    const s = m.spawn();
+    const eye = s.level + 1600;
+    // Mot −x: gangens vindusvegg (vindu stopper blikket) like ved.
+    const west = m.sightline(s.position, { x: -1, z: 0 }, eye);
+    expect(west).toBeGreaterThan(0);
+    expect(west).toBeLessThan(1000);
+    // Mot −z: ut inngangsdøra (lukket dørblad teller ikke) – ut av leiligheten gir 0.
+    expect(m.sightline(s.position, { x: 0, z: -1 }, eye)).toBe(0);
   });
 
   it('veggtoppen er aldri under taket i rommene ved siden av (ingen sprekker)', () => {

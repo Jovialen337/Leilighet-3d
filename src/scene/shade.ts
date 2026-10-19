@@ -1,24 +1,17 @@
 /**
- * Myke skygger uten skyggekart (billig på Quest): gjennomsiktige svarte
- * flater som fades ut.
- *
- * - Langs gulv og tak inntil veggene, og loddrett i innvendige hjørner
- *   (som «ambient occlusion»: hjørner blir litt mørkere, så rommet får dybde).
- * - Under møbler (kontaktskygge), så de står *på* gulvet.
+ * Myke skygger under møbler (kontaktskygge) uten skyggekart (billig på
+ * Quest): gjennomsiktige svarte flater som fades ut, så møblene står *på*
+ * gulvet. Mørkere hjørner og kanter i rommene er bakt inn i fargene
+ * (bake.ts).
  *
  * Geometrien har RGBA-hjørnefarger (svart, alfa varierer) og tegnes med ett
  * felles materiale. Alt i meter; inn i mm.
  */
 import * as THREE from 'three';
 import type { ApartmentModel } from '../model/ApartmentModel';
-import { add, p2, scale, type P2 } from '../geometry/math2d';
-import { isInnerCorner, roomEdges } from './roomEdges';
 import { MM } from './geom';
 
 export const SHADE = {
-  floor: { width: 260, alpha: 0.3 },
-  ceiling: { width: 320, alpha: 0.24 },
-  corner: { width: 220, alpha: 0.2 },
   contact: { fade: 110, alpha: 0.32 },
   /** Hvor høyt over/under flaten skyggen ligger (mm). */
   lift: 2,
@@ -54,61 +47,6 @@ class ShadeBuilder {
   get empty(): boolean {
     return this.pos.length === 0;
   }
-}
-
-const at = (p: P2, y: number): number[] => [p.x, y, p.z];
-
-/**
- * Skygge langs vegger og i hjørner, per lag. Nøkkelen er laget, med «|tak»
- * for skyggene i taket (de skjules sammen med taket).
- */
-export function buildRoomShade(model: ApartmentModel): Map<string, THREE.BufferGeometry> {
-  const byLayer = new Map<string, ShadeBuilder>();
-  const get = (layer: string): ShadeBuilder => {
-    let b = byLayer.get(layer);
-    if (!b) byLayer.set(layer, (b = new ShadeBuilder()));
-    return b;
-  };
-  for (const info of model.rooms.values()) {
-    const g = get(info.room.layer ?? 'structure');
-    const floor = info.room.floorLevel + SHADE.lift;
-    // Gulv langs veggene (ikke i døråpninger).
-    for (const e of roomEdges(model, info, true)) {
-      const w = SHADE.floor.width;
-      const ia = add(e.a, scale(e.inward, w));
-      const ib = add(e.b, scale(e.inward, w));
-      g.quad(at(e.a, floor), at(e.b, floor), at(ib, floor), at(ia, floor), SHADE.floor.alpha, SHADE.floor.alpha, 0, 0);
-    }
-    // Tak langs veggene.
-    const ceil = (p: P2): number => model.ceilingAt(info, p) - SHADE.lift;
-    const gc = get(`${info.room.layer ?? 'structure'}|tak`);
-    for (const e of roomEdges(model, info, false)) {
-      const w = SHADE.ceiling.width;
-      const ia = add(e.a, scale(e.inward, w));
-      const ib = add(e.b, scale(e.inward, w));
-      gc.quad(at(e.a, ceil(e.a)), at(e.b, ceil(e.b)), at(ib, ceil(ib)), at(ia, ceil(ia)), SHADE.ceiling.alpha, SHADE.ceiling.alpha, 0, 0);
-    }
-    // Loddrett i innvendige hjørner, på begge veggene.
-    const poly = info.polygon;
-    const edges = roomEdges(model, info, false);
-    for (let i = 0; i < poly.length; i++) {
-      if (!isInnerCorner(poly, i)) continue;
-      const v = poly[i]!;
-      for (const e of edges) {
-        const atStart = Math.hypot(e.a.x - v.x, e.a.z - v.z) < 1;
-        const atEnd = Math.hypot(e.b.x - v.x, e.b.z - v.z) < 1;
-        if (!atStart && !atEnd) continue;
-        const along = atStart ? e.dir : p2(-e.dir.x, -e.dir.z);
-        const c = add(v, scale(e.inward, SHADE.lift));
-        const o = add(c, scale(along, SHADE.corner.width));
-        const top = ceil(v);
-        g.quad(at(c, floor), at(o, floor), at(o, top), at(c, top), SHADE.corner.alpha, 0, 0, SHADE.corner.alpha);
-      }
-    }
-  }
-  const out = new Map<string, THREE.BufferGeometry>();
-  for (const [layer, b] of byLayer) if (!b.empty) out.set(layer, b.build());
-  return out;
 }
 
 /** Kontaktskygge under hvert møbel (myk firkant rundt fotavtrykket), per lag. */

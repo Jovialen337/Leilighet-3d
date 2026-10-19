@@ -15,6 +15,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { keys: ['k', 'K'], label: 'K', action: 'dollhouse' },
   { keys: ['r', 'R'], label: 'R', action: 'resetView' },
   { keys: ['f', 'F'], label: 'F', action: 'fps' },
+  { keys: ['l', 'L'], label: 'L', action: 'light' },
   { keys: ['h', 'H', '?'], label: 'H', action: 'help' },
 ];
 
@@ -26,6 +27,7 @@ export const ACTION_TEXT: Record<string, string> = {
   dollhouse: 'Dukkehus (kutt 3D-modellen)',
   resetView: 'Tilbakestill visning',
   fps: 'Vis/skjul bildefrekvens',
+  light: 'Lys: morgen → dag → kveld',
   help: 'Vis/skjul denne hjelpen',
 };
 

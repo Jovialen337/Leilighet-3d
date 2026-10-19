@@ -18,6 +18,7 @@ import { LayerPanel } from './LayerPanel';
 import { boundCheckbox, boundRange, boundSelect } from './controls';
 import { ACTION_TEXT, SHORTCUTS, isTypingTarget, shortcutFor } from './shortcuts';
 import { QUALITIES, TURN_MODES, XR_RATES, type Quality, type TurnMode, type XRRate } from '../state/ViewState';
+import { LIGHT_IDS, LIGHT_TEXT, type LightId } from '../scene/lighting';
 
 export interface DesktopActions {
   reload: () => void;
@@ -118,8 +119,6 @@ export class DesktopUI {
       'div',
       { class: 'group', 'data-testid': 'settings' },
       h('h2', {}, 'Innstillinger'),
-      boundSelect<Quality>('Grafikk', view.quality, QUALITIES.map((q) => ({ value: q, label: QUALITY_TEXT[q] })), 'setting-quality'),
-      h('p', { class: 'hint' }, 'Rask: enklest. Standard: myke skygger og himmel. Høy: også skarpere bilde (i VR fra neste gang du går inn).'),
       boundSelect<TurnMode>('VR: snu', view.turn, TURN_MODES.map((t) => ({ value: t, label: TURN_TEXT(t) })), 'setting-turn'),
       boundSelect<XRRate>('VR: bildefrekvens', view.xrRate, XR_RATES.map((r) => ({ value: r, label: `${r} Hz` })), 'setting-rate'),
       h('p', { class: 'hint' }, 'Valgene lagres i denne nettleseren. Quest og laptop har hver sine valg; i VR finner du dem i menyen (X).'),
@@ -164,6 +163,13 @@ export class DesktopUI {
         h('div', { class: 'group' },
           h('h2', {}, 'Visning'),
           h('div', { class: 'segmented' }, this.modeButtons.orbit, this.modeButtons.top),
+          boundSelect<Quality>('Grafikk', view.quality, QUALITIES.map((q) => ({ value: q, label: QUALITY_TEXT[q] })), 'setting-quality'),
+          boundSelect<LightId>('Lys', view.light, LIGHT_IDS.map((l) => ({ value: l, label: LIGHT_TEXT[l] })), 'setting-light'),
+          h(
+            'p',
+            { class: 'hint' },
+            'Rask: enklest. Standard: dagslys fra vinduene, sol, skygger og himmel. Høy: også lysstråler og skarpere bilde (full oppløsning i VR neste gang du går inn). Lys (L): morgensol fra øst (inngangssiden), dag, eller kveld med lampene på.',
+          ),
           ceilingBox,
           measureBox,
           this.legend,
@@ -253,6 +259,9 @@ export class DesktopUI {
         break;
       case 'fps':
         v.fps.set(!v.fps.value);
+        break;
+      case 'light':
+        v.light.set(LIGHT_IDS[(LIGHT_IDS.indexOf(v.light.value) + 1) % LIGHT_IDS.length]!);
         break;
       case 'help':
         this.toggleHelp();

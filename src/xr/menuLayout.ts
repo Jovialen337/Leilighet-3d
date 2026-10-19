@@ -4,6 +4,7 @@
  * hva de gjør, f.eks. «layer:furniture» eller «room:stue».
  */
 import type { Quality, TurnMode, XRRate } from '../state/ViewState';
+import type { LightId } from '../scene/lighting';
 
 export const MENU_W = 1024;
 export const MENU_H = 768;
@@ -53,6 +54,7 @@ export interface MenuState {
   highlight: boolean;
   fps: boolean;
   quality: Quality;
+  light: LightId;
   turn: TurnMode;
   rate: XRRate;
   layers: readonly { id: string; name: string; visible: boolean }[];
@@ -146,6 +148,11 @@ export function buildMenu(s: MenuState): { items: MenuItem[]; labels: MenuLabel[
         { id: 'quality:low', label: 'Rask', active: s.quality === 'low' },
         { id: 'quality:medium', label: 'Standard', active: s.quality === 'medium' },
         { id: 'quality:high', label: 'Høy', active: s.quality === 'high' },
+      ]);
+      choices('Lys', [
+        { id: 'light:morgen', label: 'Morgen', active: s.light === 'morgen' },
+        { id: 'light:dag', label: 'Dag', active: s.light === 'dag' },
+        { id: 'light:kveld', label: 'Kveld', active: s.light === 'kveld' },
       ]);
       if (s.qualityNote) labels.push({ text: s.qualityNote, x: PAD, y: y + 30 });
       break;

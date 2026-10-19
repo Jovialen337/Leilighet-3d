@@ -7,6 +7,7 @@ const state = (tab: MenuTab, layerCount: number, filterCircuit: string | null = 
   highlight: false,
   fps: false,
   quality: 'medium',
+  light: 'dag',
   turn: 30,
   rate: 90,
   layers: Array.from({ length: layerCount }, (_, i) => ({ id: `lag-${i}`, name: `Lag ${i + 1}`, visible: true })),

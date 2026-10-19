@@ -17,8 +17,10 @@ test('går inn i VR og starter stående innenfor inngangsdøra', async ({ page }
   expect(s.head.z).toBeLessThan(1.2);
   expect(s.rig.y).toBeCloseTo(0, 6);
   expect(s.floorUnderHead).toBe(0);
-  // Blikket inn i leiligheten (+z): riggens −z peker mot +z.
-  expect(Math.abs(Math.abs(s.rig.yaw) - Math.PI)).toBeLessThan(0.01);
+  // Blikket mot lengste utsikt: gjennom åpningene mot stua og kjøkkenet (+x), ikke rett i gangveggen (+z).
+  const forward = { x: -Math.sin(s.rig.yaw), z: -Math.cos(s.rig.yaw) };
+  expect(forward.x).toBeGreaterThan(0.9);
+  expect(forward.z).toBeGreaterThan(0);
   await expect(page.getByTestId('vr-button')).toHaveText('Avslutt VR');
   expect(errors).toEqual([]);
 });
@@ -72,9 +74,11 @@ test('snu 30° med høyre stikke, rundt hodet', async ({ page }) => {
 
 test('går man fysisk opp trinnet, følger gulvhøyden etter', async ({ page }) => {
   await enterVR(page);
-  // Riggen ser mot +z, så lokal −x i det fysiske rommet er +x i leiligheten (mot stua).
+  // Gå mot +x i leiligheten (mot stua): retningen i det fysiske rommet følger riggens vinkel.
+  const yaw = (await xrState(page)).rig.yaw;
   for (let i = 1; i <= 25; i++) {
-    await page.evaluate((x) => (window as any).__iwer.position.set(x, 1.6, 0), -i * 0.1);
+    const d = i * 0.1;
+    await page.evaluate(([x, z]) => (window as any).__iwer.position.set(x, 1.6, z), [d * Math.cos(yaw), d * Math.sin(yaw)] as const);
     await frames(page, 1);
   }
   await frames(page, 10);
@@ -93,8 +97,9 @@ test('Y-knappen viser bildefrekvens i VR, og tegnekallene er få', async ({ page
   await button(page, 'left', 'y-button', 0);
   expect(await page.evaluate(() => (window as any).leilighet.view.fps.value)).toBe(true);
   const s = await stats(page);
-  // To øyne: under 60 tegnekall totalt.
-  expect(s.drawCalls).toBeLessThan(60);
+  // Budsjettet på Quest 3: maks 40 tegnekall per øye.
+  expect(s.drawCallsPerEye).toBeLessThanOrEqual(40);
+  expect(s.drawCalls).toBe(s.drawCallsPerEye! * 2);
 });
 
 test('avslutt VR går tilbake til laptopvisning', async ({ page }) => {
