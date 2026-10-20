@@ -667,3 +667,117 @@ Weighted total **7.25**. Another round is worth it (round 2 of 4).
     - new tests: rebuild speed, morning in the VR budget run, lamp light inside the room, and the evening mix.
 11. **Long VR scenarios:** the pipe-drawing test and the step-walking test now have 90 s limits, like the other long VR tests. Alone they take 40–47 s, so they timed out when the machine was busy with other work.
 12. **CI:** the job limit went from 20 to 35 minutes. The suite has about 85 tests: the PR #8 run took 19 minutes, and the first PR #9 run was cut off at test 71, with every test up to then passing.
+
+### Gatekeeper (round 2 at 13bd63e): **FAIL**
+
+- **Blocking:**
+  - **The baked lamp light does not follow the lamps.** `bakeLightKey` hashes only rooms, walls and openings, so moving, adding or deleting a lamp leaves its old light until a reload. The merged-mesh reuse keeps the stale light too.
+  - **The baked lamp light ignores the el filters.** The glow follows them, but the floor colours do not change.
+- **Passing:**
+  - typecheck, validate, 280/280 unit tests and the build;
+  - CI green on 13bd63e;
+  - 0 console errors;
+  - wall ends: no holes, in any of the cases tried;
+  - mesh reuse: no leaks, and the state is right after a plan change.
+- **Budget, real file, 6 rooms × 8 directions:**
+
+  | Setting | Worst draw calls per eye |
+  |---|---|
+  | Standard, Dag / Morgen | 32 |
+  | Standard, Kveld | 34 |
+  | Høy, Kveld | 36 |
+  | Rask | 24 |
+
+  Textures are 11.7 MB. A rebuild after drawing a pipe has a median of 37 ms (115 ms at 4× CPU slowdown).
+- **Non-blocking remarks** (handled in round 3 unless noted):
+  1. `capCover` ignores openings in the covering wall. This is only with a test window, so it is noted for later.
+  2. The draw-call numbers in the docs were too low. Fixed.
+  3. The lit lamp underside sits on the room's layer. It is now on the lamp's own layer.
+  4. In the VR menu, the «Høy» note moved the «Lys» row down. The space is now always kept.
+  5. Pre-existing: the back wall floats 150–180 mm above the ground. Noted.
+
+### Judge (round 2, scored at 13bd63e): **7.9 – not accepted**
+
+| # | Item | Score | Verdict |
+|---|---|---|---|
+| 1 | Baked daylight and ambient occlusion | 8 | ✅ |
+| 2 | Sun patches, rays, lamp light | 7 | 🟡 The baked lamp light ignores plan edits and filters |
+| 3 | Sky, ground, glass, floors | 8 | ✅ |
+| 4 | «Lys» | 8 | ✅ |
+| 5 | VR entry | 8 | ✅ |
+| 6 | Profile, budget, tests, docs | 8 | ✅ |
+
+**Dimensions:**
+- visual quality 8;
+- performance 8;
+- options 8;
+- intuitive use 8;
+- code quality 7 (the cache key misses the lamps, and two places decide whether a lamp is on);
+- robustness 8.
+
+**Its round-1 criteria, now met:**
+- rebuild 34–39 ms, and 77–103 ms at 4× CPU slowdown;
+- no flicker at the bathroom corner;
+- the brightest wall pixel is 238;
+- «Kveld» is 48 % of «Dag»;
+- the lamp area is the brightest;
+- the glass is clear at 60–70°;
+- no ray line;
+- no wood boards in the grow room or kitchen.
+
+**Round 3 should be small:**
+1. Fix the lamp light (required).
+2. Polish «Kveld»:
+   - a weaker key light;
+   - warm lamp light per colour channel.
+3. Fix the dotted seam in the bathroom corner.
+4. Correct the docs.
+
+### Research (round 3)
+
+**Research A (graphics):**
+- **Proposals:**
+  - window reflections in the floors (with true depth in VR, no draw calls);
+  - coloured light per «Lys», plus the lamp key fix (the same bug the judge and gatekeeper found);
+  - paint and wet-room tiles on the walls;
+  - more depth outside;
+  - a polish bundle (soft lamp falloff, dithering, rounded edges).
+- **Taken:** coloured light, the lamp fix and the soft lamp falloff.
+- **The rest:** later work in PLAN.md, as the judge asked for a small round.
+- **Advice not taken:** to hold back «Natt» with one lamp in the file. «Natt» now has dim, cool moonlight in rooms without a lamp, so they are not black.
+
+**Research B (options and control):**
+- **Taken:**
+  - **«Egendefinert»** as a fourth graphics choice, with «Skarpere bilde» as its own choice. The set is saved, and a preset does not erase it.
+  - **Wrist panel fixes:** the same area format as the laptop, short names, a teleport hint, the current room marked in «Gå til», and «VR: vis alltid hjelp på håndleddet» on the laptop.
+  - **Pointer lines** only while they are in use (2 fewer draw calls per eye).
+  - **Robustness fixes:**
+    - The fade from black finishes even without a model.
+    - «Tilbakestill innstillinger» also resets the 2D view, with a test that compares every setting with a fresh state.
+    - Passthrough keeps the default foveation; «Høy»'s 0.25 no longer applies there.
+- **Not taken:** seated mode, the vignette and blink, «Gå rundt» on the laptop, and view modes. They are later work.
+
+### Round 3 – what changed
+
+1. **Lamp light (the blocker):**
+   - The lamp share of the bake is computed apart from the daylight, from the lamps that exist and pass the el filter. One function, `lampLit`, decides «is this lamp on» for both the glow and the bake.
+   - It is recomputed only when the lamps change, and the merged-mesh signature includes it.
+   - Tests:
+     - a drawn lamp gives the same colours as a fresh bake, and deleting it restores them;
+     - hiding «existing», or choosing another circuit, gives the colours of a model without the lamp;
+     - «Lampelys» off removes the baked light too.
+2. **«Kveld»:**
+   - the key light is 0.3 instead of 0.8;
+   - blue window light and warm lamp light, tinted per channel with the brightness kept (tested);
+   - the glow fades softly, with no peak and no ring.
+3. **Seam in the bathroom corner:**
+   - **Cause:** the kitchen's outer wall runs into the bathroom's outer wall, and its hidden side face ended exactly in the bathroom wall's visible face, so it showed through as a dotted line.
+   - **Fix:** covered ends that overlap the other wall are pulled 2 cm into it. Tessellated corners are fixed to 1 µm.
+   - **Test:** no hidden side face has an edge in a visible wall face. Three known junctions in the real file are listed for later.
+4. **Already in this round:**
+   - one mesh per controller;
+   - the wrist panel with the room;
+   - «Egendefinert»;
+   - «Natt».
+5. **Docs:** the gatekeeper's draw-call numbers are used, and the rebuild time is compared like for like.
+

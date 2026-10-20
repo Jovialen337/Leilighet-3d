@@ -36,6 +36,11 @@ export interface LightPreset {
   lamps: number;
   /** Hvor mye av det bakte grunnlyset, dagslyset fra vinduene og lampelyset som brukes. */
   bake: BakeMix;
+  /**
+   * Fargen på hver del av det bakte lyset (RGB-faktorer rundt 1; uten = hvitt):
+   * f.eks. gyllent morgenlys, blått kveldslys fra vinduene og varme lamper.
+   */
+  bakeTint?: { ambient: Vec; window: Vec; lamp: Vec };
   /** Natt (0–1): stjerner på himmelen, mørk mark og mørkt gjenskinn i vinduene. */
   night: number;
 }
@@ -50,6 +55,7 @@ export const LIGHTS: Record<LightId, LightPreset> = {
     sun: { color: '#ffd6a6', strength: 0.8 },
     lamps: 0,
     bake: { ambient: 1, window: 0.9, lamp: 0 },
+    bakeTint: { ambient: [1.03, 1, 0.95], window: [1.1, 1, 0.86], lamp: [1, 1, 1] },
     night: 0,
   },
   dag: {
@@ -65,25 +71,29 @@ export const LIGHTS: Record<LightId, LightPreset> = {
   },
   kveld: {
     hemi: { sky: '#d9d6e0', ground: '#e6d2bb', intensity: 1.1 },
-    key: { color: '#ffd2a6', intensity: 0.8, from: [1.6, 0.75, 4] },
+    key: { color: '#ffd2a6', intensity: 0.3, from: [1.6, 0.75, 4] },
     fill: { color: '#cdd6f0', intensity: 0.35, from: [-4, 1.5, -3] },
     exposure: 1.0,
     sky: { zenith: '#3f5f9a', horizon: '#f2a46e', glow: '#ff9a50', hills: '#5c5f78', clouds: '#ffc9a0' },
     sun: { color: '#ffbb80', strength: 0.75 },
     lamps: 1,
     bake: { ambient: 0.85, window: 0.3, lamp: 1 },
+    // Blått lys fra vinduene i skumringen, varme lamper (rundt 2700 K).
+    bakeTint: { ambient: [0.98, 0.98, 1.04], window: [0.8, 0.9, 1.2], lamp: [1.3, 0.92, 0.55] },
     night: 0,
   },
   // Månen står høyt i sør-vest; den lyser svakt og kaster ingen flekker. Lampene gjør jobben.
   natt: {
-    hemi: { sky: '#9aa6c8', ground: '#c9a888', intensity: 0.75 },
+    hemi: { sky: '#9aa6c8', ground: '#8e93a8', intensity: 0.9 },
     key: { color: '#b4c2e8', intensity: 0.12, from: [-2, 3, 3] },
     fill: { color: '#ffcf9a', intensity: 0.25, from: [-4, 1.5, -3] },
     exposure: 1.0,
     sky: { zenith: '#04071a', horizon: '#1a2442', glow: '#41537e', hills: '#0b1020', clouds: '#2b3352' },
     sun: { color: '#a8bce8', strength: 0 },
     lamps: 1.2,
-    bake: { ambient: 0.6, window: 0.04, lamp: 1.25 },
+    bake: { ambient: 0.7, window: 0.04, lamp: 1.25 },
+    // Kaldt månelys i rommene uten lampe, varmt der lampa lyser.
+    bakeTint: { ambient: [0.8, 0.9, 1.25], window: [0.75, 0.85, 1.3], lamp: [1.3, 0.92, 0.55] },
     night: 1,
   },
 };

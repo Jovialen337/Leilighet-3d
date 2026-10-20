@@ -41,6 +41,7 @@ const QUALITY_ITEMS: readonly { id: Quality; label: string }[] = [
   { id: 'low', label: 'Rask' },
   { id: 'medium', label: 'Standard' },
   { id: 'high', label: 'Høy' },
+  { id: 'custom', label: 'Egendefinert' },
 ];
 
 export interface MenuItem {
@@ -61,10 +62,8 @@ export interface MenuState {
   highlight: boolean;
   fps: boolean;
   quality: Quality;
-  /** Effektene slik de er valgt (grafikkvalget med egne valg oppå). */
+  /** Effektene slik de er nå (forhåndsvalget eller «Egendefinert»). */
   effects: readonly { id: EffectId; on: boolean }[];
-  /** Det finnes egne effektvalg («Egendefinert»). */
-  customEffects: boolean;
   light: LightId;
   turn: TurnMode;
   rate: XRRate;
@@ -72,6 +71,8 @@ export interface MenuState {
   wristHelp: boolean;
   layers: readonly { id: string; name: string; visible: boolean }[];
   rooms: readonly { id: string; name: string }[];
+  /** Rommet man står i (markert under «Gå til»), eller null. */
+  here?: string | null;
   showExisting: boolean;
   showPlanned: boolean;
   xray: boolean;
@@ -158,14 +159,12 @@ export function buildMenu(s: MenuState): { items: MenuItem[]; labels: MenuLabel[
       toggle('toggle:fps', 'Vis bildefrekvens', s.fps);
       y += ROW_H + GAP;
       choices('Grafikk', [
-        ...QUALITY_ITEMS.map((q) => ({ id: `quality:${q.id}`, label: q.label, active: s.quality === q.id && !s.customEffects })),
-        // Effektene hver for seg; med egne valg er det dette som gjelder («Egendefinert»).
-        { id: 'tab:effekter', label: s.customEffects ? 'Egendefinert …' : 'Effekter …', active: s.customEffects },
+        // «Egendefinert» åpner også siden med effektene hver for seg.
+        ...QUALITY_ITEMS.map((q) => ({ id: `quality:${q.id}`, label: q.label, active: s.quality === q.id })),
       ]);
-      if (s.qualityNote) {
-        labels.push({ text: s.qualityNote, x: PAD, y: y + 22 });
-        y += 40;
-      }
+      // Plass til beskjeden alltid, så «Lys» ikke flytter seg når den kommer.
+      if (s.qualityNote) labels.push({ text: s.qualityNote, x: PAD, y: y + 22 });
+      y += 40;
       choices('Lys', [
         { id: 'light:morgen', label: 'Morgen', active: s.light === 'morgen' },
         { id: 'light:dag', label: 'Dag', active: s.light === 'dag' },
@@ -208,15 +207,18 @@ export function buildMenu(s: MenuState): { items: MenuItem[]; labels: MenuLabel[
     }
     case 'effekter':
       items.push({ id: 'tab:visning', kind: 'action', label: '‹ Tilbake', active: false, x: PAD, y, w: 260, h: 64 });
-      if (s.customEffects) {
-        const base = QUALITY_ITEMS.find((q) => q.id === s.quality)?.label ?? '';
-        items.push({ id: 'effects:reset', kind: 'action', label: `Tilbake til «${base}»`, active: false, x: PAD + 260 + GAP, y, w: full - 260 - GAP, h: 64 });
-      }
       y += 64 + GAP;
-      labels.push({ text: s.customEffects ? 'Egendefinert: dine valg gjelder.' : 'Slik grafikkvalget har det nå. Trykk for å endre.', x: PAD, y: y + 30 });
+      labels.push({
+        text:
+          s.quality === 'custom'
+            ? 'Egendefinert: velg hver effekt selv.'
+            : `Nå: ${QUALITY_ITEMS.find((q) => q.id === s.quality)?.label ?? ''}. Et valg her gjør det til «Egendefinert».`,
+        x: PAD,
+        y: y + 30,
+      });
       y += 52;
       grid(s.effects.map((e) => ({ id: `effect:${e.id}`, label: EFFECT_TEXT[e.id], active: e.on, kind: 'toggle' as const })));
-      labels.push({ text: 'Rask, Standard eller Høy nullstiller valgene.', x: PAD, y: y + 30 });
+      if (s.qualityNote) labels.push({ text: s.qualityNote, x: PAD, y: y + 30 });
       break;
     case 'lagliste':
       items.push({ id: 'tab:lag', kind: 'action', label: '‹ Tilbake', active: false, x: PAD, y, w: 260, h: 64 });
@@ -244,7 +246,7 @@ export function buildMenu(s: MenuState): { items: MenuItem[]; labels: MenuLabel[
     case 'ga':
       grid([
         { id: 'start', label: 'Til start (døra)', active: false, kind: 'action' as const },
-        ...s.rooms.map((r) => ({ id: `room:${r.id}`, label: r.name, active: false, kind: 'action' as const })),
+        ...s.rooms.map((r) => ({ id: `room:${r.id}`, label: r.name, active: r.id === s.here, kind: 'choice' as const })),
       ]);
       break;
     case 'komfort':

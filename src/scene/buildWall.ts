@@ -17,6 +17,14 @@ interface UV {
 }
 
 const EPS = 1;
+/**
+ * En dekket veggende trekkes inn i veggen som dekker den: den dekkede delen
+ * opp til 20 mm (høyst halve tykkelsen på den andre veggen), resten et halvt
+ * millimeter. Ellers ligger kantene på sideflatene akkurat i den andre
+ * veggens flate og flimrer gjennom den (en prikkete strek i veggen).
+ */
+const COVER_DEEP = 20;
+const COVER_INSET = 0.5;
 
 export function buildWallGeometry(model: ApartmentModel, f: WallFrame): THREE.BufferGeometry {
   const base = model.wallBase(f);
@@ -77,10 +85,12 @@ export function buildWallGeometry(model: ApartmentModel, f: WallFrame): THREE.Bu
       { u: s.u1, v: s.top },
       { u: s.u0, v: s.top },
     ]);
-    extrude(g, f, clean, holePolys, {
-      start: sa <= EPS ? capCover(model, f, 0) : null,
-      end: sb >= f.length - EPS ? capCover(model, f, f.length) : null,
-    });
+    const start = sa <= EPS ? capCover(model, f, 0) : null;
+    const end = sb >= f.length - EPS ? capCover(model, f, f.length) : null;
+    let inset = clean;
+    if (start?.depth) inset = insetEnd(inset, 0, 1, start, Math.min(COVER_DEEP, f.length / 3));
+    if (end?.depth) inset = insetEnd(inset, f.length, -1, end, Math.min(COVER_DEEP, f.length / 3));
+    extrude(g, f, inset, holePolys, { start: start?.height ?? null, end: end?.height ?? null });
   }
   return g.build();
 }
@@ -91,8 +101,10 @@ export function buildWallGeometry(model: ApartmentModel, f: WallFrame): THREE.Bu
  * Svaret er hvor høyt (mm) den er dekket, eller null. Den dekkede delen
  * tegnes ikke: to flater oppå hverandre ville flimret.
  */
-function capCover(model: ApartmentModel, f: WallFrame, u: number): number | null {
-  let best: number | null = null;
+function capCover(model: ApartmentModel, f: WallFrame, u: number): { height: number; depth: number } | null {
+  let best: { height: number; depth: number } | null = null;
+  // Retningen inn i veggen fra denne enden.
+  const inward = u <= EPS ? 1 : -1;
   const a = frameAt(f, u, f.nMin);
   const b = frameAt(f, u, f.nMax);
   for (const g of model.walls.values()) {
@@ -108,10 +120,38 @@ function capCover(model: ApartmentModel, f: WallFrame, u: number): number | null
       // Den andre veggen må starte like lavt; den dekker opp til sin egen topp.
       if (model.wallBase(g) > model.wallBase(f) + 1) continue;
       const cover = Math.min(interpolate(model.wallTop(g), Math.max(0, lo)), interpolate(model.wallTop(g), Math.min(g.length, hi)));
-      best = Math.max(best ?? -Infinity, cover);
+      // Ligger den andre veggen på innsiden (veggene overlapper i hjørnet), kan enden trekkes inn i den;
+      // står veggen bare mot den andre utenfra, er dybden 0.
+      const out = (n === g.nMax ? 1 : -1) * (g.left.x * f.dir.x + g.left.z * f.dir.z);
+      const depth = out * inward < 0 ? g.nMax - g.nMin : 0;
+      if (!best || cover > best.height) best = { height: cover, depth };
     }
   }
   return best;
+}
+
+/**
+ * Flytter enden av konturen (punktene ved u = `at`) inn i veggen som dekker
+ * den (`sign` = retningen innover): opp til den dekkede høyden `deep` mm
+ * (høyst halve tykkelsen på den andre veggen), over den bare et halvt
+ * millimeter, med et trinn der kanten krysser den dekkede høyden.
+ */
+function insetEnd(pts: UV[], at: number, sign: number, cover: { height: number; depth: number }, deep: number): UV[] {
+  const d = Math.min(deep, cover.depth / 2);
+  const onEnd = (p: UV): boolean => Math.abs(p.u - at) <= EPS;
+  const shift = (p: UV): UV => ({ u: at + sign * (p.v <= cover.height + EPS ? d : COVER_INSET), v: p.v });
+  const out: UV[] = [];
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i]!;
+    const b = pts[(i + 1) % pts.length]!;
+    out.push(onEnd(a) ? shift(a) : a);
+    if (onEnd(a) && onEnd(b) && (a.v - cover.height - EPS) * (b.v - cover.height - EPS) < 0) {
+      const lo = { u: at + sign * d, v: cover.height };
+      const hi = { u: at + sign * COVER_INSET, v: cover.height };
+      out.push(...(a.v < b.v ? [lo, hi] : [hi, lo]));
+    }
+  }
+  return out;
 }
 
 interface Notch {

@@ -95,7 +95,7 @@ test('håndleddet: hjelp til kontrollene er lært, så bare rommet du står i; �
   expect((await xrState(page)).wrist).toEqual({ learned: true, place: 'Stue' });
   const w = await wrist();
   expect(w.title).toBe('Stue');
-  expect(w.lines).toEqual([expect.stringMatching(/^\d+,\d m² · X: meny$/)]);
+  expect(w.lines).toEqual([expect.stringMatching(/^\d+(,\d)? m² · X: meny$/)]);
   // «Gå til rom» viser det nye rommet.
   await page.evaluate(() => (window as any).leilighet.xr.goToRoom('kjokken'));
   await expect.poll(async () => (await wrist()).title, { timeout: 5_000 }).toBe('Kjøkken');

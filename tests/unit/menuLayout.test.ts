@@ -8,7 +8,6 @@ const state = (tab: MenuTab, layerCount: number, filterCircuit: string | null = 
   fps: false,
   quality: 'medium',
   effects: [],
-  customEffects: false,
   light: 'dag',
   turn: 30,
   rate: 90,
@@ -60,30 +59,32 @@ describe('VR-menyen', () => {
       }
   });
 
-  it('«Effekter …»: hver effekt for seg, og «Egendefinert» når det finnes egne valg', () => {
-    const effects = (['baked', 'sun', 'lamps', 'shafts', 'detail', 'shades', 'sky'] as const).map((id) => ({ id, on: id !== 'shafts' }));
-    const plain = buildMenu({ ...state('visning', 13), effects });
-    expect(plain.items.find((i) => i.id === 'tab:effekter')).toMatchObject({ label: 'Effekter …', active: false });
-    expect(plain.items.find((i) => i.id === 'quality:medium')?.active).toBe(true);
-    const custom = buildMenu({ ...state('visning', 13), effects, customEffects: true });
-    expect(custom.items.find((i) => i.id === 'tab:effekter')).toMatchObject({ label: 'Egendefinert …', active: true });
-    expect(custom.items.filter((i) => i.id.startsWith('quality:')).every((i) => !i.active)).toBe(true);
-    const page = buildMenu({ ...state('effekter', 13), effects, customEffects: true });
-    expect(page.items.filter((i) => i.id.startsWith('effect:')).map((i) => [i.label, i.active])).toEqual([
-      ['Dagslys i rommene', true],
-      ['Solflekker', true],
-      ['Lampelys (kveld)', true],
-      ['Lysstråler', false],
-      ['Gulvmønster', true],
-      ['Skygger under møbler', true],
-      ['Himmel og utsikt', true],
+  it('«Egendefinert» i Grafikk-raden, og en underside med hver effekt for seg', () => {
+    const effects = (['baked', 'sun', 'shafts', 'lamps', 'sky', 'detail', 'sharp'] as const).map((id) => ({ id, on: id !== 'shafts' && id !== 'sharp' }));
+    const row = buildMenu({ ...state('visning', 13), effects }).items.filter((i) => i.id.startsWith('quality:'));
+    expect(row.map((i) => [i.label, i.active])).toEqual([
+      ['Rask', false],
+      ['Standard', true],
+      ['Høy', false],
+      ['Egendefinert', false],
     ]);
-    expect(page.items.find((i) => i.id === 'effects:reset')?.label).toBe('Tilbake til «Standard»');
+    const page = buildMenu({ ...state('effekter', 13), effects, quality: 'custom', qualityNote: 'Oppløsningen endres neste gang du går inn i VR.' });
+    expect(page.items.filter((i) => i.id.startsWith('effect:')).map((i) => [i.label, i.active])).toEqual([
+      ['Dagslys og myke skygger', true],
+      ['Solflekker', true],
+      ['Lysstråler', false],
+      ['Lampelys (kveld)', true],
+      ['Himmel og utsikt', true],
+      ['Gulvmønster', true],
+      ['Skarpere bilde', false],
+    ]);
+    expect(page.labels.map((l) => l.text)).toEqual(['Egendefinert: velg hver effekt selv.', 'Oppløsningen endres neste gang du går inn i VR.']);
     // Fanen «Visning» er markert på undersiden, og alt får plass.
     expect(page.items.find((i) => i.id === 'tab:visning' && i.kind === 'tab')?.active).toBe(true);
+    expect(page.items.some((i) => i.id === 'tab:visning' && i.kind === 'action')).toBe(true);
     for (const it of page.items) expect(it.y + it.h).toBeLessThanOrEqual(MENU_H);
     expect(Math.max(...page.labels.map((l) => l.y))).toBeLessThanOrEqual(MENU_H - 20);
-    expect(buildMenu({ ...state('effekter', 13), effects }).items.some((i) => i.id === 'effects:reset')).toBe(false);
+    expect(buildMenu({ ...state('effekter', 13), effects }).labels[0]?.text).toBe('Nå: Standard. Et valg her gjør det til «Egendefinert».');
   });
 
   it('beskjed om skarphet vises under grafikkvalget', () => {

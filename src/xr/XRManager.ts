@@ -17,6 +17,7 @@ import type { MeasureSession } from '../measure/MeasureSession';
 import type { ApartmentScene } from '../scene/ApartmentScene';
 import { MM } from '../scene/geom';
 import { polygonArea } from '../geometry/math2d';
+import { areaText, shortName } from '../ui/format';
 import { Observable } from '../state/Observable';
 import type { ViewState } from '../state/ViewState';
 import type { FpsMeter } from '../ui/FpsMeter';
@@ -35,7 +36,7 @@ import { WATER_FIXTURES } from '../schema/types';
 import { LAYER_GROUPS, LAYER_PRESETS, applyPreset, groupState, setGroup } from '../state/layerGroups';
 import { followFloor, placeAtSpawn, snapTurn, teleportTo } from './rig';
 import { Fade } from './fade';
-import { EFFECT_IDS, chooseEffect, graphicsProfile, wantedEffects, type EffectId } from '../scene/graphicsProfile';
+import { EFFECT_IDS, graphicsProfile, wantedEffects, type EffectId } from '../scene/graphicsProfile';
 import { LIGHT_IDS, type LightId } from '../scene/lighting';
 
 export type XRSupport = 'checking' | 'supported' | 'unsupported' | 'insecure' | 'no-webxr';
@@ -60,6 +61,8 @@ interface Slot {
   controller: THREE.XRTargetRaySpace;
   grip: THREE.XRGripSpace;
   source: XRInputSource | null;
+  /** Pekestrålen (vises bare når den brukes: menyen eller tegning, høyre hånd). */
+  line: THREE.Line;
 }
 
 export interface XRDebugState {
@@ -142,7 +145,7 @@ export class XRManager {
   private learned = false;
   private walkSeconds = 0;
   /** Rommet (eller uteområdet) man sist sto i, for håndleddet. */
-  private place: { name: string; area: number } | null = null;
+  private place: { name: string; area: number; roomId: string | null } | null = null;
   private placeRef: object | null = null;
   /** Hodet i planet (mm), gjenbrukt hver ramme. */
   private readonly headPoint = { x: 0, z: 0 };
@@ -177,6 +180,7 @@ export class XRManager {
         controller: renderer.xr.getController(i),
         grip: renderer.xr.getControllerGrip(i),
         source: null,
+        line: pointerLine(),
       };
       slot.controller.addEventListener('connected', (e) => {
         slot.source = e.data ?? null;
@@ -187,7 +191,7 @@ export class XRManager {
         slot.source = null;
       });
       slot.grip.add(controllerModel());
-      slot.controller.add(pointerLine());
+      slot.controller.add(slot.line);
       this.rig.add(slot.controller, slot.grip);
       this.slots.push(slot);
     }
@@ -208,7 +212,7 @@ export class XRManager {
     const dirty = (): void => {
       this.menuDirty = true;
     };
-    for (const o of [view.ceilings, view.measureHighlight, view.fps, view.quality, view.effects, view.light, view.turn, view.xrRate, view.wristHelp, view.showExisting, view.showPlanned, view.xray, view.circuit] as const)
+    for (const o of [view.ceilings, view.measureHighlight, view.fps, view.quality, view.customEffects, view.light, view.turn, view.xrRate, view.wristHelp, view.showExisting, view.showPlanned, view.xray, view.circuit] as const)
       (o as { subscribe: (l: () => void) => void }).subscribe(dirty);
     view.xrRate.subscribe(() => void this.applyFrameRate());
     view.fps.subscribe(() => this.updateWristFps(), true);
@@ -265,7 +269,7 @@ export class XRManager {
   }
 
   private profile() {
-    return graphicsProfile({ quality: this.view.quality.value, top: false, passthrough: false, custom: this.view.effects.value });
+    return graphicsProfile({ quality: this.view.quality.value, top: false, passthrough: false, custom: this.view.customEffects.value });
   }
 
   /** Bildefrekvens fra innstillingene (eller ?hz= i adressen), hvis hodesettet støtter den. */
@@ -419,9 +423,19 @@ export class XRManager {
   }
 
   private setPointersVisible(visible: boolean): void {
+    for (const s of this.slots) s.line.visible = visible;
+  }
+
+  /**
+   * Pekestrålene når man går: bare høyre, og bare når menyen er åpen eller
+   * man tegner (ellers er teleport-buen tilbakemeldingen). To tegnekall
+   * mindre per øye det meste av tiden, og et roligere bilde.
+   */
+  private updatePointers(): void {
+    const use = this.menu.open || this.drawTool !== null;
     for (const s of this.slots) {
-      const line = s.controller.getObjectByName('peker');
-      if (line) line.visible = visible;
+      const want = use && s.source?.handedness === 'right';
+      if (s.line.visible !== want) s.line.visible = want;
     }
   }
 
@@ -441,6 +455,8 @@ export class XRManager {
       this.camera.getWorldPosition(this.head);
       return;
     }
+    // Overgangen fra svart går alltid ferdig, også om modellen mangler (ellers blir bildet stående svart).
+    if (this.fade.active && this.mode === 'walk') this.renderer.toneMappingExposure = this.exposure * this.fade.update(dt);
     const model = this.getModel();
     if (!model) return;
     this.frames++;
@@ -457,7 +473,6 @@ export class XRManager {
     }
 
     this.camera.getWorldPosition(this.head);
-    if (this.fade.active) this.renderer.toneMappingExposure = this.exposure * this.fade.update(dt);
 
     if (this.pendingSpawn && this.frames >= 3) {
       this.pendingSpawn = false;
@@ -470,6 +485,7 @@ export class XRManager {
 
     this.updateMenu(left, right);
     this.updateDraw(right);
+    this.updatePointers();
 
     // Teleport med venstre stikke.
     const ly = left?.axes[3] ?? 0;
@@ -482,6 +498,8 @@ export class XRManager {
         if (hit?.valid) {
           teleportTo(this.rig, this.head, hit.point);
           this.teleports++;
+          // Første teleport: håndleddet slutter å minne om stikka.
+          if (this.teleports === 1 && this.learned) this.updateWristHelp();
           this.camera.getWorldPosition(this.head);
         }
         this.aiming = false;
@@ -519,7 +537,11 @@ export class XRManager {
     const where = room ?? model.outdoorAt(this.headPoint);
     if (!where || where === this.placeRef) return;
     this.placeRef = where;
-    this.place = 'room' in where ? { name: where.room.name, area: where.area } : { name: where.area.name, area: polygonArea(where.polygon) };
+    this.place =
+      'room' in where
+        ? { name: where.room.name, area: where.area, roomId: where.room.id }
+        : { name: where.area.name, area: polygonArea(where.polygon), roomId: null };
+    if (this.menu.open) this.menuDirty = true;
     this.updateWristHelp();
   }
 
@@ -560,7 +582,7 @@ export class XRManager {
 
   private menuState() {
     const model = this.getModel();
-    const want = wantedEffects(this.view.quality.value, this.view.effects.value);
+    const want = wantedEffects(this.view.quality.value, this.view.customEffects.value);
     return {
       tab: this.menuTab,
       ceilings: this.view.ceilings.value,
@@ -568,13 +590,13 @@ export class XRManager {
       fps: this.view.fps.value,
       quality: this.view.quality.value,
       effects: EFFECT_IDS.map((id) => ({ id, on: want[id] })),
-      customEffects: Object.keys(this.view.effects.value).length > 0,
       light: this.view.light.value,
       turn: this.view.turn.value,
       rate: this.view.xrRate.value,
       wristHelp: this.view.wristHelp.value,
       layers: this.view.layers.layers.map((l) => ({ id: l.id, name: l.name, visible: this.view.layers.isVisible(l.id) })),
       rooms: model ? [...model.rooms.values()].map((r) => ({ id: r.room.id, name: r.room.name })) : [],
+      here: this.place?.roomId ?? null,
       showExisting: this.view.showExisting.value,
       showPlanned: this.view.showPlanned.value,
       xray: this.view.xray.value,
@@ -615,16 +637,12 @@ export class XRManager {
         setGroup(v.layers, arg, groupState(v.layers, arg) === 'off');
         break;
       case 'quality':
-        if ((QUALITIES as readonly string[]).includes(arg)) v.choosePreset(arg as Quality);
+        if ((QUALITIES as readonly string[]).includes(arg)) v.quality.set(arg as Quality);
+        // «Egendefinert»: rett til effektene.
+        if (arg === 'custom') this.menuTab = 'effekter';
         break;
       case 'effect':
-        if ((EFFECT_IDS as readonly string[]).includes(arg)) {
-          const e = arg as EffectId;
-          v.effects.set(chooseEffect(v.quality.value, v.effects.value, e, !wantedEffects(v.quality.value, v.effects.value)[e]));
-        }
-        break;
-      case 'effects':
-        v.choosePreset(v.quality.value);
+        if ((EFFECT_IDS as readonly string[]).includes(arg)) v.toggleEffect(arg as EffectId);
         break;
       case 'light':
         if ((LIGHT_IDS as readonly string[]).includes(arg)) v.light.set(arg as LightId);
@@ -890,8 +908,10 @@ export class XRManager {
       return;
     }
     if (this.learned && !this.view.wristHelp.value) {
-      const area = this.place ? `${(this.place.area / 1e6).toFixed(1).replace('.', ',')} m² · ` : '';
-      this.wrist.setLines([`${area}X: meny`], this.place?.name ?? null);
+      const area = this.place ? `${areaText(this.place.area)} · ` : '';
+      // Lært på tid uten å ha teleportert: minn om stikka.
+      const lines = this.teleports > 0 ? [`${area}X: meny`] : [`${area}X: meny`, 'Venstre stikke: teleport'];
+      this.wrist.setLines(lines, this.place ? shortName(this.place.name) : null);
       return;
     }
     const t = this.view.turn.value;

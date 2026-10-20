@@ -27,7 +27,7 @@ export class SettingsBinding {
     s.bind('tak', view.ceilings, isBool);
     s.bind('umalte', view.measureHighlight, isBool);
     s.bind('kvalitet', view.quality, oneOf(QUALITIES));
-    s.bind('effekter', view.effects, isEffectChoices);
+    s.bind('effekter', view.customEffects, isEffectChoices);
     s.bind('lys', view.light, oneOf(LIGHT_IDS));
     s.bind('bildefrekvens', view.xrRate, oneOf(XR_RATES));
     s.bind('snu', view.turn, oneOf(TURN_MODES));
@@ -53,13 +53,14 @@ export class SettingsBinding {
     v.ceilings.set(true);
     v.measureHighlight.set(false);
     v.quality.set('medium');
-    v.effects.set({});
+    v.customEffects.set({});
     v.light.set('dag');
     v.xrRate.set(90);
     v.turn.set(30);
     v.wristHelp.set(false);
     v.sectionHeight.set(null);
     v.dollhouse.set(false);
+    v.cameraMode.set('orbit');
     v.showExisting.set(true);
     v.showPlanned.set(true);
     v.circuit.set(null);

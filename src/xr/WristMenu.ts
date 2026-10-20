@@ -183,18 +183,23 @@ export class WristMenu {
         c.arc(on ? sx + sw - sh / 2 : sx + sh / 2, cy, sh * 0.375, 0, Math.PI * 2);
         c.fill();
         c.textAlign = 'left';
-        c.fillText(this.fit(it.label, it.w - sw - 56), it.x + 22, cy + 1);
+        c.fillText(this.fit(it.label, it.w - sw - 56, size), it.x + 22, cy + 1);
       } else {
         c.textAlign = 'center';
-        c.fillText(this.fit(it.label, it.w - 24), it.x + it.w / 2, cy + 1);
+        c.fillText(this.fit(it.label, it.w - 24, it.kind === 'tab' ? 0 : size), it.x + it.w / 2, cy + 1);
       }
     }
     this.texture.needsUpdate = true;
   }
 
-  private fit(text: string, width: number): string {
+  /** Teksten innenfor bredden: først mindre skrift (ned til 28 px), så forkortet med «…». */
+  private fit(text: string, width: number, size = 0): string {
     const c = this.ctx;
     if (c.measureText(text).width <= width) return text;
+    for (let s = size - 2; s >= 28; s -= 2) {
+      c.font = `500 ${s}px system-ui, sans-serif`;
+      if (c.measureText(text).width <= width) return text;
+    }
     let t = text;
     while (t.length > 1 && c.measureText(`${t}…`).width > width) t = t.slice(0, -1);
     return `${t}…`;

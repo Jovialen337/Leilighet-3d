@@ -7,6 +7,7 @@ import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer
 import type { ApartmentModel } from '../model/ApartmentModel';
 import { centroid, p2 } from '../geometry/math2d';
 import { MM } from '../scene/geom';
+import { areaText } from './format';
 
 export class Labels {
   readonly renderer = new CSS2DRenderer();
@@ -50,8 +51,7 @@ export class Labels {
     };
     for (const info of model.rooms.values()) {
       const c = centroid(info.polygon);
-      const area = (info.area / 1e6).toLocaleString('nb-NO', { maximumFractionDigits: 1 });
-      add(info.room.layer ?? 'structure', `${info.room.name}\n${area} m²`, 'room', c.x, info.room.floorLevel, c.z).dataset.room = info.room.id;
+      add(info.room.layer ?? 'structure', `${info.room.name}\n${areaText(info.area)}`, 'room', c.x, info.room.floorLevel, c.z).dataset.room = info.room.id;
     }
     for (const n of model.data.notes) {
       const [x, h, z] = n.position;

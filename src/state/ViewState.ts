@@ -5,13 +5,14 @@
  */
 import type { Layer } from '../schema/types';
 import type { LightId } from '../scene/lighting';
-import type { EffectChoices } from '../scene/graphicsProfile';
+import { toggleEffect, type EffectChoices, type EffectId } from '../scene/graphicsProfile';
 import { Observable } from './Observable';
 
 export type CameraMode = 'orbit' | 'top';
-/** Grafikkvalitet: «Rask», «Standard», «Høy». */
-export type Quality = 'low' | 'medium' | 'high';
-export const QUALITIES: readonly Quality[] = ['low', 'medium', 'high'];
+/** Grafikkvalg: «Rask», «Standard», «Høy» eller «Egendefinert» (effektene hver for seg). */
+export type Quality = 'low' | 'medium' | 'high' | 'custom';
+export type Preset = Exclude<Quality, 'custom'>;
+export const QUALITIES: readonly Quality[] = ['low', 'medium', 'high', 'custom'];
 /** Snu i VR: fast vinkel (grader) eller myk dreiing. */
 export type TurnMode = 15 | 30 | 45 | 'smooth';
 export const TURN_MODES: readonly TurnMode[] = [15, 30, 45, 'smooth'];
@@ -74,8 +75,8 @@ export class ViewState {
   readonly inXR = new Observable(false);
   /* ---- innstillinger (lagres i nettleseren) ---- */
   readonly quality = new Observable<Quality>('medium');
-  /** Egne valg for effektene («Effekter»), som avvik fra grafikkvalget. */
-  readonly effects = new Observable<EffectChoices>({});
+  /** Effektene i «Egendefinert» (lagres, så de kommer tilbake). */
+  readonly customEffects = new Observable<EffectChoices>({});
   /** Lys: tid på døgnet (morgen/dag/kveld). */
   readonly light = new Observable<LightId>('dag');
   readonly xrRate = new Observable<XRRate>(90);
@@ -94,9 +95,10 @@ export class ViewState {
   /** Røntgen: gjennomsiktige vegger og tak. */
   readonly xray = new Observable(false);
 
-  /** Velger «Rask», «Standard» eller «Høy»: egne effektvalg nullstilles. */
-  choosePreset(q: Quality): void {
-    this.quality.set(q);
-    if (Object.keys(this.effects.value).length) this.effects.set({});
+  /** Slår én effekt av eller på (blir «Egendefinert», eller et forhåndsvalg med akkurat de effektene). */
+  toggleEffect(id: EffectId): void {
+    const next = toggleEffect(this.quality.value, this.customEffects.value, id);
+    this.customEffects.set(next.custom);
+    this.quality.set(next.quality);
   }
 }

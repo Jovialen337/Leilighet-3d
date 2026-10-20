@@ -10,53 +10,62 @@
  * - «Høy»: i tillegg lysstråler fra vinduene og skarpere bilde (høyere
  *   oppløsning og mindre uskarpt i kantene av synsfeltet i VR).
  *
- * Hver effekt kan også slås av og på for seg («Effekter»): egne valg
- * lagres som avvik fra grafikkvalget og nullstilles når man velger
- * «Rask», «Standard» eller «Høy» igjen.
+ * «Egendefinert»: hver effekt av eller på for seg, også skarpere bilde.
+ * Settet lagres og kommer tilbake når man velger «Egendefinert» igjen.
  *
  * I gjennomsyn (oppmåling og «Lag ny modell») vises verken himmel eller
  * effekter. I 2D-planen er det verken himmel, sol eller lamper, og i
  * røntgen ingen sol eller lamper (de ville lyst opp vegger man ser gjennom).
- * Det gjelder også egne valg.
+ * Det gjelder også «Egendefinert».
  */
-import type { Quality } from '../state/ViewState';
+import type { Preset, Quality } from '../state/ViewState';
 import type { SceneEffects } from './ApartmentScene';
 
-/** Effektene man kan slå av og på selv. */
-export type EffectId = 'baked' | 'sun' | 'lamps' | 'shafts' | 'detail' | 'shades' | 'sky';
-export const EFFECT_IDS: readonly EffectId[] = ['baked', 'sun', 'lamps', 'shafts', 'detail', 'shades', 'sky'];
+/** Effektene man kan velge selv («Egendefinert»). */
+export type EffectId = 'baked' | 'sun' | 'shafts' | 'lamps' | 'sky' | 'detail' | 'sharp';
+export const EFFECT_IDS: readonly EffectId[] = ['baked', 'sun', 'shafts', 'lamps', 'sky', 'detail', 'sharp'];
 export const EFFECT_TEXT: Record<EffectId, string> = {
-  baked: 'Dagslys i rommene',
+  baked: 'Dagslys og myke skygger',
   sun: 'Solflekker',
-  lamps: 'Lampelys (kveld)',
   shafts: 'Lysstråler',
-  detail: 'Gulvmønster',
-  shades: 'Skygger under møbler',
+  lamps: 'Lampelys (kveld)',
   sky: 'Himmel og utsikt',
+  detail: 'Gulvmønster',
+  sharp: 'Skarpere bilde',
 };
-/** Egne valg: bare effektene som avviker fra grafikkvalget. */
-export type EffectChoices = Partial<Record<EffectId, boolean>>;
+export type EffectSet = Record<EffectId, boolean>;
+/** Det lagrede «Egendefinert»-settet; det som mangler, er som på «Standard». */
+export type EffectChoices = Partial<EffectSet>;
 
-/** Effektene grafikkvalget alene slår på. */
-export function presetEffects(q: Quality): Record<EffectId, boolean> {
-  const on = q !== 'low';
-  return { baked: on, sun: on, lamps: on, shafts: q === 'high', detail: on, shades: on, sky: on };
+/** Effektene i hvert forhåndsvalg. */
+export function presetEffects(p: Preset): EffectSet {
+  const on = p !== 'low';
+  return { baked: on, sun: on, shafts: p === 'high', lamps: on, sky: on, detail: on, sharp: p === 'high' };
 }
 
-/** Effektene slik brukeren vil ha dem: grafikkvalget med egne valg oppå. */
-export function wantedEffects(q: Quality, custom: EffectChoices = {}): Record<EffectId, boolean> {
-  return { ...presetEffects(q), ...custom };
+const PRESETS: readonly Preset[] = ['low', 'medium', 'high'];
+
+/** Effektene slik de er valgt nå: forhåndsvalget, eller «Egendefinert»-settet. */
+export function wantedEffects(q: Quality, custom: EffectChoices = {}): EffectSet {
+  return q === 'custom' ? { ...presetEffects('medium'), ...custom } : presetEffects(q);
 }
 
-/** Egne valg etter at effekten `id` er satt til `on` (lik grafikkvalget = ikke lenger et eget valg). */
-export function chooseEffect(q: Quality, custom: EffectChoices, id: EffectId, on: boolean): EffectChoices {
-  const next = { ...custom };
-  if (presetEffects(q)[id] === on) delete next[id];
-  else next[id] = on;
-  return next;
+/** Forhåndsvalget som har akkurat disse effektene, eller null. */
+export function matchingPreset(set: EffectSet): Preset | null {
+  return PRESETS.find((p) => EFFECT_IDS.every((id) => presetEffects(p)[id] === set[id])) ?? null;
 }
 
-/** Gyldige egne valg (fra lagringen): bare kjente effekter med av/på. */
+/**
+ * Slår én effekt av eller på: utgangspunktet er effektene som gjelder nå, og
+ * resultatet blir «Egendefinert» – eller et forhåndsvalg hvis settet er likt det.
+ */
+export function toggleEffect(q: Quality, custom: EffectChoices, id: EffectId): { quality: Quality; custom: EffectSet } {
+  const next = { ...wantedEffects(q, custom) };
+  next[id] = !next[id];
+  return { quality: matchingPreset(next) ?? 'custom', custom: next };
+}
+
+/** Gyldig lagret sett: bare kjente effekter med av/på. */
 export const isEffectChoices = (v: unknown): v is EffectChoices =>
   !!v &&
   typeof v === 'object' &&
@@ -71,7 +80,7 @@ export interface GraphicsInput {
   passthrough: boolean;
   /** Røntgen (gjennomsiktige vegger og tak). */
   xray?: boolean;
-  /** Egne valg for effektene (avvik fra grafikkvalget). */
+  /** «Egendefinert»-settet (brukes når grafikkvalget er «custom»). */
   custom?: EffectChoices;
 }
 
@@ -87,23 +96,25 @@ export interface GraphicsProfile {
 }
 
 export function graphicsProfile(i: GraphicsInput): GraphicsProfile {
-  const q = i.quality;
-  const want = wantedEffects(q, i.custom);
+  const want = wantedEffects(i.quality, i.custom);
   const on = !i.passthrough;
   const scenic = on && !i.top;
   const lit = scenic && !i.xray;
+  const sharp = want.sharp && on;
   return {
     sky: scenic && want.sky,
     effects: {
-      shades: on && want.shades,
+      shades: on && want.baked,
       baked: want.baked,
       sun: lit && want.sun,
       shafts: lit && want.shafts,
       lamps: lit && want.lamps,
+      // Lampelyset som er bakt inn i fargene følger valget (ikke 2D eller røntgen).
+      bakedLamps: want.lamps,
       detail: on && want.detail,
     },
-    framebufferScale: q === 'high' && !i.passthrough ? 1.3 : 1,
-    foveation: q === 'high' ? 0.25 : 1,
-    pixelRatio: (dpr) => (q === 'high' ? Math.min(dpr * 1.5, 3) : q === 'low' ? Math.min(dpr, 1.25) : Math.min(dpr, 2)),
+    framebufferScale: sharp ? 1.3 : 1,
+    foveation: sharp ? 0.25 : 1,
+    pixelRatio: (dpr) => (want.sharp ? Math.min(dpr * 1.5, 3) : i.quality === 'low' ? Math.min(dpr, 1.25) : Math.min(dpr, 2)),
   };
 }
