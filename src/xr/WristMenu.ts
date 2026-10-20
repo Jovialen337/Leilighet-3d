@@ -5,6 +5,7 @@
  * liten kule, så pekingen koster ingen opplasting av tekstur.
  */
 import * as THREE from 'three';
+import { COLOR, FONT, rgba } from '../ui/tokens';
 import { MENU_H, MENU_W, buildMenu, itemAt, type MenuItem, type MenuLabel, type MenuState } from './menuLayout';
 
 const WIDTH_M = 0.3;
@@ -134,57 +135,52 @@ export class WristMenu {
     this.truncated = [];
     const c = this.ctx;
     c.clearRect(0, 0, MENU_W, MENU_H);
-    c.fillStyle = 'rgba(16, 22, 30, 0.92)';
+    c.fillStyle = rgba(COLOR.surface, 0.94);
     c.beginPath();
     c.roundRect(4, 4, MENU_W - 8, MENU_H - 8, 40);
     c.fill();
     c.textBaseline = 'middle';
     for (const l of this.labels) {
-      c.font = '600 32px system-ui, sans-serif';
-      c.fillStyle = '#9aa7b2';
+      c.font = `600 32px ${FONT}`;
+      c.fillStyle = COLOR.text2;
       c.textAlign = 'left';
       c.fillText(l.text, l.x, l.y);
     }
     for (const it of this.items) {
       const hover = this.hovered?.id === it.id;
       const on = it.active;
-      c.fillStyle =
-        it.kind === 'tab'
-          ? on
-            ? '#2f80ed'
-            : 'rgba(255,255,255,0.08)'
-          : it.kind === 'choice'
-            ? on
-              ? '#2f80ed'
-              : 'rgba(255,255,255,0.1)'
-            : 'rgba(255,255,255,0.1)';
-      if (hover) c.fillStyle = on && it.kind !== 'toggle' ? '#4a95f5' : 'rgba(255,255,255,0.24)';
+      // Valgt fane eller valg: aksentfarge med mørk tekst (samme regel som på laptopen).
+      const chosen = on && (it.kind === 'tab' || it.kind === 'choice');
+      c.fillStyle = chosen ? COLOR.accent : it.kind === 'tab' ? COLOR.surface2 : COLOR.surface3;
+      if (hover) c.fillStyle = chosen ? '#a7d6e6' : rgba(COLOR.text, 0.22);
       c.beginPath();
       c.roundRect(it.x, it.y, it.w, it.h, 18);
       c.fill();
       if (hover) {
-        c.strokeStyle = '#18d4ff';
+        c.strokeStyle = COLOR.target;
         c.lineWidth = 4;
         c.stroke();
       }
       const cy = it.y + it.h / 2;
-      c.fillStyle = '#ffffff';
+      c.fillStyle = chosen ? COLOR.onAccent : COLOR.text;
       // Lange lister får lavere knapper (se menuLayout): tekst og bryter krymper med.
       const size = it.h >= 70 ? 36 : it.h >= 56 ? 32 : Math.max(18, Math.round(it.h * 0.55));
-      c.font = it.kind === 'tab' ? '700 32px system-ui, sans-serif' : `500 ${size}px system-ui, sans-serif`;
+      c.font = it.kind === 'tab' ? `700 32px ${FONT}` : `500 ${size}px ${FONT}`;
       if (it.kind === 'toggle') {
         // Bryter til høyre.
         const sh = Math.min(40, it.h - 12);
         const sw = Math.round(sh * 1.9);
         const sx = it.x + it.w - sw - 18;
-        c.fillStyle = on ? '#39d98a' : 'rgba(255,255,255,0.25)';
+        // På: aksentfarget spor med mørk knott; av: mørkt spor med grå knott (grønt betyr bare «målt / OK»).
+        c.fillStyle = on ? COLOR.accent : COLOR.surface;
         c.beginPath();
         c.roundRect(sx, cy - sh / 2, sw, sh, sh / 2);
         c.fill();
-        c.fillStyle = '#ffffff';
+        c.fillStyle = on ? COLOR.onAccent : COLOR.text2;
         c.beginPath();
         c.arc(on ? sx + sw - sh / 2 : sx + sh / 2, cy, sh * 0.375, 0, Math.PI * 2);
         c.fill();
+        c.fillStyle = COLOR.text;
         c.textAlign = 'left';
         c.fillText(this.fit(it.label, it.w - sw - 56, size), it.x + 22, cy + 1);
       } else {
@@ -200,7 +196,7 @@ export class WristMenu {
     const c = this.ctx;
     if (c.measureText(text).width <= width) return text;
     for (let s = size - 2; s >= 28; s -= 2) {
-      c.font = `500 ${s}px system-ui, sans-serif`;
+      c.font = `500 ${s}px ${FONT}`;
       if (c.measureText(text).width <= width) return text;
     }
     let t = text;

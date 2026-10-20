@@ -1,14 +1,17 @@
+/*
+ * Designet «Skifer»: fargene, skriften og målene kommer fra src/ui/tokens.ts
+ * (settes som CSS-variabler på <html> før appen starter). Her står bare
+ * navn som brukes mange steder, satt til de variablene.
+ */
 :root {
-  --panel-bg: rgba(250, 250, 248, 0.94);
-  --panel-fg: #1c2730;
-  --muted: #5d6b76;
-  --line: #d9dde0;
-  --accent: #2f80ed;
-  --accent-fg: #ffffff;
-  --danger: #c0392b;
-  --warn: #b7791f;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  color: var(--panel-fg);
+  --panel-bg: rgba(27, 30, 34, 0.96);
+  --panel-fg: var(--text);
+  --muted: var(--text-2);
+  --accent-fg: var(--on-accent);
+  --warn: var(--warning);
+  font-family: var(--font);
+  color: var(--text);
+  color-scheme: dark;
 }
 
 * {
@@ -20,7 +23,7 @@ body {
   margin: 0;
   height: 100%;
   overflow: hidden;
-  background: #dfe8ef;
+  background: var(--bg);
 }
 
 #app {
@@ -52,8 +55,8 @@ body {
 
 .label.room {
   font-weight: 600;
-  color: #1c2730;
-  background: rgba(255, 255, 255, 0.75);
+  color: var(--text);
+  background: rgba(27, 30, 34, 0.82);
 }
 
 .label.note {
@@ -64,8 +67,8 @@ body {
 }
 
 .label.fixture {
-  background: #5f5f5f;
-  color: #fff;
+  background: var(--surface-3);
+  color: var(--text);
 }
 
 /* Panel */
@@ -79,7 +82,8 @@ body {
   background: var(--panel-bg);
   border: 1px solid var(--line);
   border-radius: 12px;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  color: var(--text);
   font-size: 14px;
 }
 
@@ -140,7 +144,8 @@ body {
 }
 
 .vr-button:disabled {
-  background: #aeb8c0;
+  background: var(--surface-3);
+  color: var(--text-3);
   cursor: not-allowed;
 }
 
@@ -154,7 +159,8 @@ body {
   flex: 1;
   padding: 8px;
   border: 1px solid var(--line);
-  background: #fff;
+  background: var(--surface-2);
+  color: var(--text);
   cursor: pointer;
   font-size: 14px;
 }
@@ -169,9 +175,9 @@ body {
 }
 
 .segmented button[aria-pressed='true'] {
-  background: var(--panel-fg);
-  color: #fff;
-  border-color: var(--panel-fg);
+  background: var(--accent);
+  color: var(--on-accent);
+  border-color: var(--accent);
 }
 
 .check {
@@ -210,15 +216,15 @@ body {
 }
 
 .sw.placeholder {
-  background: #ff7b00;
+  background: var(--placeholder);
 }
 
 .sw.partial {
-  background: #ffd400;
+  background: var(--partial);
 }
 
 .sw.measured {
-  background: #1fbf5f;
+  background: var(--measured);
 }
 
 .warnings {
@@ -258,7 +264,8 @@ body {
   padding: 4px 6px;
   border-radius: 6px;
   border: 1px solid var(--line);
-  background: #fff;
+  background: var(--surface-2);
+  color: var(--text);
 }
 
 .field.range input {
@@ -285,7 +292,7 @@ button.small,
   padding: 6px 10px;
   border-radius: 8px;
   border: 1px solid var(--line);
-  background: #fff;
+  background: var(--surface-2);
   color: var(--panel-fg);
   font-size: 13px;
   cursor: pointer;
@@ -317,17 +324,19 @@ a:focus-visible {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(20, 28, 36, 0.35);
+  background: rgba(18, 20, 23, 0.6);
 }
 
 .help-box {
-  background: #fff;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--line);
   border-radius: 12px;
   padding: 18px 22px;
   max-width: 460px;
   max-height: 85vh;
   overflow: auto;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
   font-size: 14px;
 }
 
@@ -350,10 +359,11 @@ kbd {
   min-width: 22px;
   text-align: center;
   padding: 2px 6px;
-  border: 1px solid #c3ccd3;
+  border: 1px solid var(--line);
   border-bottom-width: 2px;
   border-radius: 5px;
-  background: #f6f7f8;
+  background: var(--surface-3);
+  color: var(--text);
   font: 600 12px ui-monospace, monospace;
 }
 
@@ -406,7 +416,7 @@ kbd {
 
 .layer-row .only {
   border: 1px solid var(--line);
-  background: #fff;
+  background: var(--surface-2);
   border-radius: 6px;
   font-size: 11px;
   padding: 2px 6px;
@@ -477,8 +487,8 @@ button.danger-small {
 .plan-tooltip {
   position: absolute;
   pointer-events: none;
-  background: rgba(20, 28, 36, 0.88);
-  color: #fff;
+  background: rgba(18, 20, 23, 0.92);
+  color: var(--text);
   font: 600 12px system-ui, sans-serif;
   padding: 4px 8px;
   border-radius: 6px;
@@ -494,14 +504,14 @@ button.danger-small {
   padding: 11px;
   border-radius: 10px;
   border: 2px solid var(--accent);
-  background: #fff;
+  background: var(--surface-2);
   color: var(--accent);
   cursor: pointer;
 }
 
 .measure-button:disabled {
-  border-color: #c3ccd3;
-  color: #8a97a1;
+  border-color: var(--line);
+  color: var(--text-3);
   cursor: not-allowed;
 }
 
@@ -509,8 +519,8 @@ button.danger-small {
   margin-top: 10px;
   padding: 10px 12px;
   border-radius: 10px;
-  background: #fff7e0;
-  border: 1px solid #f0d58a;
+  background: rgba(240, 181, 78, 0.1);
+  border: 1px solid rgba(240, 181, 78, 0.5);
   font-size: 13px;
 }
 
@@ -529,7 +539,7 @@ button.danger-small {
   padding: 7px 10px;
   border-radius: 8px;
   border: 1px solid var(--line);
-  background: #fff;
+  background: var(--surface-2);
   color: var(--panel-fg);
   font-size: 13px;
   cursor: pointer;
@@ -559,8 +569,8 @@ button.danger-small {
   margin: 10px 0 0;
   padding: 8px 12px;
   border-radius: 10px;
-  background: #e5f8ec;
-  color: #17643a;
+  background: rgba(111, 211, 154, 0.12);
+  color: var(--success);
   font-size: 13px;
 }
 
@@ -582,14 +592,14 @@ button.danger-small {
 
 .overlay.error {
   pointer-events: auto;
-  background: rgba(223, 232, 239, 0.9);
+  background: rgba(18, 20, 23, 0.9);
 }
 
 .error-box {
   max-width: 720px;
   max-height: 80vh;
   overflow: auto;
-  background: #fff;
+  background: var(--surface);
   border: 2px solid var(--danger);
   border-radius: 12px;
   padding: 18px 22px;
@@ -618,7 +628,8 @@ button.danger-small {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(255, 255, 255, 0.85);
+  background: rgba(27, 30, 34, 0.88);
+  color: var(--text);
   padding: 6px 10px;
   border-radius: 8px;
   font-size: 13px;
@@ -627,7 +638,7 @@ button.danger-small {
 
 .scalebar .bar {
   height: 8px;
-  border: 2px solid #1c2730;
+  border: 2px solid var(--text);
   border-top: none;
 }
 
@@ -635,7 +646,8 @@ button.danger-small {
   position: absolute;
   right: 16px;
   bottom: 16px;
-  background: rgba(255, 255, 255, 0.85);
+  background: rgba(27, 30, 34, 0.88);
+  color: var(--text);
   padding: 6px 10px;
   border-radius: 8px;
   font-size: 13px;
@@ -651,8 +663,8 @@ button.danger-small {
   position: absolute;
   top: 12px;
   right: 12px;
-  background: rgba(20, 28, 36, 0.82);
-  color: #7dffb0;
+  background: rgba(18, 20, 23, 0.85);
+  color: var(--success);
   font: 600 13px ui-monospace, monospace;
   padding: 6px 10px;
   border-radius: 8px;
@@ -741,7 +753,7 @@ button.big {
   padding: 5px 8px;
   border-radius: 6px;
   border: 1px solid var(--line);
-  background: #fff;
+  background: var(--surface-2);
   color: var(--panel-fg);
 }
 
@@ -776,7 +788,8 @@ button.big {
   font: inherit;
   border: 1px solid var(--line);
   border-radius: 6px;
-  background: #fff;
+  background: var(--surface-2);
+  color: var(--text);
   padding: 4px 6px;
 }
 .split-box > small.hint {
@@ -794,7 +807,7 @@ button.big {
   padding: 5px 8px;
   border: 1px solid var(--line);
   border-radius: 6px;
-  background: #fff;
+  background: var(--surface-2);
   color: var(--panel-fg);
 }
 
@@ -806,7 +819,7 @@ button.big {
 
 .len-input.invalid {
   border-color: var(--danger);
-  background: #fdecea;
+  background: rgba(240, 138, 126, 0.15);
 }
 
 .bfield {
@@ -841,15 +854,15 @@ button.big {
 
 .builder-tools button[aria-pressed='true'],
 button.small[aria-pressed='true'] {
-  background: var(--panel-fg);
-  border-color: var(--panel-fg);
-  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
 }
 
 .builder-tools button[aria-pressed='true'] kbd {
   background: transparent;
-  color: #fff;
-  border-color: rgba(255, 255, 255, 0.5);
+  color: var(--on-accent);
+  border-color: rgba(13, 27, 33, 0.4);
 }
 
 .builder-tools kbd {
@@ -862,8 +875,8 @@ button.small[aria-pressed='true'] {
   min-height: 2.6em;
   padding: 6px 8px;
   border-radius: 8px;
-  background: #eef5fd;
-  color: #1c3b5a;
+  background: rgba(140, 200, 220, 0.12);
+  color: var(--text);
 }
 
 .builder-context {
@@ -871,7 +884,7 @@ button.small[aria-pressed='true'] {
   padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: #fff;
+  background: var(--surface-2);
 }
 
 .builder-context:empty {
@@ -939,7 +952,7 @@ button.small[aria-pressed='true'] {
 }
 
 .builder-issues li.ok {
-  color: #17643a;
+  color: var(--success);
 }
 
 .builder-issues li.error {
@@ -959,7 +972,7 @@ button.small[aria-pressed='true'] {
   padding: 6px 10px;
   border-radius: 8px;
   border: 1px solid var(--line);
-  background: #fff;
+  background: var(--surface-2);
   color: var(--panel-fg);
   font-size: 13px;
   text-decoration: none;
@@ -992,17 +1005,17 @@ button.small[aria-pressed='true'] {
 }
 
 .bo-room {
-  fill: rgba(47, 128, 237, 0.06);
-  stroke: #2f80ed;
+  fill: rgba(43, 111, 134, 0.07);
+  stroke: var(--accent-ink);
   stroke-width: 1.5;
 }
 
 .bo-room.hovered {
-  fill: rgba(47, 128, 237, 0.12);
+  fill: rgba(43, 111, 134, 0.13);
 }
 
 .bo-room.selected {
-  fill: rgba(47, 128, 237, 0.16);
+  fill: rgba(43, 111, 134, 0.18);
   stroke-width: 2.5;
 }
 
@@ -1013,7 +1026,7 @@ button.small[aria-pressed='true'] {
 
 .bo-dim {
   font: 600 11px system-ui, sans-serif;
-  fill: #1c3b5a;
+  fill: var(--surface);
   paint-order: stroke;
   stroke: rgba(255, 255, 255, 0.9);
   stroke-width: 3px;
@@ -1021,7 +1034,7 @@ button.small[aria-pressed='true'] {
 
 .bo-dim.strong {
   font-size: 13px;
-  fill: #0b2540;
+  fill: var(--bg);
 }
 
 .bo-open {
@@ -1055,35 +1068,35 @@ button.small[aria-pressed='true'] {
 
 .bo-handle circle,
 .bo-handle rect {
-  fill: #fff;
-  stroke: #2f80ed;
+  fill: var(--text);
+  stroke: var(--accent-ink);
   stroke-width: 2;
 }
 
 .bo-handle.small circle {
-  fill: #2f80ed;
-  stroke: #fff;
+  fill: var(--accent-ink);
+  stroke: var(--text);
   stroke-width: 1.5;
 }
 
 .bo-handle.active circle,
 .bo-handle.active rect {
-  fill: #ffd400;
-  stroke: #0b2540;
+  fill: var(--draw);
+  stroke: var(--bg);
 }
 
 .bo-handle.move circle {
-  fill: rgba(255, 255, 255, 0.92);
+  fill: rgba(236, 232, 225, 0.92);
 }
 
 .bo-handle.opening rect {
-  fill: #fff;
-  stroke: #0b2540;
+  fill: var(--text);
+  stroke: var(--bg);
 }
 
 .bo-handle.opening-end circle {
-  fill: #0b2540;
-  stroke: #fff;
+  fill: var(--bg);
+  stroke: var(--text);
 }
 
 .bo-handle:hover circle,
@@ -1093,7 +1106,7 @@ button.small[aria-pressed='true'] {
 
 .bo-handle-text {
   font: 700 12px system-ui, sans-serif;
-  fill: #0b2540;
+  fill: var(--bg);
   pointer-events: none;
 }
 
@@ -1109,19 +1122,19 @@ button.small[aria-pressed='true'] {
 }
 
 .bo-guide {
-  stroke: #18d4ff;
+  stroke: var(--target);
   stroke-width: 1;
   stroke-dasharray: 3 3;
 }
 
 .bo-snap {
-  stroke: #0b2540;
+  stroke: var(--bg);
   stroke-width: 1.5;
 }
 
 .bo-tag {
   font: 600 11px system-ui, sans-serif;
-  fill: #0b2540;
+  fill: var(--bg);
   paint-order: stroke;
   stroke: rgba(255, 255, 255, 0.95);
   stroke-width: 3px;
@@ -1129,7 +1142,7 @@ button.small[aria-pressed='true'] {
 
 .bo-label {
   font: 600 12px system-ui, sans-serif;
-  fill: #1c2730;
+  fill: var(--surface);
 }
 
 @media (pointer: coarse) {
@@ -1146,7 +1159,7 @@ button.small[aria-pressed='true'] {
 }
 
 .draft-ok.draft-error-box {
-  background: #fdecea;
+  background: rgba(240, 138, 126, 0.15);
   color: var(--danger);
 }
 
