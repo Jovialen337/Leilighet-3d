@@ -917,7 +917,7 @@
       "status": "planned",
       "kind": "power",
       "points": [[30, 300, 1500], [30, 2050, 1500], [30, 1950, 4000], [30, 1200, 4000]],
-      "color": "#e0532f",
+      "color": "#9b7be0",
       "circuit": "kurs-2"
     }
   ],
@@ -962,7 +962,7 @@
   ],
   "circuits": [
     {"id": "kurs-1", "name": "Kurs 1 – gang og stue", "measured": false, "fuse": 16, "color": "#d35400"},
-    {"id": "kurs-2", "name": "Kurs 2 – planterom (ny)", "measured": false, "fuse": 16, "color": "#e0532f"}
+    {"id": "kurs-2", "name": "Kurs 2 – planterom (ny)", "measured": false, "fuse": 16, "color": "#9b7be0"}
   ],
   "scans": [],
   "notes": [

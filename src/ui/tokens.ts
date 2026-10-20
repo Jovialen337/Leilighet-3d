@@ -104,6 +104,25 @@ export function luminance(hex: string): number {
   return 0.2126 * ch((n >> 16) & 255) + 0.7152 * ch((n >> 8) & 255) + 0.0722 * ch(n & 255);
 }
 
+/** Fargeforskjell (CIE76, ΔE i Lab) mellom to «#rrggbb»-farger: under ~20 er lett å blande. */
+export function deltaE(a: string, b: string): number {
+  const lab = (hex: string): [number, number, number] => {
+    const n = parseInt(hex.slice(1), 16);
+    const lin = (c: number): number => {
+      const s = c / 255;
+      return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+    };
+    const [r, g, bl] = [lin((n >> 16) & 255), lin((n >> 8) & 255), lin(n & 255)];
+    const x = (0.4124 * r + 0.3576 * g + 0.1805 * bl) / 0.95047;
+    const y = 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+    const z = (0.0193 * r + 0.1192 * g + 0.9505 * bl) / 1.08883;
+    const f = (t: number): number => (t > 216 / 24389 ? Math.cbrt(t) : (24389 / 27 * t + 16) / 116);
+    return [116 * f(y) - 16, 500 * (f(x) - f(y)), 200 * (f(y) - f(z))];
+  };
+  const [p, q] = [lab(a), lab(b)];
+  return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
+}
+
 /** Kontrast (WCAG) mellom to farger, 1–21. */
 export function contrast(a: string, b: string): number {
   const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p) as [number, number];

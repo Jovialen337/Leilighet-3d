@@ -4,6 +4,7 @@
  * merge.ts, og brukes også som usynlige treffflater for teleport/valg.
  */
 import * as THREE from 'three';
+import { COLOR } from '../ui/tokens';
 import { ELECTRICAL_FIXTURES, WATER_FIXTURES, type MeasureState, type Opening } from '../schema/types';
 import {
   fixtureSize,
@@ -21,6 +22,8 @@ import {
   beam,
   boxGeo,
   cylinderGeo,
+  dashedBeam,
+  outlineBox,
   floorArc,
   placeMatrix,
   polygonSurface,
@@ -81,9 +84,9 @@ export const COLORS = {
   swingArc: '#d9822b',
   glass: '#a8d4f0',
   sill: '#f7f7f5',
-  planned: '#2f80ed',
-  wirePlanned: '#e0532f',
-  wireExisting: '#444444',
+  /** Planlagt el uten kurs (stiplet) og eksisterende el uten kurs. */
+  wirePlanned: COLOR.elPlanned,
+  wireExisting: COLOR.elExisting,
   zone: '#f0a030',
   note: '#ffd84d',
   glbPlaceholder: '#c8c8c8',
@@ -177,9 +180,19 @@ export function buildParts(model: ApartmentModel): Part[] {
       geo = boxGeo(w, h, dd);
     }
     const g = new GeoBuilder();
-    g.addGeometry(geo, placeMatrix(pl.x, pl.y, pl.z, pl.yaw));
-    const color = fx.color ?? (fx.status === 'planned' ? COLORS.planned : FIXTURE_COLOR[fx.type]!);
     const isInstall = ELECTRICAL_FIXTURES.includes(fx.type) || WATER_FIXTURES.includes(fx.type);
+    // Planlagt punkt: bare omrisset, i fargen til kursen (el) eller kaldtvann (vann). Fargen viser
+    // hva det er, formen at det er planlagt – samme regel som stiplet kabel og rør.
+    const planned = fx.status === 'planned' && isInstall;
+    const m = placeMatrix(pl.x, pl.y, pl.z, pl.yaw);
+    if (planned) {
+      outlineBox(g, w, h, dd, m);
+      geo.dispose();
+    } else g.addGeometry(geo, m);
+    const circuitColor = fx.circuit ? d.circuits?.find((k) => k.id === fx.circuit)?.color : undefined;
+    const color =
+      fx.color ??
+      (planned ? (WATER_FIXTURES.includes(fx.type) ? COLOR.cold : (circuitColor ?? COLOR.elPlanned)) : FIXTURE_COLOR[fx.type]!);
     push({ id: fx.id, kind: 'fixture', layer: fx.layer, bucket: isInstall ? 'lines' : 'solid', pick: 'none', geometry: g.build(), color: col(color), status: fx.status, ...(fx.circuit ? { circuit: fx.circuit } : {}) });
   }
 
@@ -225,7 +238,7 @@ export function buildParts(model: ApartmentModel): Part[] {
   for (const wr of d.wiring) {
     const pts = wr.points.map(([x, h, z]) => w3(p2(x, z), model.floorOrDefault(p2(x, z)) + h));
     const g = new GeoBuilder();
-    for (let i = 0; i + 1 < pts.length; i++) beam(g, pts[i]!, pts[i + 1]!, 20);
+    for (let i = 0; i + 1 < pts.length; i++) (wr.status === 'planned' ? dashedBeam : beam)(g, pts[i]!, pts[i + 1]!, 20);
     const circuitColor = wr.circuit ? d.circuits?.find((k) => k.id === wr.circuit)?.color : undefined;
     push({ id: wr.id, kind: 'wire', layer: wr.layer, bucket: 'lines', pick: 'none', geometry: g.build(), color: col(wr.color ?? circuitColor ?? (wr.status === 'planned' ? COLORS.wirePlanned : COLORS.wireExisting)), status: wr.status, ...(wr.circuit ? { circuit: wr.circuit } : {}) });
   }
@@ -235,7 +248,7 @@ export function buildParts(model: ApartmentModel): Part[] {
     const pts = pr.points.map(([x, h, z]) => w3(p2(x, z), model.floorOrDefault(p2(x, z)) + h));
     const g = new GeoBuilder();
     const dia = pr.diameter ?? (pr.kind === 'drain' ? 50 : 22);
-    for (let i = 0; i + 1 < pts.length; i++) beam(g, pts[i]!, pts[i + 1]!, dia);
+    for (let i = 0; i + 1 < pts.length; i++) (pr.status === 'planned' ? dashedBeam : beam)(g, pts[i]!, pts[i + 1]!, dia);
     push({ id: pr.id, kind: 'pipe', layer: pr.layer, bucket: 'lines', pick: 'none', geometry: g.build(), color: col(pr.color ?? PIPE_COLOR[pr.kind]!), status: pr.status });
   }
 

@@ -174,6 +174,40 @@ export function floorArc(
   }
 }
 
+/** Stiplet (planlagt): streker og mellomrom langs bjelken (mm). */
+export const DASH = { on: 150, off: 80 } as const;
+
+/** Stiplet bjelke: som `beam`, men i streker (planlagt el og vann). Punktene i meter. */
+export function dashedBeam(g: GeoBuilder, a: THREE.Vector3, b: THREE.Vector3, thicknessMm: number): void {
+  const len = a.distanceTo(b) / MM;
+  if (len < 1e-3) return;
+  const step = DASH.on + DASH.off;
+  const p = new THREE.Vector3();
+  const q = new THREE.Vector3();
+  for (let s = 0; s < len; s += step) {
+    const e = Math.min(len, s + DASH.on);
+    p.lerpVectors(a, b, s / len);
+    q.lerpVectors(a, b, e / len);
+    beam(g, p, q, thicknessMm);
+  }
+}
+
+/**
+ * Omrisset av en boks (12 kanter som tynne bjelker), sentrert i origo, mål i
+ * mm: et planlagt punkt vises som en «tegnet» boks, ikke en fylt.
+ */
+export function outlineBox(g: GeoBuilder, w: number, h: number, d: number, matrix: THREE.Matrix4, edgeMm = 8): void {
+  const x = (w / 2) * MM;
+  const y = (h / 2) * MM;
+  const z = (d / 2) * MM;
+  const c = [
+    [-x, -y, -z], [x, -y, -z], [x, -y, z], [-x, -y, z],
+    [-x, y, -z], [x, y, -z], [x, y, z], [-x, y, z],
+  ].map(([cx, cy, cz]) => new THREE.Vector3(cx, cy, cz).applyMatrix4(matrix));
+  const edges = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]] as const;
+  for (const [i, j] of edges) beam(g, c[i]!, c[j]!, edgeMm);
+}
+
 /** Tynn bjelke mellom to punkter (mm), kvadratisk tverrsnitt. */
 export function beam(g: GeoBuilder, a: THREE.Vector3, b: THREE.Vector3, thicknessMm: number): void {
   const len = a.distanceTo(b);
