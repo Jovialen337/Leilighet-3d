@@ -1,12 +1,23 @@
 /**
- * Et lite panel på venstre kontroller (tekst tegnet på et lerret). I fase 1
- * viser det hjelpetekst og (skjult som standard) bildefrekvens. Dette er
- * utgangspunktet for håndleddsmenyen i fase 3.
+ * Et lite panel på venstre kontroller (tekst tegnet på et lerret): hjelp til
+ * å komme i gang, og – når kontrollene er lært – bare rommet man står i.
+ * Bildefrekvensen (Y) står øverst når den er slått på. Panelet er bare så
+ * høyt som teksten, nederst mot kontrolleren.
  */
 import * as THREE from 'three';
 
 const W = 512;
 const H = 256;
+const FONT = 'system-ui, sans-serif';
+
+interface Row {
+  text: string;
+  size: number;
+  weight: number;
+  color: string;
+  /** Luft under linja (piksler). */
+  gap: number;
+}
 
 export class WristPanel {
   readonly mesh: THREE.Mesh;
@@ -14,6 +25,8 @@ export class WristPanel {
   private readonly ctx: CanvasRenderingContext2D;
   private readonly texture: THREE.CanvasTexture;
   private lines: string[] = [];
+  /** Uthevet første linje (f.eks. rommet man står i), eller null. */
+  private title: string | null = null;
   private fpsLine: string | null = null;
 
   constructor() {
@@ -32,9 +45,11 @@ export class WristPanel {
     this.mesh.renderOrder = 20;
   }
 
-  setLines(lines: string[]): void {
-    if (lines.length === this.lines.length && lines.every((l, i) => l === this.lines[i])) return;
+  /** Linjene, med en uthevet tittel over (null = ingen). Tegnes bare når noe er endret. */
+  setLines(lines: string[], title: string | null = null): void {
+    if (title === this.title && lines.length === this.lines.length && lines.every((l, i) => l === this.lines[i])) return;
     this.lines = lines;
+    this.title = title;
     this.draw();
   }
 
@@ -45,27 +60,30 @@ export class WristPanel {
   }
 
   private draw(): void {
+    const rows: Row[] = [];
+    if (this.fpsLine) rows.push({ text: this.fpsLine, size: 32, weight: 700, color: '#7dffb0', gap: 18 });
+    if (this.title) rows.push({ text: this.title, size: 40, weight: 700, color: '#ffffff', gap: 16 });
+    // Under bildefrekvens eller tittel: mindre tekst; ellers stor (hjelpen for å komme i gang).
+    const small = rows.length > 0;
+    const size = small ? 24 : this.lines.length > 3 ? 26 : 30;
+    for (const text of this.lines)
+      rows.push({ text, size, weight: small ? 500 : 600, color: small ? '#d5dee6' : '#ffffff', gap: small ? 10 : 14 });
     const c = this.ctx;
     c.clearRect(0, 0, W, H);
+    const pad = 14;
+    const height = Math.min(H - 8, 2 * pad + 4 + rows.reduce((s, r) => s + r.size + r.gap, 0) - (rows.at(-1)?.gap ?? 0));
+    const top = H - 4 - height;
     c.fillStyle = 'rgba(20, 28, 36, 0.82)';
     c.beginPath();
-    c.roundRect(4, 4, W - 8, H - 8, 28);
+    c.roundRect(4, top, W - 8, height, 28);
     c.fill();
-    c.fillStyle = '#ffffff';
-    c.font = `600 ${this.lines.length > 3 ? 26 : 30}px system-ui, sans-serif`;
-    let y = 48;
-    if (this.fpsLine) {
-      c.fillStyle = '#7dffb0';
-      c.font = '700 32px system-ui, sans-serif';
-      c.fillText(this.fpsLine, 28, y, W - 48);
-      y += 50;
-      c.fillStyle = '#ffffff';
-      c.font = '500 24px system-ui, sans-serif';
-    }
-    const step = this.fpsLine ? 34 : 44;
-    for (const line of this.lines) {
-      c.fillText(line, 28, y, W - 48);
-      y += step;
+    let y = top + pad;
+    for (const r of rows) {
+      y += r.size;
+      c.fillStyle = r.color;
+      c.font = `${r.weight} ${r.size}px ${FONT}`;
+      c.fillText(r.text, 28, y, W - 48);
+      y += r.gap;
     }
     this.texture.needsUpdate = true;
   }

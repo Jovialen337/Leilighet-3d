@@ -442,6 +442,12 @@ One pure function, `graphicsProfile` (`src/scene/graphicsProfile.ts`), decides w
 
 - In **passthrough** (measuring and «Lag ny modell») there is never sky or effects.
 - In the **2D plan** there is no sky, sun or lamps, but the baked light stays.
+- **«Effekter»: each effect on or off by itself**, on top of the preset:
+  - The effects are «Dagslys i rommene», «Solflekker», «Lampelys (kveld)», «Lysstråler», «Gulvmønster», «Skygger under møbler» and «Himmel og utsikt».
+  - Only the differences from the preset are saved, per device. Choosing «Rask», «Standard» or «Høy» again clears them.
+  - The rules above still apply: no sun or lamps in 2D or x-ray, and nothing in passthrough. Resolution and foveation follow the preset.
+  - **On the laptop:** the «Effekter» box under «Grafikk». It reads «(egendefinert)» when you have your own choices, with a «Tilbake til «Standard»» link.
+  - **In VR:** X → Visning → «Effekter …», a sub-page with one button per effect. With your own choices, the button reads «Egendefinert …» and is the one marked in the «Grafikk» row.
 - «Standard» keeps the phase 1 resolution and foveation until a reading on the real Quest shows headroom (see QA.md).
 
 ### Later work (graphics)
@@ -449,8 +455,7 @@ One pure function, `graphicsProfile` (`src/scene/graphicsProfile.ts`), decides w
 - Wall finishes in the same texture array as the floors (paint, wallpaper, wet-room tiles); see «Ideas backlog».
 - Floor reflections on «Høy» (one cube map per room).
 - A `settings.north` field so «Lys» follows the real compass; «Natt».
-- A quieter wrist panel that shows the room you are in; comfort options (seated mode, vignette during smooth turning) – Research B, proposals 4–5.
-- Per-effect toggles («Grafikk …» with «Egendefinert») on the laptop and in VR.
+- Comfort options (seated mode, vignette during smooth turning) – Research B, proposal 5.
 - If the Quest shows headroom at 90 fps: foveation 0.5 on «Standard».
 
 ## Ideas backlog (from the user, 2026-10-16)
@@ -662,9 +667,15 @@ src/
 
 - **Laptop, 3D:** drag to rotate, scroll to zoom, right-drag to pan.
 - **Laptop, Ovenfra (2D):** drag to pan, scroll to zoom. The plan is cut at `settings.planCutHeight` like an architectural drawing, with a 1 m grid, scale bar and cursor coordinates in mm. F toggles FPS.
-- **Quest:** left stick forward = aim the teleport arc, release = jump. Right stick left/right = snap turn 30°. Y = show/hide FPS. You start standing just inside the entrance door, facing the longest view (through the openings to the living room and the kitchen), after a short fade in from black.
+- **Quest:**
+  - Left stick forward aims the teleport arc; release to jump. Right stick left/right snap-turns 30°. Y shows or hides FPS.
+  - You start standing just inside the entrance door, facing the longest view (through the openings to the living room and the kitchen), after a short fade in from black.
+  - **The wrist panel** shows the four control lines until you have teleported and turned once (or after 20 s).
+  - After that it shows only the room you are in and its area, for example «Stue» / «24,5 m² · X: meny». In a doorway, the last room stays until you are through.
+  - «Vis alltid hjelp på håndleddet» (X → Komfort) keeps the help lines.
+  - Each controller is one mesh (one draw call).
 - **Quest, measuring:** see the controls table in phase 2.
-- **Quest, menu (X):** point with the right controller and pull the trigger. Tabs: Visning, Lag, Tegn, Gå til, Komfort. Right stick back turns 180°.
+- **Quest, menu (X):** point with the right controller and pull the trigger. Tabs: Visning (with the «Effekter …» sub-page), Lag, Tegn, Gå til, Komfort. Right stick back turns 180°.
 - **Laptop, keys:** 1/2 (3D/2D), T (ceilings), U (placeholders), K (dollhouse), R (reset view), F (FPS), L (light: morning → day → evening), H (help), S/E/V/P (draw tools), Enter/Backspace/Esc/Delete/Ctrl+Z while drawing.
 - **Laptop, «Lag ny modell»:**
   - tools S/R/M/I/D/V/O; type numbers for lengths;

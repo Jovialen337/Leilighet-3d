@@ -5,6 +5,7 @@
  */
 import type { Layer } from '../schema/types';
 import type { LightId } from '../scene/lighting';
+import type { EffectChoices } from '../scene/graphicsProfile';
 import { Observable } from './Observable';
 
 export type CameraMode = 'orbit' | 'top';
@@ -73,10 +74,14 @@ export class ViewState {
   readonly inXR = new Observable(false);
   /* ---- innstillinger (lagres i nettleseren) ---- */
   readonly quality = new Observable<Quality>('medium');
+  /** Egne valg for effektene («Effekter»), som avvik fra grafikkvalget. */
+  readonly effects = new Observable<EffectChoices>({});
   /** Lys: tid på døgnet (morgen/dag/kveld). */
   readonly light = new Observable<LightId>('dag');
   readonly xrRate = new Observable<XRRate>(90);
   readonly turn = new Observable<TurnMode>(30);
+  /** Vis alltid hjelpen på håndleddet (ellers bare til kontrollene er lært). */
+  readonly wristHelp = new Observable(false);
   /** Snitthøyde over laveste gulv (mm); null = fra fila (planCutHeight). */
   readonly sectionHeight = new Observable<number | null>(null);
   /** Dukkehus: 3D-visningen kuttes i snitthøyden så man ser inn i rommene. */
@@ -88,4 +93,10 @@ export class ViewState {
   readonly circuit = new Observable<string | null>(null);
   /** Røntgen: gjennomsiktige vegger og tak. */
   readonly xray = new Observable(false);
+
+  /** Velger «Rask», «Standard» eller «Høy»: egne effektvalg nullstilles. */
+  choosePreset(q: Quality): void {
+    this.quality.set(q);
+    if (Object.keys(this.effects.value).length) this.effects.set({});
+  }
 }

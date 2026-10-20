@@ -115,6 +115,59 @@ test('PC: «Lys»-valget og L-tasten, sol på «Standard», stråler bare på «
   await expect(page.getByTestId('help')).toContainText('Lys');
 });
 
+test('PC: «Effekter» – hver effekt for seg, huskes, og et nytt grafikkvalg nullstiller', async ({ page }) => {
+  await page.goto('./');
+  await waitForModel(page);
+  const vis = (kind: string) => app<boolean>(page, `a.apartment.lightMeshes.some((m) => m.userData.effect === '${kind}' && m.visible)`);
+  const summary = page.getByTestId('effects').locator('summary');
+  await summary.click();
+  await expect(page.getByTestId('effect-shafts')).not.toBeChecked();
+  await expect(page.getByTestId('effect-sun')).toBeChecked();
+  await page.getByTestId('effect-shafts').check();
+  expect(await vis('stråler')).toBe(true);
+  await page.getByTestId('effect-detail').uncheck();
+  expect(await app(page, 'a.apartment.currentEffects.detail')).toBe(false);
+  await expect(summary).toHaveText('Effekter (egendefinert)');
+  await page.reload();
+  await waitForModel(page);
+  expect(await app(page, 'a.view.effects.value')).toEqual({ shafts: true, detail: false });
+  expect(await vis('stråler')).toBe(true);
+  // «Tilbake til «Standard»» nullstiller valgene.
+  await summary.click();
+  await page.getByTestId('effects-reset').click();
+  expect(await app(page, 'a.view.effects.value')).toEqual({});
+  expect(await vis('stråler')).toBe(false);
+  await expect(summary).toHaveText('Effekter');
+  // Et nytt grafikkvalg nullstiller også.
+  await page.getByTestId('effect-sky').uncheck();
+  expect(await app(page, 'a.sky.visible')).toBe(false);
+  await page.getByTestId('setting-quality').selectOption({ label: 'Høy' });
+  expect(await app(page, 'a.view.effects.value')).toEqual({});
+  expect(await app(page, 'a.sky.visible')).toBe(true);
+  await expect(page.getByTestId('effect-shafts')).toBeChecked();
+});
+
+test('VR: «Effekter …» i menyen – lysstråler på «Standard», og «Standard» igjen nullstiller', async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors = collectErrors(page);
+  await enterVR(page);
+  await press(page, 'left', 'x-button');
+  await menuPress(page, 'tab:effekter');
+  expect((await xrState(page)).menu.tab).toBe('effekter');
+  await menuPress(page, 'effect:shafts');
+  expect(await app(page, 'a.view.effects.value')).toEqual({ shafts: true });
+  expect(await app(page, "a.apartment.lightMeshes.some((m) => m.userData.effect === 'stråler' && m.visible)")).toBe(true);
+  await settle(page);
+  expect((await stats(page)).drawCallsPerEye).toBeLessThanOrEqual(40);
+  await menuPress(page, 'tab:visning');
+  expect(await app(page, "a.xr.menuItemsNow().find((i) => i.id === 'tab:effekter').active")).toBe(true);
+  expect(await app(page, "a.xr.menuItemsNow().find((i) => i.id === 'quality:medium').active")).toBe(false);
+  await menuPress(page, 'quality:medium');
+  expect(await app(page, 'a.view.effects.value')).toEqual({});
+  expect(await app(page, "a.apartment.lightMeshes.some((m) => m.userData.effect === 'stråler' && m.visible)")).toBe(false);
+  expect(errors).toEqual([]);
+});
+
 test('gjennomsyn (oppmåling): ingen himmel, sol, lamper eller overgang', async ({ page }) => {
   test.setTimeout(90_000);
   await page.goto('./?emulator');

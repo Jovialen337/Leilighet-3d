@@ -5,12 +5,13 @@
  */
 import type { Quality, TurnMode, XRRate } from '../state/ViewState';
 import type { LightId } from '../scene/lighting';
+import { EFFECT_TEXT, type EffectId } from '../scene/graphicsProfile';
 
 export const MENU_W = 1024;
 export const MENU_H = 768;
 
-/** «lagliste» er en underside av «Lag» med hvert enkelt lag. */
-export type MenuTab = 'visning' | 'lag' | 'lagliste' | 'tegn' | 'ga' | 'komfort';
+/** «lagliste» er en underside av «Lag» med hvert enkelt lag, «effekter» av «Visning». */
+export type MenuTab = 'visning' | 'effekter' | 'lag' | 'lagliste' | 'tegn' | 'ga' | 'komfort';
 export const TABS: readonly { id: MenuTab; label: string }[] = [
   { id: 'visning', label: 'Visning' },
   { id: 'lag', label: 'Lag' },
@@ -36,6 +37,12 @@ export const DRAW_ITEMS: readonly { id: string; label: string }[] = [
 
 export type ItemKind = 'tab' | 'toggle' | 'choice' | 'action';
 
+const QUALITY_ITEMS: readonly { id: Quality; label: string }[] = [
+  { id: 'low', label: 'Rask' },
+  { id: 'medium', label: 'Standard' },
+  { id: 'high', label: 'Høy' },
+];
+
 export interface MenuItem {
   id: string;
   kind: ItemKind;
@@ -54,9 +61,15 @@ export interface MenuState {
   highlight: boolean;
   fps: boolean;
   quality: Quality;
+  /** Effektene slik de er valgt (grafikkvalget med egne valg oppå). */
+  effects: readonly { id: EffectId; on: boolean }[];
+  /** Det finnes egne effektvalg («Egendefinert»). */
+  customEffects: boolean;
   light: LightId;
   turn: TurnMode;
   rate: XRRate;
+  /** Vis alltid hjelpen på håndleddet. */
+  wristHelp: boolean;
   layers: readonly { id: string; name: string; visible: boolean }[];
   rooms: readonly { id: string; name: string }[];
   showExisting: boolean;
@@ -100,7 +113,7 @@ export function buildMenu(s: MenuState): { items: MenuItem[]; labels: MenuLabel[
       id: `tab:${t.id}`,
       kind: 'tab',
       label: t.label,
-      active: s.tab === t.id || (t.id === 'lag' && s.tab === 'lagliste'),
+      active: s.tab === t.id || (t.id === 'lag' && s.tab === 'lagliste') || (t.id === 'visning' && s.tab === 'effekter'),
       x: PAD + i * (tabW + GAP),
       y: PAD,
       w: tabW,
@@ -145,9 +158,9 @@ export function buildMenu(s: MenuState): { items: MenuItem[]; labels: MenuLabel[
       toggle('toggle:fps', 'Vis bildefrekvens', s.fps);
       y += ROW_H + GAP;
       choices('Grafikk', [
-        { id: 'quality:low', label: 'Rask', active: s.quality === 'low' },
-        { id: 'quality:medium', label: 'Standard', active: s.quality === 'medium' },
-        { id: 'quality:high', label: 'Høy', active: s.quality === 'high' },
+        ...QUALITY_ITEMS.map((q) => ({ id: `quality:${q.id}`, label: q.label, active: s.quality === q.id && !s.customEffects })),
+        // Effektene hver for seg; med egne valg er det dette som gjelder («Egendefinert»).
+        { id: 'tab:effekter', label: s.customEffects ? 'Egendefinert …' : 'Effekter …', active: s.customEffects },
       ]);
       if (s.qualityNote) {
         labels.push({ text: s.qualityNote, x: PAD, y: y + 22 });
@@ -192,6 +205,18 @@ export function buildMenu(s: MenuState): { items: MenuItem[]; labels: MenuLabel[
       );
       break;
     }
+    case 'effekter':
+      items.push({ id: 'tab:visning', kind: 'action', label: '‹ Tilbake', active: false, x: PAD, y, w: 260, h: 64 });
+      if (s.customEffects) {
+        const base = QUALITY_ITEMS.find((q) => q.id === s.quality)?.label ?? '';
+        items.push({ id: 'effects:reset', kind: 'action', label: `Tilbake til «${base}»`, active: false, x: PAD + 260 + GAP, y, w: full - 260 - GAP, h: 64 });
+      }
+      y += 64 + GAP;
+      labels.push({ text: s.customEffects ? 'Egendefinert: dine valg gjelder.' : 'Slik grafikkvalget har det nå. Trykk for å endre.', x: PAD, y: y + 30 });
+      y += 52;
+      grid(s.effects.map((e) => ({ id: `effect:${e.id}`, label: EFFECT_TEXT[e.id], active: e.on, kind: 'toggle' as const })));
+      labels.push({ text: 'Rask, Standard eller Høy nullstiller valgene.', x: PAD, y: y + 30 });
+      break;
     case 'lagliste':
       items.push({ id: 'tab:lag', kind: 'action', label: '‹ Tilbake', active: false, x: PAD, y, w: 260, h: 64 });
       y += 64 + GAP;
@@ -233,6 +258,8 @@ export function buildMenu(s: MenuState): { items: MenuItem[]; labels: MenuLabel[
         { id: 'rate:90', label: '90 Hz', active: s.rate === 90 },
         { id: 'rate:120', label: '120 Hz', active: s.rate === 120 },
       ]);
+      toggle('toggle:wristhelp', 'Vis alltid hjelp på håndleddet', s.wristHelp);
+      y += ROW_H + GAP;
       labels.push({ text: 'Stikke bakover: snu 180°.', x: PAD, y: y + 30 });
       break;
   }

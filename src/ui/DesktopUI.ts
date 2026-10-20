@@ -19,6 +19,7 @@ import { boundCheckbox, boundRange, boundSelect } from './controls';
 import { ACTION_TEXT, SHORTCUTS, isTypingTarget, shortcutFor } from './shortcuts';
 import { QUALITIES, TURN_MODES, XR_RATES, type Quality, type TurnMode, type XRRate } from '../state/ViewState';
 import { LIGHT_IDS, LIGHT_TEXT, type LightId } from '../scene/lighting';
+import { EFFECT_IDS, EFFECT_TEXT, chooseEffect, wantedEffects } from '../scene/graphicsProfile';
 
 export interface DesktopActions {
   reload: () => void;
@@ -111,6 +112,9 @@ export class DesktopUI {
       if (document.fullscreenElement) void document.exitFullscreen();
       else void document.documentElement.requestFullscreen?.().catch(() => undefined);
     });
+    const qualitySelect = boundSelect<Quality>('Grafikk', view.quality, QUALITIES.map((q) => ({ value: q, label: QUALITY_TEXT[q] })), 'setting-quality');
+    // Et nytt grafikkvalg nullstiller egne effektvalg (etter at valget er satt).
+    qualitySelect.addEventListener('change', () => view.choosePreset(view.quality.value));
     const shortcutsButton = h('button', { class: 'small', 'data-testid': 'show-help' }, 'Hurtigtaster (H)');
     shortcutsButton.addEventListener('click', () => this.toggleHelp());
     this.roomList = h('div', { class: 'room-list', 'data-testid': 'rooms' });
@@ -163,8 +167,9 @@ export class DesktopUI {
         h('div', { class: 'group' },
           h('h2', {}, 'Visning'),
           h('div', { class: 'segmented' }, this.modeButtons.orbit, this.modeButtons.top),
-          boundSelect<Quality>('Grafikk', view.quality, QUALITIES.map((q) => ({ value: q, label: QUALITY_TEXT[q] })), 'setting-quality'),
+          qualitySelect,
           h('p', { class: 'hint' }, 'Standard: dagslys, sol og himmel. Høy: også lysstråler og skarpere bilde i VR.'),
+          this.effectsPanel(view),
           boundSelect<LightId>('Lys', view.light, LIGHT_IDS.map((l) => ({ value: l, label: LIGHT_TEXT[l] })), 'setting-light'),
           h('p', { class: 'hint' }, 'Tast L. Morgen: sol fra øst (inngangssiden). Kveld: lampene er tent.'),
           ceilingBox,
@@ -264,6 +269,36 @@ export class DesktopUI {
         this.toggleHelp();
         break;
     }
+  }
+
+  /** «Effekter»: hver effekt av og på for seg, oppå grafikkvalget (lagres som egne valg). */
+  private effectsPanel(view: ViewState): HTMLDetailsElement {
+    const title = h('span', {}, 'Effekter');
+    const reset = h('button', { class: 'link', 'data-testid': 'effects-reset' });
+    reset.addEventListener('click', () => view.choosePreset(view.quality.value));
+    const boxes = EFFECT_IDS.map((id) => {
+      const input = h('input', { type: 'checkbox', 'data-testid': `effect-${id}` });
+      input.addEventListener('change', () => view.effects.set(chooseEffect(view.quality.value, view.effects.value, id, input.checked)));
+      return { id, input, label: h('label', { class: 'check' }, input, EFFECT_TEXT[id]) };
+    });
+    const sync = (): void => {
+      const want = wantedEffects(view.quality.value, view.effects.value);
+      for (const b of boxes) b.input.checked = want[b.id];
+      const custom = Object.keys(view.effects.value).length > 0;
+      title.textContent = custom ? 'Effekter (egendefinert)' : 'Effekter';
+      reset.textContent = `Tilbake til «${QUALITY_TEXT[view.quality.value]}»`;
+      reset.hidden = !custom;
+    };
+    view.quality.subscribe(sync);
+    view.effects.subscribe(sync, true);
+    return h(
+      'details',
+      { class: 'effects', 'data-testid': 'effects' },
+      h('summary', {}, title),
+      ...boxes.map((b) => b.label),
+      h('p', { class: 'hint' }, 'I VR: X → Visning → Effekter. Sol og lamper vises ikke i 2D-planen eller i røntgen.'),
+      reset,
+    );
   }
 
   private buildHelp(): HTMLElement {

@@ -7,9 +7,12 @@ const state = (tab: MenuTab, layerCount: number, filterCircuit: string | null = 
   highlight: false,
   fps: false,
   quality: 'medium',
+  effects: [],
+  customEffects: false,
   light: 'dag',
   turn: 30,
   rate: 90,
+  wristHelp: false,
   layers: Array.from({ length: layerCount }, (_, i) => ({ id: `lag-${i}`, name: `Lag ${i + 1}`, visible: true })),
   rooms: Array.from({ length: 8 }, (_, i) => ({ id: `rom-${i}`, name: `Rom ${i + 1}` })),
   showExisting: true,
@@ -50,11 +53,37 @@ describe('VR-menyen', () => {
     const tegn = buildMenu({ ...state('tegn', 13), drawCircuit: 'kurs-1' }).items.find((i) => i.id === 'drawcircuit:next');
     expect(tegn).toMatchObject({ label: 'Kurs for nye: Kurs 1 – gang og stue', active: true });
     expect(buildMenu({ ...state('tegn', 13), circuits: [] }).items.some((i) => i.id === 'drawcircuit:next')).toBe(false);
-    for (const tab of ['visning', 'lag', 'lagliste', 'tegn', 'ga', 'komfort'] as const)
+    for (const tab of ['visning', 'effekter', 'lag', 'lagliste', 'tegn', 'ga', 'komfort'] as const)
       for (const it of buildMenu({ ...state(tab, 13, 'kurs-1'), qualityNote: 'x' }).items) {
         expect(it.y + it.h).toBeLessThanOrEqual(MENU_H);
         expect(it.x + it.w).toBeLessThanOrEqual(MENU_W);
       }
+  });
+
+  it('«Effekter …»: hver effekt for seg, og «Egendefinert» når det finnes egne valg', () => {
+    const effects = (['baked', 'sun', 'lamps', 'shafts', 'detail', 'shades', 'sky'] as const).map((id) => ({ id, on: id !== 'shafts' }));
+    const plain = buildMenu({ ...state('visning', 13), effects });
+    expect(plain.items.find((i) => i.id === 'tab:effekter')).toMatchObject({ label: 'Effekter …', active: false });
+    expect(plain.items.find((i) => i.id === 'quality:medium')?.active).toBe(true);
+    const custom = buildMenu({ ...state('visning', 13), effects, customEffects: true });
+    expect(custom.items.find((i) => i.id === 'tab:effekter')).toMatchObject({ label: 'Egendefinert …', active: true });
+    expect(custom.items.filter((i) => i.id.startsWith('quality:')).every((i) => !i.active)).toBe(true);
+    const page = buildMenu({ ...state('effekter', 13), effects, customEffects: true });
+    expect(page.items.filter((i) => i.id.startsWith('effect:')).map((i) => [i.label, i.active])).toEqual([
+      ['Dagslys i rommene', true],
+      ['Solflekker', true],
+      ['Lampelys (kveld)', true],
+      ['Lysstråler', false],
+      ['Gulvmønster', true],
+      ['Skygger under møbler', true],
+      ['Himmel og utsikt', true],
+    ]);
+    expect(page.items.find((i) => i.id === 'effects:reset')?.label).toBe('Tilbake til «Standard»');
+    // Fanen «Visning» er markert på undersiden, og alt får plass.
+    expect(page.items.find((i) => i.id === 'tab:visning' && i.kind === 'tab')?.active).toBe(true);
+    for (const it of page.items) expect(it.y + it.h).toBeLessThanOrEqual(MENU_H);
+    expect(Math.max(...page.labels.map((l) => l.y))).toBeLessThanOrEqual(MENU_H - 20);
+    expect(buildMenu({ ...state('effekter', 13), effects }).items.some((i) => i.id === 'effects:reset')).toBe(false);
   });
 
   it('beskjed om skarphet vises under grafikkvalget', () => {

@@ -7,7 +7,7 @@ import { buildParts, partsFor } from '../../src/scene/buildParts';
 import { BAKE, Baker, formFactor, mixLight, tessellate } from '../../src/scene/bake';
 import { buildSunPatches, buildSunShafts, clipConvex, sunPatches, SUN_PATCH } from '../../src/scene/sunlight';
 import { buildLampGlow, LAMP } from '../../src/scene/lamps';
-import { graphicsProfile } from '../../src/scene/graphicsProfile';
+import { EFFECT_IDS, chooseEffect, graphicsProfile, isEffectChoices, presetEffects, wantedEffects } from '../../src/scene/graphicsProfile';
 import { DETAIL, detailLayers, floorSurface, SURF, woodLike } from '../../src/scene/detail';
 import { Fade, FADE } from '../../src/xr/fade';
 import { pointInPolygon, polygonGap } from '../../src/geometry/math2d';
@@ -371,6 +371,46 @@ describe('grafikkprofilen', () => {
       expect([xray.effects.sun, xray.effects.shafts, xray.effects.lamps]).toEqual([false, false, false]);
       expect(xray.sky).toBe(quality !== 'low');
     }
+  });
+
+  it('egne effektvalg: lagres som avvik fra grafikkvalget og gjelder oppå det', () => {
+    // Lysstråler på «Standard» og uten gulvmønster.
+    let custom = chooseEffect('medium', {}, 'shafts', true);
+    custom = chooseEffect('medium', custom, 'detail', false);
+    expect(custom).toEqual({ shafts: true, detail: false });
+    const p = graphicsProfile({ quality: 'medium', top: false, passthrough: false, custom });
+    expect(p.effects).toEqual({ shades: true, baked: true, sun: true, shafts: true, lamps: true, detail: false });
+    // Oppløsningen følger fortsatt grafikkvalget.
+    expect(p.framebufferScale).toBe(1);
+    // Tilbake til det grafikkvalget har: ikke lenger et eget valg.
+    expect(chooseEffect('medium', custom, 'shafts', false)).toEqual({ detail: false });
+    // Himmel av; dagslys på «Rask».
+    expect(graphicsProfile({ quality: 'medium', top: false, passthrough: false, custom: { sky: false } }).sky).toBe(false);
+    const fast = graphicsProfile({ quality: 'low', top: false, passthrough: false, custom: { baked: true } });
+    expect([fast.effects.baked, fast.effects.sun, fast.sky]).toEqual([true, false, false]);
+    // Uten egne valg er alt som før.
+    for (const q of ['low', 'medium', 'high'] as const) {
+      expect(wantedEffects(q)).toEqual(presetEffects(q));
+      const { pixelRatio: _a, ...withEmpty } = graphicsProfile({ quality: q, top: false, passthrough: false, custom: {} });
+      const { pixelRatio: _b, ...without } = graphicsProfile({ quality: q, top: false, passthrough: false });
+      expect(withEmpty).toEqual(without);
+    }
+  });
+
+  it('egne valg slår aldri på noe i gjennomsyn, 2D-planen eller røntgen', () => {
+    const all = Object.fromEntries(EFFECT_IDS.map((id) => [id, true]));
+    const ar = graphicsProfile({ quality: 'high', top: false, passthrough: true, custom: all });
+    expect([ar.sky, ar.effects.shades, ar.effects.sun, ar.effects.shafts, ar.effects.lamps, ar.effects.detail]).toEqual([false, false, false, false, false, false]);
+    const top = graphicsProfile({ quality: 'low', top: true, passthrough: false, custom: all });
+    expect([top.sky, top.effects.sun, top.effects.shafts, top.effects.lamps]).toEqual([false, false, false, false]);
+    const xray = graphicsProfile({ quality: 'low', top: false, passthrough: false, xray: true, custom: all });
+    expect([xray.effects.sun, xray.effects.shafts, xray.effects.lamps]).toEqual([false, false, false]);
+  });
+
+  it('lagrede effektvalg sjekkes: bare kjente effekter med av/på', () => {
+    expect(isEffectChoices({ shafts: true, sky: false })).toBe(true);
+    expect(isEffectChoices({})).toBe(true);
+    for (const bad of [null, [], 'ja', { shafts: 'ja' }, { tåke: true }, { sun: 1 }]) expect(isEffectChoices(bad)).toBe(false);
   });
 });
 

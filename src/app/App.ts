@@ -493,6 +493,7 @@ export class App {
     this.view.cameraMode.subscribe(() => this.applyCameraMode());
     this.view.dollhouse.subscribe(() => this.applyCameraMode());
     this.view.quality.subscribe(() => this.applyQuality());
+    this.view.effects.subscribe(() => this.applyQuality());
     this.view.light.subscribe(() => this.applyLight(), true);
     const filter = (): void =>
       this.apartment.setFilter({ existing: this.view.showExisting.value, planned: this.view.showPlanned.value, circuit: this.view.circuit.value });
@@ -541,6 +542,7 @@ export class App {
       top: this.view.cameraMode.value === 'top' && !this.view.inXR.value,
       passthrough: this.xr.measuring.value,
       xray: this.view.xray.value,
+      custom: this.view.effects.value,
     });
     this.apartment.setEffects(prof.effects);
     if (prof.sky) prepareSky(this.sky);
