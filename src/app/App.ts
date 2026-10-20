@@ -12,7 +12,7 @@ import { ApartmentStore } from '../model/ApartmentStore';
 import type { ApartmentModel } from '../model/ApartmentModel';
 import { ApartmentScene, passes } from '../scene/ApartmentScene';
 import { Materials } from '../scene/materials';
-import { addLights, applyLights, configureRenderer, LIGHTS, type Lights } from '../scene/lighting';
+import { addLights, applyLights, configureRenderer, LIGHTS, type LightPreset, type Lights } from '../scene/lighting';
 import { createSky, prepareSky, setGroundLevel, setSkyLight } from '../scene/sky';
 import { textureBytes } from '../scene/textureBudget';
 import { graphicsProfile } from '../scene/graphicsProfile';
@@ -80,6 +80,8 @@ export class App {
   private planPending: { base: ApartmentDoc; rev: number; size: number; doc: ApartmentDoc; result: ValidationResult } | null = null;
   /** Den nye modellen har ingen rom ennå: modellen er skjult. */
   private previewEmpty = false;
+  /** Lyset som er satt nå (2D-planen har alltid «Dag»). */
+  private appliedLight: LightPreset | null = null;
 
   constructor(private readonly root: HTMLElement) {
     this.store = new ApartmentStore(`${import.meta.env.BASE_URL}apartment.json`);
@@ -533,6 +535,8 @@ export class App {
     this.materials.setCut(cut ? this.desktop.cutPlane : null, top);
     this.labels.setVisible(top);
     this.applyQuality();
+    // 2D-planen er en tegning: alltid dagslys (se applyLight).
+    this.applyLight();
   }
 
   /** Grafikkvalitet og effekter etter grafikkprofilen (se graphicsProfile.ts). */
@@ -555,9 +559,17 @@ export class App {
     }
   }
 
-  /** «Lys» (morgen/dag/kveld): lysene, eksponeringen, himmelen, sola og lampene. */
+  /**
+   * «Lys» (morgen/dag/kveld/natt): lysene, eksponeringen, himmelen, sola og
+   * lampene. Gjelder 3D og VR; 2D-planen på laptopen er en tegning og har
+   * alltid nøytralt dagslys (uten farget lys), som den heller ikke har sol,
+   * himmel eller lamper.
+   */
   private applyLight(): void {
-    const preset = LIGHTS[this.view.light.value];
+    const top = this.view.cameraMode.value === 'top' && !this.view.inXR.value;
+    const preset = LIGHTS[top ? 'dag' : this.view.light.value];
+    if (preset === this.appliedLight) return;
+    this.appliedLight = preset;
     applyLights(this.lights, preset);
     configureRenderer(this.renderer, preset);
     this.xr.exposure = preset.exposure;

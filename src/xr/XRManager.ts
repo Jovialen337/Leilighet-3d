@@ -265,7 +265,7 @@ export class XRManager {
     if (this.mode !== 'walk' || !this.presenting) return null;
     const scale = this.profile().framebufferScale;
     if (scale === this.sessionScale) return null;
-    return scale > this.sessionScale ? 'Skarpere nå – full oppløsning neste gang du går inn i VR.' : 'Oppløsningen endres neste gang du går inn i VR.';
+    return scale > this.sessionScale ? 'Skarpere nå – full oppløsning neste gang i VR.' : 'Oppløsningen endres neste gang i VR.';
   }
 
   private profile() {

@@ -3,6 +3,7 @@ import { Observable } from '../../src/state/Observable';
 import { PersistedSettings, inRange, isBool, oneOf, type KV } from '../../src/state/persist';
 import { SettingsBinding, SETTINGS_KEY } from '../../src/state/settings';
 import { ViewState } from '../../src/state/ViewState';
+import { presetEffects, wantedEffects } from '../../src/scene/graphicsProfile';
 
 class MemoryKV implements KV {
   readonly data = new Map<string, string>();
@@ -98,6 +99,7 @@ describe('innstillingene i appen', () => {
     const view = new ViewState();
     new SettingsBinding(view, kv);
     expect(view.quality.value).toBe('custom');
-    expect(view.customEffects.value).toEqual({});
+    // Effektene er de samme som «Standard».
+    expect(wantedEffects(view.quality.value, view.customEffects.value)).toEqual(presetEffects('medium'));
   });
 });

@@ -39,6 +39,8 @@ export interface MergedMesh {
   /** Hva meshen er laget av (deler, farger, målestatus, lys); lik ved neste bygging = gjenbrukes. */
   sig: string;
   measureColors: Float32Array;
+  /** Lampene lyset i `light.lamp` er regnet for (se `updateLamps`); nye lamper blandes inn uten ny mesh. */
+  lampKey: string;
 }
 
 /** Lyseffektene som er slått på (fra grafikkprofilen). */
@@ -289,22 +291,40 @@ export class ApartmentScene {
   /** Alt en sammenslått mesh avhenger av, som én streng. */
   private bucketSig(bucket: Bucket, list: Part[]): string {
     const baked = list.some((p) => this.render.has(p));
-    const head = `${bucket}|${baked ? `${this.lightKey}|${this.lampKey}` : 'flat'}`;
+    // Lampene er ikke med: nye eller flyttede lamper blandes inn i meshen som er der (reuseBucket).
+    const head = `${bucket}|${baked ? this.lightKey : 'flat'}`;
     return [
       head,
       ...list.map((p) => `${this.partKeys.get(p)}|${p.color.getHexString()}|${p.measure}|${p.kind === 'floor' ? (this.floorSurf.get(p.id) ?? 0) : ''}`),
     ].join('\n');
   }
 
-  /** Bruker en mesh fra forrige bygging igjen: bare plasseringen i laget og områdene per objekt. */
+  /**
+   * Bruker en mesh fra forrige bygging igjen: plasseringen i laget og områdene
+   * per objekt. Har lampene endret seg, kopieres det nye lampelyset inn og
+   * fargene blandes på nytt – ingen ny mesh (og ingenting å blande når «Lys»
+   * har lampene av).
+   */
   private reuseBucket(m: MergedMesh, list: Part[]): void {
+    const lamps = m.light && m.lampKey !== this.lampKey ? m.light.lamp : null;
     let offset = 0;
     for (const p of list) {
-      const n = (this.render.get(p)?.geo ?? p.geometry).getAttribute('position').count;
+      const r = this.render.get(p);
+      const n = (r?.geo ?? p.geometry).getAttribute('position').count;
+      if (lamps && r) lamps.set(r.bake.lamp, offset);
       const ranges = this.ranges.get(p.id) ?? [];
       ranges.push({ mesh: m, start: offset, count: n });
       this.ranges.set(p.id, ranges);
       offset += n;
+    }
+    if (lamps) {
+      m.lampKey = this.lampKey;
+      if (this.light.bake.lamp > 0) {
+        this.mixBaked(m);
+        const attr = m.mesh.geometry.getAttribute('color') as THREE.BufferAttribute;
+        (attr.array as Float32Array).set(this.colorsFor(m));
+        attr.needsUpdate = true;
+      }
     }
     this.merged.push(m);
     this.layerGroups.get(m.layer)?.add(m.mesh);
@@ -349,6 +369,7 @@ export class ApartmentScene {
       light,
       measureColors,
       sig,
+      lampKey: this.lampKey,
     };
     let offset = 0;
     for (const p of list) {

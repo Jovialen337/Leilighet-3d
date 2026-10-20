@@ -4,7 +4,7 @@
  * 32 MB teksturer, i alle rom.
  */
 import { expect, type Page } from '@playwright/test';
-import { collectErrors, enterMeasure, enterVR, frames, menuPress, press, stats, test, waitForModel, xrState } from './helpers';
+import { collectErrors, colorDistance, enterMeasure, enterVR, frames, menuPress, pixelAt, press, renderedFrames, screenOf, stats, test, waitForModel, xrState } from './helpers';
 
 const app = <T = any>(page: Page, expr: string): Promise<T> => page.evaluate(`(() => { const a = window.leilighet; return ${expr}; })()`);
 
@@ -124,6 +124,47 @@ test('PC: «Lys»-valget og L-tasten, sol på «Standard», stråler bare på «
   await expect(page.getByTestId('help')).toContainText('Lys');
 });
 
+test('PC: 2D-planen har alltid dagslys – «Lys» gjelder bare 3D og VR', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('./');
+  await waitForModel(page);
+  await page.getByTestId('mode-top').click();
+  await renderedFrames(page);
+  // Gulvet i gangen, stua og planterommet: samme farge i alle fire.
+  const spots = [
+    [1500, 0, 1400],
+    [3200, 180, 1000],
+    [6100, 0, 1500],
+  ] as const;
+  const colours = async (): Promise<number[][]> => {
+    await renderedFrames(page);
+    const out: number[][] = [];
+    for (const [x, y, z] of spots) {
+      const p = await screenOf(page, x, y, z);
+      out.push(await pixelAt(page, p.x, p.y));
+    }
+    return out;
+  };
+  const day = await colours();
+  for (const l of ['morgen', 'kveld', 'natt'] as const) {
+    await app(page, `a.view.light.set('${l}')`);
+    const c = await colours();
+    for (let i = 0; i < spots.length; i++) expect(colorDistance(c[i]!, day[i]!), `${l} ${spots[i]}`).toBeLessThan(3);
+  }
+  // Tilbake i 3D gjelder «Natt» igjen: gulvet i stua er mye mørkere enn om dagen.
+  await page.getByTestId('mode-orbit').click();
+  const stue = async (): Promise<number> => {
+    await renderedFrames(page);
+    const p = await screenOf(page, 3200, 180, 1000);
+    const c = await pixelAt(page, p.x, p.y);
+    return c[0] + c[1] + c[2];
+  };
+  const night3d = await stue();
+  await app(page, "a.view.light.set('dag')");
+  expect(night3d).toBeLessThan((await stue()) - 60);
+  expect(errors).toEqual([]);
+});
+
 test('PC: «Egendefinert» – hver effekt for seg, settet huskes, og et forhåndsvalg tar over', async ({ page }) => {
   await page.goto('./');
   await waitForModel(page);
@@ -170,7 +211,7 @@ test('VR: «Egendefinert» i menyen – lysstråler uten skarpere bilde, og «St
   expect(await app(page, 'a.view.quality.value')).toBe('custom');
   expect(await app(page, "a.apartment.lightMeshes.some((m) => m.userData.effect === 'stråler' && m.visible)")).toBe(true);
   // Ingen beskjed om oppløsning: «Skarpere bilde» er fortsatt av.
-  expect(await app(page, 'a.xr.menuLabels().map((l) => l.text)')).not.toContain('Skarpere nå – full oppløsning neste gang du går inn i VR.');
+  expect(await app(page, 'a.xr.menuLabels().map((l) => l.text)')).not.toContain('Skarpere nå – full oppløsning neste gang i VR.');
   await settle(page);
   expect((await stats(page)).drawCallsPerEye).toBeLessThanOrEqual(40);
   await menuPress(page, 'tab:visning');

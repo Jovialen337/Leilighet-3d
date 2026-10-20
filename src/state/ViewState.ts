@@ -5,7 +5,7 @@
  */
 import type { Layer } from '../schema/types';
 import type { LightId } from '../scene/lighting';
-import { toggleEffect, type EffectChoices, type EffectId } from '../scene/graphicsProfile';
+import { customStart, toggleEffect, type EffectChoices, type EffectId } from '../scene/graphicsProfile';
 import { Observable } from './Observable';
 
 export type CameraMode = 'orbit' | 'top';
@@ -94,6 +94,13 @@ export class ViewState {
   readonly circuit = new Observable<string | null>(null);
   /** Røntgen: gjennomsiktige vegger og tak. */
   readonly xray = new Observable(false);
+
+  constructor() {
+    // «Egendefinert» valgt fra et forhåndsvalg: start med effektene i det (se customStart).
+    this.quality.subscribe((q, prev) => {
+      if (q === 'custom' && prev !== 'custom') this.customEffects.set(customStart(prev, this.customEffects.value));
+    });
+  }
 
   /** Slår én effekt av eller på (blir «Egendefinert», eller et forhåndsvalg med akkurat de effektene). */
   toggleEffect(id: EffectId): void {

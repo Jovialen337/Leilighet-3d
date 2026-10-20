@@ -781,3 +781,66 @@ Weighted total **7.25**. Another round is worth it (round 2 of 4).
    - «Natt».
 5. **Docs:** the gatekeeper's draw-call numbers are used, and the rebuild time is compared like for like.
 
+### Gatekeeper (round 3 at ae211d5): **FAIL**
+
+**Blocker:** the 2 cm wall-end inset opened see-through slits at corners where both walls run through the corner.
+- At such a corner each end lies in the other wall's outer face, so both were pulled in, and a 20 × 20 mm column belonged to neither wall.
+- Rays cast at every wall end in the real file found 7 corners. One is visible from the grow room (5600, 4000) and one from the kitchen (8000, 1600); the rest are outside corners or below the floor.
+- The placeholder has only butt joints, so its tests could not see this.
+
+**Passed:**
+- the round-2 lamp blocker (0 colour components differ from a fresh bake, for drawing, moving, deleting and filters);
+- «Natt», «Egendefinert» (all 32 context combinations) and the saved settings;
+- VR budget: worst 34 draw calls per eye (Høy and Egendefinert, Kveld), textures 11.67 MB;
+- nothing new allocated per frame.
+
+### Judge (round 3, scored at ae211d5): **8.0 – not accepted**
+
+| # | Item | Score | Verdict |
+|---|---|---|---|
+| 1 | Baked daylight and ambient occlusion | 8 | ✅ |
+| 2 | Sun patches, rays, lamp light | 8 | ✅ Lamp light verified for drawing, moving, deleting and filters |
+| 3 | Sky, ground, glass, floors | 8 | ✅ |
+| 4 | «Lys» | 7 | 🟡 The 2D plan follows «Lys», so it is nearly black in «Natt» |
+| 5 | VR entry, wrist panel, controllers | 8 | ✅ |
+| 6 | Profile, «Egendefinert», budget, tests, docs | 8 | ✅ |
+
+**Dimensions:** visual quality 8, performance 8, options 8, intuitive use 8, code quality 8, robustness 8.
+
+**Its measurements:**
+- «Kveld» is 44 % of «Dag»;
+- rebuild after a pipe: 39 ms, or 103 ms at 4× slowdown;
+- worst draw calls per eye: 32;
+- the bathroom seam is down to sparse single-pixel dots.
+
+**Round 4 (the last) should be small:**
+1. Neutral light in the 2D plan (required).
+2. VR text fixes, and «Egendefinert» starting from the current preset.
+3. Optionally, re-mix the colours instead of re-merging when a lamp moves.
+
+### Round 4 – what changed
+
+1. **Corner slits (the gatekeeper's blocker):**
+   - **Rule:** where both walls run through a corner, one wall owns it: the taller one, or the lower id if they are the same height.
+     - The owner draws its end face.
+     - The other wall is clipped back to the owner's inner face (outline and holes), which makes a plain butt joint.
+     - Covered ends that only overlap still get the 2 cm inset.
+   - **Clipping:** the outline is clipped properly, so a ceiling break point near the end can no longer fold it.
+   - **New test:** rays from outside the walls toward every corner of every wall end, in both files. Whenever a ray enters a wall, it must hit a front face there; door and window openings count as holes. The test fails on round 3 at exactly the gatekeeper's corners and passes now.
+   - **Known seams:** the known hidden-edge junctions in the real file drop from three to one. That one is the stue/planterom partition, which starts inside the grow-room wall.
+2. **Neutral 2D light (the judge's item 4):**
+   - The laptop's 2D plan always uses «Dag»'s light and bake mix, with no tint, whatever «Lys» says.
+   - «Lys» affects 3D and VR, and comes back when you leave 2D. The hint under «Lys» says so.
+   - **Browser test:** the floor colour in the hallway, living room and grow room is the same in 2D for all four choices (difference < 3), and 3D at night is darker again.
+3. **«Egendefinert» starts from the current preset:**
+   - Choosing it from «Høy» with no saved set keeps «Høy»'s effects, so rays and the sharper image are not switched off.
+   - A saved set is kept.
+4. **Moving a lamp re-mixes instead of re-merging:**
+   - The lamps are no longer part of the merged-mesh signature.
+   - A reused mesh gets the new lamp light copied in, and its colours are mixed again. In «Morgen» and «Dag», where the lamps are off, only the light is copied.
+   - **Test:** walls, floors and ceilings keep the same meshes when a lamp is drawn, with the same colours as a fresh bake. In «Dag» a new lamp changes nothing until «Kveld».
+5. **VR texts:**
+   - «Skarpere nå – full oppløsning neste gang i VR.» now fits;
+   - «Dagslys og skygger»;
+   - «Lampelys (kveld og natt)».
+

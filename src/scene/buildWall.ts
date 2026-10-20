@@ -85,12 +85,21 @@ export function buildWallGeometry(model: ApartmentModel, f: WallFrame): THREE.Bu
       { u: s.u1, v: s.top },
       { u: s.u0, v: s.top },
     ]);
-    const start = sa <= EPS ? capCover(model, f, 0) : null;
-    const end = sb >= f.length - EPS ? capCover(model, f, f.length) : null;
+    const start = sa <= EPS ? endCover(model, f, 0) : null;
+    const end = sb >= f.length - EPS ? endCover(model, f, f.length) : null;
     let inset = clean;
-    if (start?.depth) inset = insetEnd(inset, 0, 1, start, Math.min(COVER_DEEP, f.length / 3));
-    if (end?.depth) inset = insetEnd(inset, f.length, -1, end, Math.min(COVER_DEEP, f.length / 3));
-    extrude(g, f, inset, holePolys, { start: start?.height ?? null, end: end?.height ?? null });
+    let cutHoles = holePolys;
+    // Kuttet ende (hjørnet eies av den andre veggen): konturen og hullene klippes der.
+    for (const [c, at, sign] of [[start, 0, 1], [end, f.length, -1]] as const) {
+      if (!c?.cut) continue;
+      const line = at + sign * Math.min(c.depth, f.length / 2);
+      inset = clipU(inset, line, sign);
+      cutHoles = cutHoles.map((h) => clipU(h, line, sign)).filter((h) => h.length >= 3);
+    }
+    if (inset.length < 3) continue;
+    if (start?.depth && !start.cut) inset = insetEnd(inset, 0, 1, start, f.length);
+    if (end?.depth && !end.cut) inset = insetEnd(inset, f.length, -1, end, f.length);
+    extrude(g, f, inset, cutHoles, { start: start?.cut ? null : (start?.height ?? null), end: end?.cut ? null : (end?.height ?? null) });
   }
   return g.build();
 }
@@ -101,8 +110,19 @@ export function buildWallGeometry(model: ApartmentModel, f: WallFrame): THREE.Bu
  * Svaret er hvor høyt (mm) den er dekket, eller null. Den dekkede delen
  * tegnes ikke: to flater oppå hverandre ville flimret.
  */
-function capCover(model: ApartmentModel, f: WallFrame, u: number): { height: number; depth: number } | null {
-  let best: { height: number; depth: number } | null = null;
+interface Cover {
+  /** Hvor høyt enden er dekket (mm). */
+  height: number;
+  /** Tykkelsen på veggen som dekker enden, når den ligger innover (veggene overlapper); ellers 0. */
+  depth: number;
+  /** Veggen som dekker enden. */
+  by: WallFrame;
+  /** Hjørne der begge er forlenget: enden kuttes tilbake til innsiden av den andre (et butt hjørne). */
+  cut?: boolean;
+}
+
+function capCover(model: ApartmentModel, f: WallFrame, u: number): Cover | null {
+  let best: Cover | null = null;
   // Retningen inn i veggen fra denne enden.
   const inward = u <= EPS ? 1 : -1;
   const a = frameAt(f, u, f.nMin);
@@ -124,22 +144,66 @@ function capCover(model: ApartmentModel, f: WallFrame, u: number): { height: num
       // står veggen bare mot den andre utenfra, er dybden 0.
       const out = (n === g.nMax ? 1 : -1) * (g.left.x * f.dir.x + g.left.z * f.dir.z);
       const depth = out * inward < 0 ? g.nMax - g.nMin : 0;
-      if (!best || cover > best.height) best = { height: cover, depth };
+      if (!best || cover > best.height) best = { height: cover, depth, by: g };
     }
   }
   return best;
 }
 
 /**
- * Flytter enden av konturen (punktene ved u = `at`) inn i veggen som dekker
- * den (`sign` = retningen innover): opp til den dekkede høyden `deep` mm
- * (høyst halve tykkelsen på den andre veggen), over den bare et halvt
- * millimeter, med et trinn der kanten krysser den dekkede høyden.
+ * Dekningen av enden, med hjørner der begge veggene er forlenget gjennom
+ * hjørnet (hver ende ligger i den andres ytterside). Trekkes begge endene
+ * inn, blir hjørnesøylen tom; trekkes bare én inn, mangler et stykke av
+ * yttersiden eller to flater ligger oppå hverandre. Derfor eier én vegg
+ * hjørnet – den høyeste (lik høyde: laveste id). Den tegner enden sin; den
+ * andre kuttes tilbake til innsiden av den, som et butt hjørne.
  */
-function insetEnd(pts: UV[], at: number, sign: number, cover: { height: number; depth: number }, deep: number): UV[] {
-  const d = Math.min(deep, cover.depth / 2);
+function endCover(model: ApartmentModel, f: WallFrame, u: number): Cover | null {
+  const c = capCover(model, f, u);
+  if (!c || c.depth <= 0) return c;
+  const g = c.by;
+  // Enden av den andre veggen som ligger i dette hjørnet.
+  const here = frameAt(f, u, (f.nMin + f.nMax) / 2);
+  const dist = (v: number): number => {
+    const p = frameAt(g, v, (g.nMin + g.nMax) / 2);
+    return Math.hypot(p.x - here.x, p.z - here.z);
+  };
+  const ug = dist(0) <= dist(g.length) ? 0 : g.length;
+  const back = capCover(model, g, ug);
+  if (!back || back.by !== f || back.depth <= 0) return c;
+  const top = (w: WallFrame, at: number): number => interpolate(model.wallTop(w), at);
+  const dh = top(f, u) - top(g, ug);
+  const owner = Math.abs(dh) > 1 ? dh > 0 : f.wall.id < g.wall.id;
+  return owner ? null : { ...c, cut: true };
+}
+
+/** Beholder delen av polygonet på innsiden av u = `line` (`sign` = 1: u ≥ line, −1: u ≤ line). */
+function clipU(pts: UV[], line: number, sign: number): UV[] {
+  const keep = (p: UV): boolean => sign * (p.u - line) >= 0;
+  const out: UV[] = [];
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i]!;
+    const b = pts[(i + 1) % pts.length]!;
+    if (keep(a)) out.push(a);
+    if (keep(a) !== keep(b)) {
+      const t = (line - a.u) / (b.u - a.u);
+      out.push({ u: line, v: a.v + t * (b.v - a.v) });
+    }
+  }
+  return dedupe(out);
+}
+
+/**
+ * Flytter enden av konturen (punktene ved u = `at`) inn i veggen som dekker
+ * den (`sign` = retningen innover): opp til den dekkede høyden 20 mm (høyst
+ * halve tykkelsen på den andre veggen og en tredel av veggen), over den bare
+ * et halvt millimeter, med et trinn der kanten krysser den dekkede høyden.
+ */
+function insetEnd(pts: UV[], at: number, sign: number, cover: Cover, length: number): UV[] {
+  const d = Math.min(COVER_DEEP, length / 3, cover.depth / 2);
+  const above = COVER_INSET;
   const onEnd = (p: UV): boolean => Math.abs(p.u - at) <= EPS;
-  const shift = (p: UV): UV => ({ u: at + sign * (p.v <= cover.height + EPS ? d : COVER_INSET), v: p.v });
+  const shift = (p: UV): UV => ({ u: at + sign * (p.v <= cover.height + EPS ? d : above), v: p.v });
   const out: UV[] = [];
   for (let i = 0; i < pts.length; i++) {
     const a = pts[i]!;
@@ -147,7 +211,7 @@ function insetEnd(pts: UV[], at: number, sign: number, cover: { height: number; 
     out.push(onEnd(a) ? shift(a) : a);
     if (onEnd(a) && onEnd(b) && (a.v - cover.height - EPS) * (b.v - cover.height - EPS) < 0) {
       const lo = { u: at + sign * d, v: cover.height };
-      const hi = { u: at + sign * COVER_INSET, v: cover.height };
+      const hi = { u: at + sign * above, v: cover.height };
       out.push(...(a.v < b.v ? [lo, hi] : [hi, lo]));
     }
   }

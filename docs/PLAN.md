@@ -488,7 +488,7 @@ From research round 3, not built yet (the judge asked for a small round 3):
   - seated mode, which lifts the view to standing height;
   - a vignette during smooth turning, and a blink when teleporting;
   - «Gå rundt» on the laptop at eye height.
-- **Wall junctions:** three walls run into each other where the hallway, the living room and the grow room meet, without their ends lying in another wall's face. A thin line can show there. This needs real merging of the walls (a test lists the known case).
+- **Wall junctions:** the stue/planterom partition starts inside the grow-room wall, so a thin line can show in that corner. This needs real merging of the walls (a test lists the known case). Corners where both walls run through are owned by one wall (round 4).
 - A `settings.north` field so «Lys» follows the real compass.
 - If the Quest shows headroom at 90 fps: foveation 0.5 on «Standard». Please report the ms reading.
 

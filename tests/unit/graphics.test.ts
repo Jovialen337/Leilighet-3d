@@ -7,7 +7,8 @@ import { buildParts, partsFor } from '../../src/scene/buildParts';
 import { BAKE, Baker, formFactor, mixLight, tessellate } from '../../src/scene/bake';
 import { buildSunPatches, buildSunShafts, clipConvex, sunPatches, SUN_PATCH } from '../../src/scene/sunlight';
 import { buildLampGlow, falloff, LAMP } from '../../src/scene/lamps';
-import { EFFECT_IDS, graphicsProfile, isEffectChoices, matchingPreset, presetEffects, toggleEffect, wantedEffects } from '../../src/scene/graphicsProfile';
+import { EFFECT_IDS, customStart, graphicsProfile, isEffectChoices, matchingPreset, presetEffects, toggleEffect, wantedEffects } from '../../src/scene/graphicsProfile';
+import { ViewState } from '../../src/state/ViewState';
 import { DETAIL, detailLayers, floorSurface, SURF, woodLike } from '../../src/scene/detail';
 import { Fade, FADE } from '../../src/xr/fade';
 import { pointInPolygon, polygonGap } from '../../src/geometry/math2d';
@@ -16,6 +17,7 @@ import { loadDoc, modelOf, PUBLISHED_PATH } from './helpers';
 import { readFileSync } from 'node:fs';
 import { ApartmentScene } from '../../src/scene/ApartmentScene';
 import { Materials } from '../../src/scene/materials';
+import { interpolate } from '../../src/model/ApartmentModel';
 
 const model = modelOf();
 
@@ -426,6 +428,13 @@ describe('grafikkprofilen', () => {
     expect([own.effects.lamps, own.effects.bakedLamps, own.sky, own.effects.baked, own.effects.shades]).toEqual([false, false, false, false, false]);
     // Et lagret sett som mangler noe, er som «Standard» der.
     expect(wantedEffects('custom', { shafts: true })).toEqual({ ...presetEffects('medium'), shafts: true });
+    // «Egendefinert» valgt fra «Høy» uten lagret sett: starter med «Høy» (stråler og skarpere bilde beholdes).
+    expect(customStart('high', {})).toEqual(presetEffects('high'));
+    expect(customStart('high', { shafts: false })).toEqual({ shafts: false });
+    const view = new ViewState();
+    view.quality.set('high');
+    view.quality.set('custom');
+    expect(wantedEffects(view.quality.value, view.customEffects.value)).toEqual(presetEffects('high'));
     // Forhåndsvalgene bryr seg ikke om det lagrede settet.
     for (const q of ['low', 'medium', 'high'] as const) expect(wantedEffects(q, { sun: false, shafts: true })).toEqual(presetEffects(q));
   });
@@ -729,13 +738,83 @@ describe('ingen flater oppå hverandre (de ville flimret med bakt lys)', () => {
 
   it('ingen skjult sideflate har en kant i en synlig veggflate (ingen prikkete strek i hjørnet på badet)', () => {
     expect(hiddenEdgesOnSurfaces(model)).toEqual([]);
-    // Den publiserte fila: badet er fikset. Kjent igjen (senere arbeid, PLAN.md): tre vegger som går
-    // inn i hverandre der gang, stue og planterom møtes, uten at endene ligger i en annen veggs flate.
+    // Den publiserte fila: badet er fikset, og hjørnet der gang og planterom møtes eies nå av én vegg.
+    // Kjent igjen (senere arbeid, PLAN.md): skilleveggen stue/planterom starter midt inne i
+    // planterom-veggen, så sideflatene har en kant i hjørnet der de møtes.
     expect(hiddenEdgesOnSurfaces(modelOf(JSON.parse(readFileSync(PUBLISHED_PATH, 'utf8')))).sort()).toEqual([
-      'v-planterom-bunn i flaten til v-gang-hoyre',
-      'v-planterom-bunn i flaten til v-stue-plante',
-      'v-stue-plante i flaten til v-gang-hoyre',
+      'v-stue-plante i flaten til v-planterom-bunn',
     ]);
+  });
+
+  /**
+   * Hull i hjørnene: stråler fra utenfor veggene mot hvert hjørne av hver
+   * veggende (fra alle kanter, i mange høyder). Går strålen inn i en vegg,
+   * skal den treffe en forside der – ikke gå gjennom eller treffe en bakside.
+   */
+  function cornerHoles(m: ReturnType<typeof modelOf>): string[] {
+    const walls = [...m.walls.values()];
+    const meshes = walls.map((f) => {
+      const geo = buildParts(m).find((p) => p.kind === 'wall' && p.id === f.wall.id)!.geometry;
+      const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+      mesh.updateMatrixWorld();
+      return { f, mesh };
+    });
+    const inside = (x: number, y: number, z: number, shrink: number): boolean =>
+      walls.some((f) => {
+        const dx = x - f.p0.x;
+        const dz = z - f.p0.z;
+        const u = dx * f.dir.x + dz * f.dir.z;
+        const n = dx * f.left.x + dz * f.left.z;
+        if (u < shrink || u > f.length - shrink || n < f.nMin + shrink || n > f.nMax - shrink) return false;
+        if (y <= m.wallBase(f) + shrink || y >= interpolate(m.wallTop(f), Math.min(f.length, Math.max(0, u))) - shrink) return false;
+        // Dører og vinduer er hull i veggen.
+        return !(m.openingsByWall.get(f.wall.id) ?? []).some((o) => {
+          const sp = m.openingSpan(o);
+          return sp !== null && u > sp.u0 - shrink && u < sp.u1 + shrink && y > sp.bottom - shrink && y < sp.top + shrink;
+        });
+      });
+    const caster = new THREE.Raycaster();
+    const out = new Set<string>();
+    for (const f of walls)
+      for (const P of [f.p0, f.p1])
+        for (const nn of [f.nMin, f.nMax]) {
+          const cx = P.x + f.left.x * nn;
+          const cz = P.z + f.left.z * nn;
+          const near = meshes.filter(({ f: g }) => Math.hypot(g.p0.x - cx, g.p0.z - cz) < g.length + 1000).map((x) => x.mesh);
+          for (let y = m.wallBase(f) + 40; y < interpolate(m.wallTop(f), P === f.p0 ? 0 : f.length) - 40; y += 230)
+            for (let ang = 0; ang < 360; ang += 45) {
+              const a = (ang * Math.PI) / 180;
+              const dx = Math.cos(a);
+              const dz = Math.sin(a);
+              for (const off of [-12, -4, 4, 12]) {
+                const ox = cx - dz * off - dx * 150;
+                const oz = cz + dx * off - dz * 150;
+                if (inside(ox, y, oz, -1)) continue;
+                // Hvor strålen først går inn i en vegg (med god margin inn).
+                let enter = -1;
+                for (let t = 0; t <= 300; t += 2)
+                  if (inside(ox + dx * t, y, oz + dz * t, 1)) {
+                    enter = t;
+                    break;
+                  }
+                if (enter < 0) continue;
+                const d = new THREE.Vector3(dx, 0, dz);
+                caster.set(new THREE.Vector3(ox / 1000, y / 1000, oz / 1000), d);
+                caster.far = (enter + 3) / 1000;
+                // Flater på samme sted (f.eks. to endeflater der to vegger i flukt møtes) teller som ett treff.
+                const hits = caster.intersectObjects(near, false);
+                const first = hits[0];
+                const front = first && hits.some((h) => h.distance < first.distance + 5e-4 && h.face!.normal.dot(d) < 0);
+                if (!front) out.add(`(${Math.round(cx)}, ${Math.round(cz)})`);
+              }
+            }
+        }
+    return [...out];
+  }
+
+  it('ingen hull i hjørnene: en stråle inn i en vegg treffer alltid en forside', () => {
+    expect(cornerHoles(model)).toEqual([]);
+    expect(cornerHoles(modelOf(JSON.parse(readFileSync(PUBLISHED_PATH, 'utf8'))))).toEqual([]);
   });
 
   it('fotlisten stopper bak geriktene ved dører', () => {
@@ -805,17 +884,30 @@ describe('lampelyset bakes inn, og «Lys» blander lyset på nytt', () => {
       sc.build(m);
       return sc;
     };
+    const geos = (scene: ApartmentScene): THREE.BufferGeometry[] => scene.merged.filter((m) => m.layer === 'structure').map((m) => m.mesh.geometry);
     const warm = sceneFor(model);
     const before = structure(warm);
+    const meshes = geos(warm);
     warm.build(withLamp());
     const drawn = structure(warm);
     const fresh = structure(sceneFor(withLamp()));
     expect(drawn.length).toBe(fresh.length);
     expect(maxDiff(drawn, fresh)).toBeLessThan(1e-5);
     expect(maxDiff(drawn, before)).toBeGreaterThan(0.05);
+    // Vegger, gulv og tak slås ikke sammen på nytt: bare fargene blandes på nytt.
+    expect(geos(warm)).toEqual(meshes);
+    expect(geos(warm).every((g, i) => g === meshes[i])).toBe(true);
     warm.build(model);
     const deleted = structure(warm);
     expect(maxDiff(deleted, before)).toBeLessThan(1e-5);
+    // Om dagen er lampene av: en ny lampe endrer ingenting nå, men er med når kvelden kommer.
+    const day = new ApartmentScene(new Materials());
+    day.build(model);
+    const dayBefore = structure(day);
+    day.build(withLamp());
+    expect(maxDiff(structure(day), dayBefore)).toBe(0);
+    day.setLight(LIGHTS.kveld);
+    expect(maxDiff(structure(day), fresh)).toBeLessThan(1e-5);
   });
 
   it('lampelyset følger filteret for el: skjult lampe lyser ikke, heller ikke det bakte lyset', () => {

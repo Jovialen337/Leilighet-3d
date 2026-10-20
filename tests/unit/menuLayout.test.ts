@@ -68,17 +68,17 @@ describe('VR-menyen', () => {
       ['Høy', false],
       ['Egendefinert', false],
     ]);
-    const page = buildMenu({ ...state('effekter', 13), effects, quality: 'custom', qualityNote: 'Oppløsningen endres neste gang du går inn i VR.' });
+    const page = buildMenu({ ...state('effekter', 13), effects, quality: 'custom', qualityNote: 'Oppløsningen endres neste gang i VR.' });
     expect(page.items.filter((i) => i.id.startsWith('effect:')).map((i) => [i.label, i.active])).toEqual([
-      ['Dagslys og myke skygger', true],
+      ['Dagslys og skygger', true],
       ['Solflekker', true],
       ['Lysstråler', false],
-      ['Lampelys (kveld)', true],
+      ['Lampelys (kveld og natt)', true],
       ['Himmel og utsikt', true],
       ['Gulvmønster', true],
       ['Skarpere bilde', false],
     ]);
-    expect(page.labels.map((l) => l.text)).toEqual(['Egendefinert: velg hver effekt selv.', 'Oppløsningen endres neste gang du går inn i VR.']);
+    expect(page.labels.map((l) => l.text)).toEqual(['Egendefinert: velg hver effekt selv.', 'Oppløsningen endres neste gang i VR.']);
     // Fanen «Visning» er markert på undersiden, og alt får plass.
     expect(page.items.find((i) => i.id === 'tab:visning' && i.kind === 'tab')?.active).toBe(true);
     expect(page.items.some((i) => i.id === 'tab:visning' && i.kind === 'action')).toBe(true);
@@ -88,8 +88,8 @@ describe('VR-menyen', () => {
   });
 
   it('beskjed om skarphet vises under grafikkvalget', () => {
-    expect(buildMenu({ ...state('visning', 13), qualityNote: 'Skarpere nå – full oppløsning neste gang du går inn i VR.' }).labels.map((l) => l.text)).toContain(
-      'Skarpere nå – full oppløsning neste gang du går inn i VR.',
+    expect(buildMenu({ ...state('visning', 13), qualityNote: 'Skarpere nå – full oppløsning neste gang i VR.' }).labels.map((l) => l.text)).toContain(
+      'Skarpere nå – full oppløsning neste gang i VR.',
     );
   });
 });
