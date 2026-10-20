@@ -7,17 +7,11 @@ import * as THREE from 'three';
 import type { ApartmentModel } from '../model/ApartmentModel';
 import { p2 } from '../geometry/math2d';
 import { MM } from '../scene/geom';
+import { SNAP } from '../ui/tokens';
 import type { PlanController } from './PlanController';
 
 /** Festemarkørens farge etter hva den festet til (ferdig tolket, så den ikke tolkes hver ramme). */
-const SNAP_COLOR: Record<string, THREE.Color> = {
-  punkt: new THREE.Color('#ff6bd6'),
-  hjørne: new THREE.Color('#ffd400'),
-  vegg: new THREE.Color('#39d98a'),
-  '90°': new THREE.Color('#18d4ff'),
-  rutenett: new THREE.Color('#ffffff'),
-  fri: new THREE.Color('#ff9f1a'),
-};
+const SNAP_COLOR: Record<string, THREE.Color> = Object.fromEntries(Object.entries(SNAP).map(([k, v]) => [k, new THREE.Color(v)]));
 
 const mat = (color: string, opacity = 1): THREE.MeshBasicMaterial =>
   new THREE.MeshBasicMaterial({ color, transparent: opacity < 1, opacity, depthTest: false, depthWrite: false, toneMapped: false });

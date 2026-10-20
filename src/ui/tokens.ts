@@ -58,6 +58,24 @@ export const COLOR = {
 
 export type ColorToken = keyof typeof COLOR;
 
+/** Oppmåling i gjennomsyn: lysere varianter som synes over det ekte rommet. */
+export const MEASURE_AR = {
+  todo: '#ff9f1a',
+  done: '#2fe07a',
+  opening: '#ffd400',
+  fixture: '#ff6bd6',
+} as const;
+
+/** Festefargene mens man tegner el og vann (markøren). */
+export const SNAP: Record<string, string> = {
+  punkt: '#ff6bd6',
+  hjørne: '#ffd400',
+  vegg: '#39d98a',
+  '90°': '#18d4ff',
+  rutenett: '#ffffff',
+  fri: '#ff9f1a',
+};
+
 /** Farger til nye kurser (godt unna varmt- og kaldtvann). */
 export const CIRCUIT_COLORS: readonly string[] = ['#e8a33a', '#9b7be0', '#d0539b', '#2a9d8f', '#a3a83a', '#a8693a', '#e58fb5'];
 

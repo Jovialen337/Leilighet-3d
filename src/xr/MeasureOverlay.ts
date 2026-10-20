@@ -7,20 +7,21 @@
  * Alt utenom merket slås sammen til to mesher (få tegnekall på Quest).
  */
 import * as THREE from 'three';
+import { COLOR as TOKENS, MEASURE_AR } from '../ui/tokens';
 import { frameAt, type ApartmentModel } from '../model/ApartmentModel';
 import type { MeasureSession } from '../measure/MeasureSession';
 import { taskKey, type TaskInfo } from '../measure/tasks';
 import { MM } from '../scene/geom';
 
 const COLOR = {
-  measured: new THREE.Color('#2fe07a'),
-  todo: new THREE.Color('#ff9f1a'),
+  measured: new THREE.Color(MEASURE_AR.done),
+  todo: new THREE.Color(MEASURE_AR.todo),
   floor: new THREE.Color('#ffffff'),
   ceiling: new THREE.Color('#8fd3ff'),
-  opening: new THREE.Color('#ffd400'),
-  fixture: new THREE.Color('#ff6bd6'),
-  dot: new THREE.Color('#2fe07a'),
-  target: new THREE.Color('#18d4ff'),
+  opening: new THREE.Color(MEASURE_AR.opening),
+  fixture: new THREE.Color(MEASURE_AR.fixture),
+  dot: new THREE.Color(MEASURE_AR.done),
+  target: new THREE.Color(TOKENS.target),
 };
 
 const LINE = 0.006; // halv bredde (m) på strekene

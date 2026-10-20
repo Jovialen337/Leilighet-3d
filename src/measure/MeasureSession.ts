@@ -171,6 +171,11 @@ export class MeasureSession {
     return this.log.length;
   }
 
+  /** Er utkastet lastet ned (apartment.json) siden siste endring? */
+  get hasExported(): boolean {
+    return this.exportedHash !== undefined;
+  }
+
   get hasMeasurements(): boolean {
     return this.observations.length > 0;
   }
