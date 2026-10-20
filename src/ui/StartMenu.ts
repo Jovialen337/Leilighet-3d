@@ -38,6 +38,8 @@ export interface StartActions {
   /** Alle fargene (opplæringen). */
   legend(): LegendGroup[];
   startTutorial(track: 'pc' | 'vr'): void;
+  /** Opplæringen er gjort ferdig før (i denne nettleseren). */
+  tutorialDone(track: 'pc' | 'vr'): boolean;
   showShortcuts(): void;
   resetSettings(): void;
   /** Første gang appen åpnes i denne nettleseren (velkomsttekst). */
@@ -142,9 +144,10 @@ export class StartMenu {
     if (a.firstVisit())
       out.push(
         h(
-          'p',
+          'div',
           { class: 'start-welcome' },
-          'Velkommen! Her ser du leiligheten i 3D og VR, måler den opp med Quest 3 og planlegger el og vann. Ny her? Start med «Opplæring og farger».',
+          h('p', {}, 'Velkommen! Her ser du leiligheten i 3D og VR, måler den opp med Quest 3 og planlegger el og vann.'),
+          this.button('Ny her? Ta opplæringen (2 min)', 'start-welcome-learn', () => this.show('opplaering'), 'small'),
         ),
       );
     // Neste steg: hva man bør gjøre nå.
@@ -259,16 +262,29 @@ export class StartMenu {
       h(
         'div',
         { class: 'start-row-buttons' },
-        this.button('Kom i gang på PC-en', 'start-tutorial-pc', () => this.after(() => a.startTutorial('pc')), 'secondary'),
+        this.button(
+          a.tutorialDone('pc') ? 'Kom i gang på PC-en ✓' : 'Kom i gang på PC-en',
+          'start-tutorial-pc',
+          () => this.after(() => a.startTutorial('pc')),
+          'secondary',
+        ),
         ...(a.vrSupported()
           ? [
-              this.button('Kom i gang i VR', 'start-tutorial-vr', () => {
+              this.button(a.tutorialDone('vr') ? 'Kom i gang i VR ✓' : 'Kom i gang i VR', 'start-tutorial-vr', () => {
+                // Økten må startes i selve klikket (brukerhandling).
                 a.startTutorial('vr');
                 a.enterVR();
                 this.close();
               }, 'secondary'),
             ]
           : []),
+      ),
+      h(
+        'p',
+        { class: 'hint' },
+        a.vrSupported()
+          ? 'Hvert steg venter på at du gjør det. I VR står stegene på venstre håndledd.'
+          : 'Hvert steg venter på at du gjør det. Opplæringen i VR startes fra nettleseren på Quest 3, eller fra «Hjelp» i VR-menyen.',
       ),
       h('h3', { class: 'start-h3' }, 'Hva fargene betyr'),
       legendView(a.legend(), 'start-legend'),

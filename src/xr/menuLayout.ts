@@ -6,19 +6,23 @@
 import type { Quality, TurnMode, XRRate } from '../state/ViewState';
 import type { LightId } from '../scene/lighting';
 import { EFFECT_TEXT, type EffectId } from '../scene/graphicsProfile';
+import type { LegendGroup, SwatchShape } from '../ui/legend';
 
 export const MENU_W = 1024;
 export const MENU_H = 768;
 
-/** «lagliste» er en underside av «Lag» med hvert enkelt lag, «effekter» av «Visning». */
-export type MenuTab = 'visning' | 'effekter' | 'lag' | 'lagliste' | 'tegn' | 'ga' | 'komfort';
+/** Undersider: «lagliste» av «Lag» (hvert enkelt lag), «effekter» av «Visning», «farger» av «Hjelp». */
+export type MenuTab = 'visning' | 'effekter' | 'lag' | 'lagliste' | 'tegn' | 'ga' | 'komfort' | 'hjelp' | 'farger';
 export const TABS: readonly { id: MenuTab; label: string }[] = [
   { id: 'visning', label: 'Visning' },
   { id: 'lag', label: 'Lag' },
   { id: 'tegn', label: 'Tegn' },
   { id: 'ga', label: 'Gå til' },
   { id: 'komfort', label: 'Komfort' },
+  { id: 'hjelp', label: 'Hjelp' },
 ];
+/** Fanen en underside hører til. */
+const PARENT: Partial<Record<MenuTab, MenuTab>> = { lagliste: 'lag', effekter: 'visning', farger: 'hjelp' };
 
 /** Tegneverktøy i VR-menyen: id (draw:…) og navn. */
 export const DRAW_ITEMS: readonly { id: string; label: string }[] = [
@@ -50,6 +54,8 @@ export interface MenuItem {
   label: string;
   /** På (bryter) / valgt (valg, fane). */
   active: boolean;
+  /** Opplæringen peker hit (tegnes med en ring). */
+  hint?: boolean;
   x: number;
   y: number;
   w: number;
@@ -91,6 +97,12 @@ export interface MenuState {
   qualityNote: string | null;
   /** Tegning av el og vann er av (f.eks. mens man går gjennom en ny modell). */
   drawBlocked?: boolean;
+  /** «Neste steg» (fanen «Hjelp»). */
+  next?: string;
+  /** Fargene som er i bruk (undersiden «Farger»). */
+  legend?: readonly LegendGroup[];
+  /** Opplæringen i VR pågår, og knappene den peker på (fanen først; «room:*» = alle rommene). */
+  tutorial?: { active: boolean; targets: readonly string[] };
 }
 
 /** Overskrifter i lerretet (tegnes, men kan ikke trykkes på). */
@@ -98,6 +110,28 @@ export interface MenuLabel {
   text: string;
   x: number;
   y: number;
+  /** Skriftstørrelse (px; standard 32), farge (standard dempet) og vekt (standard 600). */
+  size?: number;
+  color?: 'text' | 'muted' | 'accent';
+  weight?: number;
+  /** Bredest (px): teksten krymper og forkortes heller enn å gå utenfor. */
+  maxW?: number;
+  /** Fargeprøve foran teksten (fargeforklaringen). */
+  swatch?: { color: string; shape: SwatchShape };
+}
+
+/** Deler tekst i linjer på høyst `max` tegn (ved mellomrom). */
+export function wrapText(text: string, max: number): string[] {
+  const out: string[] = [];
+  let line = '';
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    if (line && line.length + 1 + word.length > max) {
+      out.push(line);
+      line = word;
+    } else line = line ? `${line} ${word}` : word;
+  }
+  if (line) out.push(line);
+  return out;
 }
 
 const PAD = 32;
@@ -114,7 +148,7 @@ export function buildMenu(s: MenuState): { items: MenuItem[]; labels: MenuLabel[
       id: `tab:${t.id}`,
       kind: 'tab',
       label: t.label,
-      active: s.tab === t.id || (t.id === 'lag' && s.tab === 'lagliste') || (t.id === 'visning' && s.tab === 'effekter'),
+      active: s.tab === t.id || PARENT[s.tab] === t.id,
       x: PAD + i * (tabW + GAP),
       y: PAD,
       w: tabW,
@@ -253,6 +287,46 @@ export function buildMenu(s: MenuState): { items: MenuItem[]; labels: MenuLabel[
         ...s.rooms.map((r) => ({ id: `room:${r.id}`, label: r.name, active: r.id === s.here, kind: 'choice' as const })),
       ]);
       break;
+    case 'hjelp': {
+      labels.push({ text: 'NESTE STEG', x: PAD, y: y + 18, size: 24, color: 'accent', weight: 700 });
+      y += 44;
+      for (const line of wrapText(s.next ?? 'Se deg rundt i leiligheten.', 52).slice(0, 3)) {
+        labels.push({ text: line, x: PAD, y: y + 18, size: 32, color: 'text', weight: 500, maxW: full });
+        y += 42;
+      }
+      y += 16;
+      const t = s.tutorial;
+      const row = [
+        { id: 'tab:farger', label: 'Hva fargene betyr …' },
+        ...(t?.active ? [{ id: 'tutorial:next', label: 'Hopp over steget' }] : [{ id: 'tutorial:start', label: 'Opplæring' }]),
+      ];
+      const rw = (full - (row.length - 1) * GAP) / row.length;
+      row.forEach((r, i) => items.push({ id: r.id, kind: 'action', label: r.label, active: false, x: PAD + i * (rw + GAP), y, w: rw, h: ROW_H }));
+      y += ROW_H + GAP;
+      if (t?.active) {
+        items.push({ id: 'tutorial:stop', kind: 'action', label: 'Avslutt opplæringen', active: false, x: PAD, y, w: full, h: 56 });
+        y += 56 + GAP;
+      }
+      labels.push({ text: 'KONTROLLER', x: PAD, y: y + 22, size: 24, color: 'accent', weight: 700 });
+      y += 48;
+      for (const line of [
+        'Venstre stikke: teleport · Høyre: snu',
+        'X: meny · Y: bildefrekvens',
+        'Høyre avtrekker: trykk i menyen',
+        'Når du tegner: A ferdig · B angre',
+      ]) {
+        labels.push({ text: line, x: PAD, y: y + 16, size: 28, color: 'text', weight: 500, maxW: full });
+        y += 38;
+      }
+      break;
+    }
+    case 'farger': {
+      items.push({ id: 'tab:hjelp', kind: 'action', label: '‹ Tilbake', active: false, x: PAD, y, w: 260, h: 64 });
+      labels.push({ text: 'Stiplet eller bare omriss = planlagt', x: PAD + 260 + 28, y: y + 32, size: 26, maxW: full - 288 });
+      y += 64 + GAP + 8;
+      legendColumns(s.legend ?? [], y, labels);
+      break;
+    }
     case 'komfort':
       choices('Snu med høyre stikke', [
         { id: 'turn:15', label: '15°', active: s.turn === 15 },
@@ -270,7 +344,55 @@ export function buildMenu(s: MenuState): { items: MenuItem[]; labels: MenuLabel[
       labels.push({ text: 'Stikke bakover: snu 180°.', x: PAD, y: y + 30 });
       break;
   }
+  markHints(items, s.tutorial);
   return { items, labels };
+}
+
+/** Fargeforklaringen i to spalter (gruppene flyter fra venstre til høyre spalte). */
+function legendColumns(groups: readonly LegendGroup[], top: number, labels: MenuLabel[]): void {
+  const colW = (MENU_W - 2 * PAD - GAP * 2) / 2;
+  const bottom = MENU_H - PAD;
+  const HEAD = 40;
+  const ROW = 36;
+  if (!groups.length) {
+    labels.push({ text: 'Ingen farger å forklare her nå.', x: PAD, y: top + 24, size: 28, color: 'text' });
+    return;
+  }
+  let col = 0;
+  let y = top;
+  let hidden = 0;
+  for (const g of groups) {
+    const height = HEAD + g.entries.length * ROW;
+    if (y + height > bottom && y > top) {
+      col++;
+      y = top;
+    }
+    if (col > 1 || y + height > bottom) {
+      hidden++;
+      continue;
+    }
+    const x = PAD + col * (colW + GAP * 2);
+    labels.push({ text: g.title.toUpperCase(), x, y: y + 18, size: 22, color: 'accent', weight: 700, maxW: colW });
+    y += HEAD;
+    for (const e of g.entries) {
+      labels.push({ text: e.label, x: x + 52, y: y + 16, size: 24, color: 'text', weight: 500, maxW: colW - 56, swatch: { color: e.color, shape: e.shape } });
+      y += ROW;
+    }
+    y += 8;
+  }
+  if (hidden) labels.push({ text: 'Flere farger: «Farger» på laptopen.', x: PAD, y: bottom - 6, size: 22 });
+}
+
+/** Ringer rundt det opplæringen peker på: første mål som ikke allerede er valgt. */
+function markHints(items: MenuItem[], t: MenuState['tutorial']): void {
+  if (!t?.active) return;
+  for (const target of t.targets) {
+    const match = (i: MenuItem): boolean => (target.endsWith(':*') ? i.id.startsWith(target.slice(0, -1)) : i.id === target);
+    const hits = items.filter(match);
+    if (!hits.length || hits.every((i) => i.kind === 'tab' && i.active)) continue;
+    for (const i of hits) i.hint = true;
+    return;
+  }
 }
 
 /** Knappen under et punkt i lerretet (piksler), om noen. */

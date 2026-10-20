@@ -80,6 +80,14 @@ export class DesktopView {
     return this.mode === 'top' ? this.ortho : this.perspective;
   }
 
+  /** Brukeren har snudd, flyttet eller zoomet (dratt med mus/finger eller rullet), ikke kameraflytt fra appen. */
+  onInteract(listener: () => void): () => void {
+    for (const c of [this.orbit, this.plan]) c.addEventListener('end', listener);
+    return () => {
+      for (const c of [this.orbit, this.plan]) c.removeEventListener('end', listener);
+    };
+  }
+
   onChange(listener: () => void): () => void {
     this.changeListeners.add(listener);
     return () => this.changeListeners.delete(listener);

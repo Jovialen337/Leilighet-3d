@@ -26,6 +26,8 @@ export const COLOR = {
   text3: '#8d8980',
   /* Aksent: valgt, hovedknapp, lenker */
   accent: '#8cc8dc',
+  /** Aksent under pekeren. */
+  accentHover: '#a7d6e6',
   onAccent: '#0d1b21',
   /** Aksent på lys bakgrunn (2D-planen). */
   accentInk: '#2b6f86',

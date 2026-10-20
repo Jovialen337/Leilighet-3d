@@ -1272,6 +1272,10 @@ button.small[aria-pressed='true'] {
   padding: var(--s-3) var(--s-4);
 }
 
+.start-welcome p {
+  margin: 0 0 var(--s-2);
+}
+
 .start-next {
   background: var(--surface);
   border: 1px solid var(--line);
@@ -1317,7 +1321,7 @@ button.small[aria-pressed='true'] {
 }
 
 .start-btn.primary:hover {
-  background: #a7d6e6;
+  background: var(--accent-hover);
 }
 
 .start-btn.small {
@@ -1454,6 +1458,85 @@ button.small[aria-pressed='true'] {
   }
   .start-title {
     font-size: var(--fs-display);
+  }
+}
+
+/* ---------------- Opplæringen ---------------- */
+.tutorial {
+  position: absolute;
+  right: 16px;
+  bottom: 56px;
+  z-index: 40;
+  width: min(380px, calc(100% - 32px));
+  padding: var(--s-4);
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-l);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  color: var(--text);
+  font-size: var(--fs-small);
+}
+
+.tutorial.done {
+  border-color: var(--success);
+}
+
+.tutorial-kicker {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tutorial-title {
+  margin: var(--s-1) 0;
+  font-size: var(--fs-title);
+}
+
+.tutorial.done .tutorial-title {
+  color: var(--success);
+}
+
+.tutorial p {
+  margin: 0 0 var(--s-3);
+  line-height: 1.45;
+}
+
+.tutorial-buttons {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+}
+
+.tutorial-buttons .start-btn.primary {
+  min-height: 40px;
+  font-size: var(--fs-body);
+}
+
+/* Det steget handler om: en blå ring som pulserer rolig. */
+.tutorial-target {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-m);
+  animation: tutorial-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes tutorial-pulse {
+  50% {
+    outline-color: rgba(140, 200, 220, 0.35);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tutorial-target {
+    animation: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .tutorial {
+    bottom: 16px;
   }
 }
 

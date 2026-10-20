@@ -37,7 +37,9 @@ import type { DrawTool } from '../plan/draw';
 import { BuilderController } from './BuilderController';
 import { StartMenu } from '../ui/StartMenu';
 import { nextStep, type NextAction, type NextStepState } from '../ui/nextStep';
-import { legendFor, type LegendGroup } from '../ui/legend';
+import { legendFor, type LegendContext, type LegendGroup } from '../ui/legend';
+import { TutorialCard } from '../ui/TutorialCard';
+import { Tutorial } from '../tutorial/Tutorial';
 import { groupOf } from '../state/layerGroups';
 import { summarize } from '../schema/validate';
 import type { Consumed } from '../builder/BuilderSession';
@@ -73,6 +75,9 @@ export class App {
   readonly builder: BuilderController;
   /** Startmenyen (det første man ser). */
   readonly startMenu: StartMenu;
+  /** Opplæringen (kortet på siden, håndleddet i VR). */
+  readonly tutorial = new Tutorial(localStore());
+  readonly tutorialCard: TutorialCard;
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointer = new THREE.Vector2();
   private readonly rayHits: THREE.Intersection[] = [];
@@ -182,7 +187,11 @@ export class App {
       planBox: this.planBox.root,
       builder: { entry: this.builder.entry, panel: this.builder.panel.root, open: () => this.builder.setOpen(true) },
       openStart: () => this.startMenu.open(() => this.markWelcomed()),
-      legend: (all) => this.legend(all),
+      legend: (all) => {
+        // Kalles når «Farger» åpnes.
+        this.tutorial.event('legend');
+        return this.legend(all);
+      },
       modal: () => this.startMenu.isOpen,
       measure: {
         start: () => void this.xr.enterMeasure(),
@@ -217,12 +226,27 @@ export class App {
       nextStep: () => nextStep(this.nextStepState()),
       doNext: (a) => this.doNext(a),
       legend: () => this.legend(true),
-      startTutorial: () => undefined,
+      startTutorial: (track) => this.tutorial.start(track),
+      tutorialDone: (track) => this.tutorial.completed(track),
       showShortcuts: () => this.ui.showHelp(),
       resetSettings: () => this.settings.reset({ layers: this.store.model?.data.layers ?? [] }),
       firstVisit: () => !this.welcomed(),
     });
     root.append(this.startMenu.root);
+    this.tutorialCard = new TutorialCard(this.tutorial, {
+      vrSupported: () => this.xr.support.value === 'supported',
+      enterVR: () => void this.xr.enter(),
+    });
+    root.append(this.tutorialCard.root);
+    this.xr.setGuide({
+      tutorial: this.tutorial,
+      next: () => nextStep(this.nextStepState()).text,
+      legend: (drawing) => this.legendIn(drawing ? 'draw' : 'vr', false),
+    });
+    // Det opplæringen venter på (laptopen).
+    this.desktop.onInteract(() => this.tutorial.event('look'));
+    this.view.cameraMode.subscribe((m) => m === 'top' && this.tutorial.event('top'));
+    this.view.measureHighlight.subscribe((on) => on && this.tutorial.event('highlight'));
     this.ui.panel.querySelector('.panel-toggle')?.addEventListener('click', () => this.resize());
     // Ny modell vises: el og vann tegnes på fila, ikke på den (gjelder også i VR).
     this.xr.canDraw = () => !this.builder.ownsView;
@@ -331,6 +355,10 @@ export class App {
 
   /** Fargene som er i bruk nå (eller alle), til «Farger» og opplæringen. */
   legend(all: boolean): LegendGroup[] {
+    return this.legendIn(this.planCtrl.tool !== 'select' ? 'draw' : 'laptop', all);
+  }
+
+  private legendIn(mode: LegendContext['mode'], all: boolean): LegendGroup[] {
     const v = this.view;
     const anyVisible = (group: string): boolean => v.layers.layers.some((l) => groupOf(l.id) === group && v.layers.isVisible(l.id));
     return legendFor({
@@ -339,7 +367,7 @@ export class App {
       el: anyVisible('el'),
       water: anyVisible('vann'),
       circuits: this.store.model?.data.circuits ?? [],
-      mode: this.planCtrl.tool !== 'select' ? 'draw' : 'laptop',
+      mode,
     });
   }
 
@@ -804,7 +832,10 @@ export class App {
     const model = this.store.model;
     if (!model) return;
     if (this.xr.presenting) this.xr.goToRoom(roomId);
-    else this.desktop.focusRoom(model, roomId);
+    else {
+      this.desktop.focusRoom(model, roomId);
+      this.tutorial.event('room');
+    }
   }
 
   private resize(): void {

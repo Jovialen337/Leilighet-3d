@@ -25,7 +25,8 @@ describe('designet («Skifer»)', () => {
 
   it('stilarket bruker bare variabler som finnes, og nesten ingen faste farger', () => {
     const vars = cssVars();
-    const local = new Set(['--panel-bg', '--panel-fg', '--muted', '--accent-fg', '--warn']);
+    // Egne navn i stilarket, og --c: fargen til en fargeprøve (settes på elementet).
+    const local = new Set(['--panel-bg', '--panel-fg', '--muted', '--accent-fg', '--warn', '--c']);
     for (const m of css.matchAll(/var\((--[a-z0-9-]+)/g)) expect(local.has(m[1]!) || m[1]! in vars, m[1]).toBe(true);
     // Faste farger bare der de betyr noe eget (lapp-gul, skissemerke, tegnet rom i byggeren).
     const hex = [...css.matchAll(/#[0-9a-fA-F]{3,8}\b/g)].map((m) => m[0].toLowerCase());

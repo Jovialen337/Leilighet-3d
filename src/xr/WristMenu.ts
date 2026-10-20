@@ -5,7 +5,8 @@
  * liten kule, så pekingen koster ingen opplasting av tekstur.
  */
 import * as THREE from 'three';
-import { COLOR, FONT, rgba } from '../ui/tokens';
+import { COLOR, FONT, luminance, rgba } from '../ui/tokens';
+import type { SwatchShape } from '../ui/legend';
 import { MENU_H, MENU_W, buildMenu, itemAt, type MenuItem, type MenuLabel, type MenuState } from './menuLayout';
 
 const WIDTH_M = 0.3;
@@ -74,9 +75,9 @@ export class WristMenu {
     this.redraw();
   }
 
-  /** Plasserer menyen over venstre hånd, vendt mot hodet. */
-  place(grip: THREE.Object3D, head: THREE.Vector3): void {
-    grip.localToWorld(this.mesh.position.set(0, 0.17, 0.02));
+  /** Plasserer menyen over venstre hånd, vendt mot hodet (`lift` m høyere, f.eks. over opplæringen på håndleddet). */
+  place(grip: THREE.Object3D, head: THREE.Vector3, lift = 0): void {
+    grip.localToWorld(this.mesh.position.set(0, 0.17 + lift, 0.02));
     this.mesh.lookAt(head);
     this.mesh.updateMatrixWorld();
   }
@@ -141,10 +142,13 @@ export class WristMenu {
     c.fill();
     c.textBaseline = 'middle';
     for (const l of this.labels) {
-      c.font = `600 32px ${FONT}`;
-      c.fillStyle = COLOR.text2;
+      const size = l.size ?? 32;
+      const weight = l.weight ?? 600;
+      c.font = `${weight} ${size}px ${FONT}`;
+      c.fillStyle = l.color === 'text' ? COLOR.text : l.color === 'accent' ? COLOR.accent : COLOR.text2;
       c.textAlign = 'left';
-      c.fillText(l.text, l.x, l.y);
+      if (l.swatch) this.swatch(l.swatch.color, l.swatch.shape, l.x - 52, l.y);
+      c.fillText(l.maxW ? this.fit(l.text, l.maxW, size, weight, 20) : l.text, l.x, l.y);
     }
     for (const it of this.items) {
       const hover = this.hovered?.id === it.id;
@@ -152,13 +156,18 @@ export class WristMenu {
       // Valgt fane eller valg: aksentfarge med mørk tekst (samme regel som på laptopen).
       const chosen = on && (it.kind === 'tab' || it.kind === 'choice');
       c.fillStyle = chosen ? COLOR.accent : it.kind === 'tab' ? COLOR.surface2 : COLOR.surface3;
-      if (hover) c.fillStyle = chosen ? '#a7d6e6' : rgba(COLOR.text, 0.22);
+      if (hover) c.fillStyle = chosen ? COLOR.accentHover : rgba(COLOR.text, 0.22);
       c.beginPath();
       c.roundRect(it.x, it.y, it.w, it.h, 18);
       c.fill();
       if (hover) {
         c.strokeStyle = COLOR.target;
         c.lineWidth = 4;
+        c.stroke();
+      } else if (it.hint) {
+        // Opplæringen peker hit.
+        c.strokeStyle = COLOR.warning;
+        c.lineWidth = 6;
         c.stroke();
       }
       const cy = it.y + it.h / 2;
@@ -191,12 +200,51 @@ export class WristMenu {
     this.texture.needsUpdate = true;
   }
 
-  /** Teksten innenfor bredden: først mindre skrift (ned til 28 px), så forkortet med «…». */
-  private fit(text: string, width: number, size = 0): string {
+  /** En fargeprøve (fargeforklaringen), 40 × 22 px med midten på høyde `y`. */
+  private swatch(color: string, shape: SwatchShape, x: number, y: number): void {
+    const c = this.ctx;
+    c.save();
+    c.fillStyle = color;
+    c.strokeStyle = color;
+    c.beginPath();
+    switch (shape) {
+      case 'fill':
+        c.roundRect(x, y - 11, 40, 22, 5);
+        c.fill();
+        break;
+      case 'line':
+        c.roundRect(x, y - 4, 40, 8, 4);
+        c.fill();
+        break;
+      case 'dash':
+        for (let i = 0; i < 3; i++) c.rect(x + i * 15, y - 4, 10, 8);
+        c.fill();
+        break;
+      case 'outline':
+        c.lineWidth = 4;
+        c.roundRect(x + 2, y - 9, 36, 18, 4);
+        c.stroke();
+        break;
+      case 'dot':
+        c.arc(x + 20, y, 11, 0, Math.PI * 2);
+        c.fill();
+        break;
+    }
+    // Lys kant rundt mørke prøver (f.eks. kabel uten kurs), så de synes på den mørke flaten.
+    if ((shape === 'fill' || shape === 'line') && luminance(color) < 0.08) {
+      c.strokeStyle = rgba(COLOR.text, 0.45);
+      c.lineWidth = 2;
+      c.stroke();
+    }
+    c.restore();
+  }
+
+  /** Teksten innenfor bredden: først mindre skrift (ned til `min` px), så forkortet med «…». */
+  private fit(text: string, width: number, size = 0, weight = 500, min = 28): string {
     const c = this.ctx;
     if (c.measureText(text).width <= width) return text;
-    for (let s = size - 2; s >= 28; s -= 2) {
-      c.font = `500 ${s}px ${FONT}`;
+    for (let s = size - 2; s >= min; s -= 2) {
+      c.font = `${weight} ${s}px ${FONT}`;
       if (c.measureText(text).width <= width) return text;
     }
     let t = text;
