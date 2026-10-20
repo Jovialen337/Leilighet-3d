@@ -35,7 +35,15 @@ import type { ApartmentDoc } from '../schema/types';
 import { validateApartment, type ValidationResult } from '../schema/validate';
 import type { DrawTool } from '../plan/draw';
 import { BuilderController } from './BuilderController';
+import { StartMenu } from '../ui/StartMenu';
+import { nextStep, type NextAction, type NextStepState } from '../ui/nextStep';
+import { legendFor, type LegendGroup } from '../ui/legend';
+import { groupOf } from '../state/layerGroups';
+import { summarize } from '../schema/validate';
 import type { Consumed } from '../builder/BuilderSession';
+
+/** Satt når startmenyen er lukket første gang (velkomsten vises ikke igjen). */
+const WELCOME_KEY = 'leilighet:velkommen:v1';
 
 /** Tegningene som passer (lagt inn), de som ikke passer nå, og valideringen av resultatet. */
 type PlanSplit = { doc: ApartmentDoc; hidden: PlanOp[]; result?: ValidationResult };
@@ -63,6 +71,8 @@ export class App {
   readonly planBox: PlanBox;
   /** «Lag ny modell». */
   readonly builder: BuilderController;
+  /** Startmenyen (det første man ser). */
+  readonly startMenu: StartMenu;
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointer = new THREE.Vector2();
   private readonly rayHits: THREE.Intersection[] = [];
@@ -155,7 +165,7 @@ export class App {
         showPreview: (v) => this.showBuilderPreview(v),
         showEmpty: () => this.showBuilderEmpty(),
         restore: () => this.restoreFromBuilder(),
-        helpOpen: () => this.ui.helpOpen,
+        helpOpen: () => this.ui.helpOpen || this.startMenu.isOpen,
         download: (text, name) => this.downloadText(text, name),
         copy: (text) => this.copyText(text),
         uploadUrl: () => uploadUrl(repoFromLocation()),
@@ -171,6 +181,9 @@ export class App {
       defaultSectionHeight: () => this.store.model?.settings.planCutHeight ?? 1500,
       planBox: this.planBox.root,
       builder: { entry: this.builder.entry, panel: this.builder.panel.root, open: () => this.builder.setOpen(true) },
+      openStart: () => this.startMenu.open(() => this.markWelcomed()),
+      legend: (all) => this.legend(all),
+      modal: () => this.startMenu.isOpen,
       measure: {
         start: () => void this.xr.enterMeasure(),
         stop: () => void this.xr.exit(),
@@ -190,6 +203,26 @@ export class App {
         discardPlanOlder: () => this.plan.clear(),
       },
     });
+    this.startMenu = new StartMenu(this.view, {
+      title: () => this.store.model?.data.meta.name || 'Leiligheten',
+      summary: () => (this.store.model ? summarize(this.store.model) : null),
+      vrSupported: () => this.xr.support.value === 'supported',
+      arSupported: () => this.xr.arSupport.value === true,
+      enterVR: () => void this.xr.enter(),
+      enterMeasure: () => void this.xr.enterMeasure(),
+      builder: { summary: () => this.builder.summary(), begin: (k) => this.builder.begin(k), openFile: (f) => this.builder.openFile(f) },
+      local: () => ({ measurements: this.measure?.size ?? 0, planEdits: this.plan.ops.length }),
+      download: () => this.downloadDraft(),
+      reload: () => void this.load(),
+      nextStep: () => nextStep(this.nextStepState()),
+      doNext: (a) => this.doNext(a),
+      legend: () => this.legend(true),
+      startTutorial: () => undefined,
+      showShortcuts: () => this.ui.showHelp(),
+      resetSettings: () => this.settings.reset({ layers: this.store.model?.data.layers ?? [] }),
+      firstVisit: () => !this.welcomed(),
+    });
+    root.append(this.startMenu.root);
     this.ui.panel.querySelector('.panel-toggle')?.addEventListener('click', () => this.resize());
     // Ny modell vises: el og vann tegnes på fila, ikke på den (gjelder også i VR).
     this.xr.canDraw = () => !this.builder.ownsView;
@@ -212,12 +245,102 @@ export class App {
   }
 
   async start(): Promise<void> {
-    if (new URLSearchParams(location.search).has('fps')) this.view.fps.set(true);
-    void this.xr.checkSupport();
+    const params = new URLSearchParams(location.search);
+    if (params.has('fps')) this.view.fps.set(true);
+    // Startmenyen først (modellen lastes bak den). ?direkte hopper over, ?start viser den alltid.
+    if (params.has('start') || (this.view.startMenu.value && !params.has('direkte'))) this.startMenu.open(() => this.markWelcomed());
+    void this.xr.checkSupport().then(() => this.startMenu.refresh());
     this.renderer.setAnimationLoop((time, frame) => this.frame(time, frame));
     await this.load();
     // Var «Lag ny modell» åpen sist, fortsetter man der.
     if (this.builder.wasOpen()) this.builder.setOpen(true);
+    this.startMenu.refresh();
+  }
+
+  /* ---------------- startmenyen og «Neste steg» ---------------- */
+
+  private welcomed(): boolean {
+    try {
+      return localStorage.getItem(WELCOME_KEY) === '1';
+    } catch {
+      return true;
+    }
+  }
+
+  private markWelcomed(): void {
+    try {
+      localStorage.setItem(WELCOME_KEY, '1');
+    } catch {
+      /* lagring utilgjengelig */
+    }
+  }
+
+  /** Tilstanden «Neste steg» trenger (se nextStep.ts). */
+  nextStepState(): NextStepState {
+    const model = this.store.model;
+    const m = this.measure;
+    const prog = m?.progress();
+    let placeholders = 0;
+    let parts = 0;
+    if (model)
+      for (const s of model.measure.values()) {
+        parts++;
+        if (s === 'placeholder') placeholders++;
+      }
+    return {
+      loadError: !model,
+      builder: this.builder.summary(),
+      measure: m && prog ? { measurements: m.size, done: prog.done, total: prog.total, stale: m.stale?.count ?? 0, exported: m.hasExported } : null,
+      planEdits: this.plan.ops.length,
+      placeholders,
+      parts,
+      hasPlanned: !!model && [...model.data.wiring, ...(model.data.pipes ?? []), ...model.data.fixtures].some((o) => o.status === 'planned'),
+      canMeasure: this.xr.arSupport.value === true,
+    };
+  }
+
+  private doNext(a: NextAction): void {
+    switch (a) {
+      case 'builder':
+        this.builder.begin('continue');
+        break;
+      case 'download':
+        this.downloadDraft();
+        break;
+      case 'upload':
+        window.open(uploadUrl(repoFromLocation()), '_blank', 'noopener');
+        break;
+      case 'stale':
+        this.ui.panel.classList.remove('collapsed');
+        document.querySelector('[data-testid="draft-status"]')?.scrollIntoView({ block: 'center' });
+        break;
+      case 'measure':
+        void this.xr.enterMeasure();
+        break;
+      case 'highlight':
+        this.view.measureHighlight.set(true);
+        break;
+      case 'draw':
+        this.planCtrl.set({ tool: 'wire' });
+        break;
+      case 'vr':
+        void this.xr.enter();
+        break;
+    }
+  }
+
+  /** Fargene som er i bruk nå (eller alle), til «Farger» og opplæringen. */
+  legend(all: boolean): LegendGroup[] {
+    const v = this.view;
+    const anyVisible = (group: string): boolean => v.layers.layers.some((l) => groupOf(l.id) === group && v.layers.isVisible(l.id));
+    return legendFor({
+      all,
+      highlight: v.measureHighlight.value,
+      el: anyVisible('el'),
+      water: anyVisible('vann'),
+      circuits: this.store.model?.data.circuits ?? [],
+      mode: this.planCtrl.tool !== 'select' ? 'draw' : 'laptop',
+    });
   }
 
   async load(): Promise<void> {
@@ -652,7 +775,7 @@ export class App {
     });
     const tools: Record<string, DrawTool> = { s: 'select', e: 'wire', v: 'pipe', p: 'fixture' };
     window.addEventListener('keydown', (e) => {
-      if (isTypingTarget(e.target) || e.altKey || e.metaKey || this.builder.open.value) return;
+      if (isTypingTarget(e.target) || e.altKey || e.metaKey || this.builder.open.value || this.startMenu.isOpen) return;
       const k = e.key;
       if (e.ctrlKey) {
         if (k === 'z' || k === 'Z') {

@@ -10,7 +10,17 @@ export const placeholder = (): any =>
  * Som Playwrights `test`, men appen får plassholder-leiligheten i stedet for
  * public/apartment.json. En test kan selv legge en ny rute oppå (nyeste vinner).
  */
-export const test = base.extend<{ placeholderRoute: void }>({
+export const test = base.extend<{ placeholderRoute: void; startMenu: boolean }>({
+  /** Startmenyen: av i testene (adressen får ?direkte), med mindre testen slår den på. */
+  startMenu: [false, { option: true }],
+  page: async ({ page, startMenu }, use) => {
+    if (!startMenu) {
+      const goto = page.goto.bind(page);
+      page.goto = ((url: string, opts?: Parameters<Page['goto']>[1]) =>
+        goto(`${url}${url.includes('?') ? '&' : '?'}direkte`, opts)) as Page['goto'];
+    }
+    await use(page);
+  },
   placeholderRoute: [
     async ({ page }, use) => {
       const doc = placeholder();

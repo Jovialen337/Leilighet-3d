@@ -182,6 +182,28 @@ export class BuilderController {
     return this.ownsView && this.host.view.cameraMode.value === 'top' && !this.host.view.inXR.value;
   }
 
+  /** Startmenyen: åpner byggeren og fortsetter, eller starter tomt, fra modellen eller med oppmåling. */
+  begin(kind: 'continue' | 'blank' | 'current' | 'capture'): void {
+    this.setOpen(true);
+    if (kind === 'blank') this.startBlank();
+    else if (kind === 'current') this.startFromCurrent();
+    else if (kind === 'capture') this.capture();
+  }
+
+  /** Startmenyen: åpner en fil (en tegning eller en apartment.json) i byggeren. */
+  openFile(file: File): void {
+    this.setOpen(true);
+    void this.openDraftFile(file);
+  }
+
+  /** Tegningen som er i arbeid, for startmenyen og «Neste steg» (null = ingen). */
+  summary(): { name: string; rooms: number; errors: number; exported: boolean } | null {
+    const doc = this.session.doc;
+    if (!doc) return null;
+    const errors = this.session.compiled()?.issues.filter((i) => i.severity === 'error').length ?? 0;
+    return { name: doc.name || 'Ny modell', rooms: doc.rooms.length, errors, exported: this.session.exported };
+  }
+
   /** Var byggeren åpen sist (lagret i nettleseren)? */
   wasOpen(): boolean {
     try {
@@ -442,10 +464,26 @@ export class BuilderController {
       this.notify('Fila kunne ikke leses.', true);
       return;
     }
-    const err = this.session.openDraft(text);
-    if (err) {
-      this.notify(err, true);
-      return;
+    // En apartment.json (rom, vegger og lag) hentes inn som tegning; ellers er det en lagret tegning.
+    let parsed: unknown = null;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      /* openDraft gir meldingen */
+    }
+    if (parsed && typeof parsed === 'object' && 'rooms' in parsed && 'walls' in parsed && 'layers' in parsed) {
+      const r = importApartment(parsed as Parameters<typeof importApartment>[0]);
+      if (!r.ok) {
+        this.notify(r.message, true);
+        return;
+      }
+      this.session.start(r.doc);
+    } else {
+      const err = this.session.openDraft(text);
+      if (err) {
+        this.notify(err, true);
+        return;
+      }
     }
     this.fitPending = true;
     this.refresh(true);
