@@ -85,8 +85,8 @@ describe('bildefrekvens', () => {
   });
 });
 
-describe('lys: morgen, dag og kveld', () => {
-  it('«Dag» er standardlyset, og alle tre gir tydelig ulike veggretninger', () => {
+describe('lys: morgen, dag, kveld og natt', () => {
+  it('«Dag» er standardlyset, og alle gir tydelig ulike veggretninger', () => {
     expect(LIGHTS.dag).toBe(LIGHTING);
     for (const id of LIGHT_IDS) {
       const p = LIGHTS[id];
@@ -99,8 +99,8 @@ describe('lys: morgen, dag og kveld', () => {
       expect((Math.max(...walls) - Math.min(...walls)) / Math.max(...walls)).toBeGreaterThan(0.1);
       // Sola står over horisonten, og taket blir ikke mørkt.
       expect(p.key.from[1]).toBeGreaterThan(0);
-      // Taket blir ikke svart (om kvelden lyser lampene det opp i tillegg).
-      expect(shadeOf({ x: 0, y: -1, z: 0 }, p)).toBeGreaterThan(id === 'kveld' ? 0.2 : 0.3);
+      // Taket blir ikke svart (om kvelden og natta lyser lampene det opp i tillegg).
+      expect(shadeOf({ x: 0, y: -1, z: 0 }, p)).toBeGreaterThan(id === 'natt' ? 0.1 : id === 'kveld' ? 0.2 : 0.3);
     }
   });
 
@@ -114,6 +114,20 @@ describe('lys: morgen, dag og kveld', () => {
     expect(LIGHTS.kveld.bake.window).toBeLessThan(0.5);
     expect(LIGHTS.kveld.bake.lamp).toBe(1);
     expect(LIGHTS.dag.bake).toEqual({ ambient: 1, window: 1, lamp: 0 });
+  });
+
+  it('natta er mørkest: ingen sol, nesten ikke dagslys, sterkere lamper og stjerner', () => {
+    const up = (id: keyof typeof LIGHTS) => shadeOf({ x: 0, y: 1, z: 0 }, LIGHTS[id]);
+    expect(up('natt')).toBeLessThan(up('kveld'));
+    expect(up('natt')).toBeLessThan(0.4 * up('dag'));
+    expect(LIGHTS.natt.sun.strength).toBe(0);
+    expect(LIGHTS.natt.bake.window).toBeLessThan(0.1);
+    expect(LIGHTS.natt.lamps).toBeGreaterThan(LIGHTS.kveld.lamps);
+    expect(LIGHTS.natt.bake.lamp).toBeGreaterThan(LIGHTS.kveld.bake.lamp);
+    expect(LIGHTS.natt.night).toBe(1);
+    for (const id of ['morgen', 'dag', 'kveld'] as const) expect(LIGHTS[id].night).toBe(0);
+    // L går rundt: morgen → dag → kveld → natt.
+    expect(LIGHT_IDS).toEqual(['morgen', 'dag', 'kveld', 'natt']);
   });
 });
 
@@ -693,6 +707,20 @@ describe('lampelyset bakes inn, og «Lys» blander lyset på nytt', () => {
     expect(darker).toBeGreaterThan(before.length / 4);
     // Ingenting er bakt på nytt.
     expect([...cache.values()]).toEqual(entries);
+  });
+
+  it('natt: ingen solflekker eller stråler (ingen tegnekall for dem), men lampene lyser', () => {
+    const scene = new ApartmentScene(new Materials());
+    scene.setEffects({ shades: true, baked: true, sun: true, shafts: true, lamps: true, detail: true });
+    scene.build(model);
+    scene.setLight(LIGHTS.natt);
+    const kinds = scene.lightMeshes.map((m) => m.userData.effect);
+    expect(kinds).not.toContain('sol');
+    expect(kinds).not.toContain('stråler');
+    expect(kinds).toContain('lamper');
+    scene.setLight(LIGHTS.dag);
+    expect(scene.lightMeshes.some((m) => m.userData.effect === 'sol')).toBe(true);
+    expect(scene.lightMeshes.some((m) => m.userData.effect === 'lamper')).toBe(false);
   });
 
   it('«Rask» baker ikke; lyset bakes først når det trengs', () => {

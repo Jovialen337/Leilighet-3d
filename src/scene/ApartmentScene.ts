@@ -426,8 +426,11 @@ export class ApartmentScene {
         this.layerGroups.get(layer)?.add(mesh);
       }
     };
-    add('sol', buildSunPatches(model, p.key.from), this.materials.sun);
-    add('stråler', buildSunShafts(model, p.key.from), this.materials.glow);
+    // Ingen sol (natt): ingen flekker eller stråler, og ingen tegnekall for dem.
+    if (p.sun.strength > 0) {
+      add('sol', buildSunPatches(model, p.key.from), this.materials.sun);
+      add('stråler', buildSunShafts(model, p.key.from), this.materials.glow);
+    }
     if (p.lamps > 0) {
       const f = this.filter;
       const lit = (fx: { status: 'existing' | 'planned'; circuit?: string }): boolean =>

@@ -415,7 +415,7 @@ Goal: «I want a wow experience when I put on the Quest 3». Scored per [SCORING
   - **vinyl** everywhere else. The grey-green grow room and the grey kitchen get no wood boards.
 - A `room.floorFinish` field can replace this rule later (see «Ideas backlog», floor types).
 
-### «Lys»: morning, day, evening
+### «Lys»: morning, day, evening, night
 
 - **«Morgen»:** a low, warm sun from the east (the entrance side), long patches up the living room's back wall, a warm horizon.
 - **«Dag»** (default): exactly the lighting from phase 2b, with the sun through the front windows.
@@ -423,8 +423,12 @@ Goal: «I want a wow experience when I put on the Quest 3». Scored per [SCORING
   - Daylight from the windows is cut to 30 %, and the hemisphere light from 1.7 to 1.1. The start view is about half as bright as the day.
   - The **lamps are lit:** the lamp's underside glows, and its light is baked into the room. A warm glow on the ceiling follows the ceiling, even when it slopes, and a pool of light lies on the floor below. Both stop at the room's walls.
   - The light belongs to the room's layer, so layer choices for el do not switch the evening light off, and it follows the existing, planned and circuit filters.
+- **«Natt»:**
+  - **Sky:** a dark sky with stars (small points computed in the sky shader, no texture) and the moon high in the south-west. The moon is dim and casts no patches, so there are no sun or ray meshes.
+  - **Inside:** window daylight is cut to 4 %, and the lamps are stronger than in the evening. Rooms without a lamp are dark.
+  - **Outside:** the windows reflect dark instead of a pale sky, and the ground is dark.
 - The compass direction is an assumption (the entrance wall faces east, −z). A `settings.north` field can come later.
-- **Where:** «Lys» on the laptop (under «Visning», next to «Grafikk»), the **L** key cycles it, and «Lys» in the VR menu (X → Visning). Saved per device like the other settings.
+- **Where:** «Lys» on the laptop (under «Visning», next to «Grafikk»), the **L** key cycles it (morning → day → evening → night), and «Lys» in the VR menu (X → Visning). Saved per device like the other settings.
 
 ### Graphics profile and presets
 
@@ -454,7 +458,7 @@ One pure function, `graphicsProfile` (`src/scene/graphicsProfile.ts`), decides w
 
 - Wall finishes in the same texture array as the floors (paint, wallpaper, wet-room tiles); see «Ideas backlog».
 - Floor reflections on «Høy» (one cube map per room).
-- A `settings.north` field so «Lys» follows the real compass; «Natt».
+- A `settings.north` field so «Lys» follows the real compass.
 - Comfort options (seated mode, vignette during smooth turning) – Research B, proposal 5.
 - If the Quest shows headroom at 90 fps: foveation 0.5 on «Standard».
 
@@ -676,7 +680,7 @@ src/
   - Each controller is one mesh (one draw call).
 - **Quest, measuring:** see the controls table in phase 2.
 - **Quest, menu (X):** point with the right controller and pull the trigger. Tabs: Visning (with the «Effekter …» sub-page), Lag, Tegn, Gå til, Komfort. Right stick back turns 180°.
-- **Laptop, keys:** 1/2 (3D/2D), T (ceilings), U (placeholders), K (dollhouse), R (reset view), F (FPS), L (light: morning → day → evening), H (help), S/E/V/P (draw tools), Enter/Backspace/Esc/Delete/Ctrl+Z while drawing.
+- **Laptop, keys:** 1/2 (3D/2D), T (ceilings), U (placeholders), K (dollhouse), R (reset view), F (FPS), L (light: morning → day → evening → night), H (help), S/E/V/P (draw tools), Enter/Backspace/Esc/Delete/Ctrl+Z while drawing.
 - **Laptop, «Lag ny modell»:**
   - tools S/R/M/I/D/V/O; type numbers for lengths;
   - Enter/double-click/right-click to finish a polygon, Backspace (last point or delete), Esc, Delete;

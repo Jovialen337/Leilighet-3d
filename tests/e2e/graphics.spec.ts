@@ -1,5 +1,5 @@
 /**
- * Grafikk: overgangen inn i VR, «Lys» (morgen/dag/kveld), sollys og bakt
+ * Grafikk: overgangen inn i VR, «Lys» (morgen/dag/kveld/natt), sollys og bakt
  * dagslys – og budsjettet på Quest 3: maks 40 tegnekall per øye og maks
  * 32 MB teksturer, i alle rom.
  */
@@ -45,6 +45,7 @@ test('VR: tegnekall og teksturer i alle rom, på «Standard» og «Høy», dag o
     { quality: 'medium', light: 'kveld', yaws: [0, Math.PI / 2, Math.PI, -Math.PI / 2] },
     { quality: 'medium', light: 'dag', yaws: [0] },
     { quality: 'medium', light: 'morgen', yaws: [0] },
+    { quality: 'medium', light: 'natt', yaws: [0] },
     { quality: 'high', light: 'kveld', yaws: [0] },
   ];
   for (const { quality, light, yaws } of runs) {
@@ -102,11 +103,19 @@ test('PC: «Lys»-valget og L-tasten, sol på «Standard», stråler bare på «
 
   await page.getByTestId('setting-light').selectOption({ label: 'Kveld' });
   expect(await app(page, 'a.view.light.value')).toBe('kveld');
-  // L: neste lys (kveld → morgen).
+  // L: neste lys (kveld → natt → morgen).
   await page.locator('body').click({ position: { x: 1200, y: 400 } });
+  await page.keyboard.press('l');
+  expect(await app(page, 'a.view.light.value')).toBe('natt');
+  await expect(page.getByTestId('setting-light')).toHaveValue('3');
+  // Natt: stjerner, ingen sol, lampene lyser.
+  expect(await app(page, "a.sky.getObjectByName('himmel:kuppel').material.uniforms.stars.value")).toBe(1);
+  expect(await vis('sol')).toBe(false);
+  expect(await vis('lamper')).toBe(true);
   await page.keyboard.press('l');
   expect(await app(page, 'a.view.light.value')).toBe('morgen');
   await expect(page.getByTestId('setting-light')).toHaveValue('0');
+  expect(await app(page, "a.sky.getObjectByName('himmel:kuppel').material.uniforms.stars.value")).toBe(0);
   // 2D-planen: ingen sol eller himmel.
   await page.keyboard.press('2');
   expect(await vis('sol')).toBe(false);

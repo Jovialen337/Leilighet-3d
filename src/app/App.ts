@@ -562,6 +562,7 @@ export class App {
     configureRenderer(this.renderer, preset);
     this.xr.exposure = preset.exposure;
     setSkyLight(this.sky, preset);
+    this.materials.setNight(preset.night);
     this.apartment.setLight(preset);
   }
 

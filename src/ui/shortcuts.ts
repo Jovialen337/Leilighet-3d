@@ -27,7 +27,7 @@ export const ACTION_TEXT: Record<string, string> = {
   dollhouse: 'Dukkehus (kutt 3D-modellen)',
   resetView: 'Tilbakestill visning',
   fps: 'Vis/skjul bildefrekvens',
-  light: 'Lys: morgen → dag → kveld',
+  light: 'Lys: morgen → dag → kveld → natt',
   help: 'Vis/skjul denne hjelpen',
 };
 

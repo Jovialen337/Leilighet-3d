@@ -56,21 +56,27 @@ function lambertWithCutFaces(params: THREE.MeshLambertMaterialParameters, detail
 }
 
 export const XRAY_OPACITY = 0.22;
+/** Gjenskinnet i vinduene om dagen og om natta (sRGB). */
+const GLASS_DAY = [0.86, 0.92, 0.98] as const;
+const GLASS_NIGHT = [0.1, 0.12, 0.19] as const;
+const GLASS_NIGHT_VEC = new THREE.Vector3();
 
 /**
  * Glass: nesten klart rett forfra, mer gjenskinn (himmelfarge) på skrå
- * (Fresnel), så vinduene ser ut som glass og ikke som blå plater.
+ * (Fresnel), så vinduene ser ut som glass og ikke som blå plater. Om natta
+ * er gjenskinnet mørkt (`setNight`).
  */
-function glassMaterial(): THREE.MeshLambertMaterial {
+function glassMaterial(reflection: THREE.IUniform<THREE.Vector3>): THREE.MeshLambertMaterial {
   const m = new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 1, depthWrite: false });
   m.onBeforeCompile = (shader) => {
-    shader.fragmentShader = shader.fragmentShader.replace(
+    shader.uniforms.glassReflection = reflection;
+    shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec3 glassReflection;').replace(
       '#include <dithering_fragment>',
       `#include <dithering_fragment>
 	{
 		float facing = abs( dot( normalize( vViewPosition ), normal ) );
 		float fres = pow( 1.0 - facing, 4.0 );
-		gl_FragColor.rgb = mix( gl_FragColor.rgb, vec3( 0.86, 0.92, 0.98 ), 0.1 + 0.45 * fres );
+		gl_FragColor.rgb = mix( gl_FragColor.rgb, glassReflection, 0.1 + 0.45 * fres );
 		gl_FragColor.a = opacity * ( 0.05 + 0.35 * fres );
 	}`,
     );
@@ -176,7 +182,9 @@ export class Materials {
     polygonOffsetUnits: -4,
     toneMapped: false,
   });
-  readonly glass = glassMaterial();
+  /** Gjenskinnet i vinduene (sRGB): lys himmel om dagen, mørkt om natta. */
+  private readonly glassReflection = { value: new THREE.Vector3(...GLASS_DAY) };
+  readonly glass = glassMaterial(this.glassReflection);
   /** Solflekker gjennom vinduene. */
   readonly sun = sunPatchMaterial();
   /** Lysstråler: hvitt med alfa per hjørne, lyser opp det bak («skjerm»). */
@@ -251,6 +259,11 @@ export class Materials {
       m.depthWrite = !on;
       m.needsUpdate = true;
     }
+  }
+
+  /** Natt (0–1): mørkere gjenskinn i vinduene. */
+  setNight(night: number): void {
+    this.glassReflection.value.fromArray(GLASS_DAY).lerp(GLASS_NIGHT_VEC.fromArray(GLASS_NIGHT), night);
   }
 
   /** Slår mønsteret på gulvet av og på (lager teksturen første gang). */

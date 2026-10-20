@@ -5,9 +5,10 @@
  * ville vært dyrt på Quest. Dagslyset fra vinduene er bakt inn i fargene
  * (bake.ts), og sola lager lysflekker gjennom vinduene (sunlight.ts).
  *
- * «Lys» velger tid på døgnet: morgen, dag eller kveld. Inngangsveggen antas å
- * vende mot øst (−z), så morgensola står lavt inn gjennom stuevinduene, og
- * kveldssola kommer lavt fra vest. «Dag» er standard.
+ * «Lys» velger tid på døgnet: morgen, dag, kveld eller natt. Inngangsveggen
+ * antas å vende mot øst (−z), så morgensola står lavt inn gjennom
+ * stuevinduene, og kveldssola kommer lavt fra vest. Om natta er det
+ * stjernehimmel og måne, og lyset kommer fra lampene. «Dag» er standard.
  *
  * `shadeOf` regner ut hvor lys en hvit Lambert-flate blir (three.js-formlene),
  * så lyssettingen kan testes uten GPU.
@@ -15,9 +16,9 @@
 import * as THREE from 'three';
 import type { BakeMix } from './bake';
 
-export type LightId = 'morgen' | 'dag' | 'kveld';
-export const LIGHT_IDS: readonly LightId[] = ['morgen', 'dag', 'kveld'];
-export const LIGHT_TEXT: Record<LightId, string> = { morgen: 'Morgen', dag: 'Dag', kveld: 'Kveld' };
+export type LightId = 'morgen' | 'dag' | 'kveld' | 'natt';
+export const LIGHT_IDS: readonly LightId[] = ['morgen', 'dag', 'kveld', 'natt'];
+export const LIGHT_TEXT: Record<LightId, string> = { morgen: 'Morgen', dag: 'Dag', kveld: 'Kveld', natt: 'Natt' };
 
 type Vec = readonly [number, number, number];
 
@@ -35,6 +36,8 @@ export interface LightPreset {
   lamps: number;
   /** Hvor mye av det bakte grunnlyset, dagslyset fra vinduene og lampelyset som brukes. */
   bake: BakeMix;
+  /** Natt (0–1): stjerner på himmelen, mørk mark og mørkt gjenskinn i vinduene. */
+  night: number;
 }
 
 export const LIGHTS: Record<LightId, LightPreset> = {
@@ -47,6 +50,7 @@ export const LIGHTS: Record<LightId, LightPreset> = {
     sun: { color: '#ffd6a6', strength: 0.8 },
     lamps: 0,
     bake: { ambient: 1, window: 0.9, lamp: 0 },
+    night: 0,
   },
   dag: {
     hemi: { sky: '#ffffff', ground: '#efe9df', intensity: 2.35 },
@@ -57,6 +61,7 @@ export const LIGHTS: Record<LightId, LightPreset> = {
     sun: { color: '#ffe6c0', strength: 0.75 },
     lamps: 0,
     bake: { ambient: 1, window: 1, lamp: 0 },
+    night: 0,
   },
   kveld: {
     hemi: { sky: '#d9d6e0', ground: '#e6d2bb', intensity: 1.1 },
@@ -67,6 +72,19 @@ export const LIGHTS: Record<LightId, LightPreset> = {
     sun: { color: '#ffbb80', strength: 0.75 },
     lamps: 1,
     bake: { ambient: 0.85, window: 0.3, lamp: 1 },
+    night: 0,
+  },
+  // Månen står høyt i sør-vest; den lyser svakt og kaster ingen flekker. Lampene gjør jobben.
+  natt: {
+    hemi: { sky: '#9aa6c8', ground: '#c9a888', intensity: 0.75 },
+    key: { color: '#b4c2e8', intensity: 0.12, from: [-2, 3, 3] },
+    fill: { color: '#ffcf9a', intensity: 0.25, from: [-4, 1.5, -3] },
+    exposure: 1.0,
+    sky: { zenith: '#04071a', horizon: '#1a2442', glow: '#41537e', hills: '#0b1020', clouds: '#2b3352' },
+    sun: { color: '#a8bce8', strength: 0 },
+    lamps: 1.2,
+    bake: { ambient: 0.6, window: 0.04, lamp: 1.25 },
+    night: 1,
   },
 };
 

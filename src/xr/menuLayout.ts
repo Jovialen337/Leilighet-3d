@@ -170,6 +170,7 @@ export function buildMenu(s: MenuState): { items: MenuItem[]; labels: MenuLabel[
         { id: 'light:morgen', label: 'Morgen', active: s.light === 'morgen' },
         { id: 'light:dag', label: 'Dag', active: s.light === 'dag' },
         { id: 'light:kveld', label: 'Kveld', active: s.light === 'kveld' },
+        { id: 'light:natt', label: 'Natt', active: s.light === 'natt' },
       ]);
       break;
     case 'lag': {

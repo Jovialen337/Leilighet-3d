@@ -8,7 +8,8 @@
  *   skog langs horisonten (regnet ut i skyggeleggeren – ingen geometri).
  * - Markskiva: gress med litt ujevnhet (liten flislagt tekstur).
  *
- * Fargene følger «Lys» (morgen/dag/kveld). Teksturene lages første gang
+ * Fargene følger «Lys» (morgen/dag/kveld/natt); om natta er det stjerner
+ * (små punkter regnet ut i skyggeleggeren). Teksturene lages første gang
  * himmelen vises (ikke på «Rask»). Skjules i 2D-planen og i gjennomsyn.
  */
 import * as THREE from 'three';
@@ -43,6 +44,7 @@ uniform vec3 cloudTint;
 uniform vec3 sunDir;
 uniform sampler2D clouds;
 uniform float cloudAmount;
+uniform float stars;
 varying vec3 vDir;
 varying vec2 vUv;
 
@@ -68,6 +70,19 @@ void main() {
   vec3 cloud = cloudTint * (0.82 + 0.18 * c.r) + glow * 0.25 * pow(s, 4.0);
   col = mix(col, cloud, ca);
   col = mix(col, vec3(1.0, 0.97, 0.9) * 1.15, smoothstep(0.99955, 0.9998, s) * (1.0 - ca));
+  // Stjerner (om natta): én av få ruter i et rutenett over himmelen får et punkt, omtrent 1,5 piksel stort.
+  vec2 g = d.xz / (1.0 + max(e, 0.0)) * 180.0;
+  float px = max(fwidth(g.x), 1e-4);
+  if (stars > 0.0 && e > 0.02) {
+    vec2 cell = floor(g);
+    float n = hash(cell.x * 157.0 + cell.y * 113.0 + 0.5);
+    if (n > 0.98) {
+      vec2 at = vec2(hash(n * 31.0), hash(n * 57.0)) * 0.6 + 0.2;
+      float r = length(fract(g) - at);
+      float b = (1.0 - smoothstep(0.0, 1.5 * px, r)) * (0.45 + 0.55 * hash(n * 91.0));
+      col += vec3(0.9, 0.93, 1.0) * b * stars * (1.0 - ca) * smoothstep(0.02, 0.12, e);
+    }
+  }
   // Fjerne åser og en skogkant langs horisonten.
   float a = (atan(d.z, d.x) + 3.14159265) / 6.2831853;
   float h = 0.012 + 0.03 * pnoise(a * 5.0, 5.0) + 0.014 * pnoise(a * 17.0, 17.0);
@@ -211,6 +226,7 @@ export function createSky(): THREE.Group {
       sunDir: { value: new THREE.Vector3(0, 1, 0) },
       clouds: { value: null },
       cloudAmount: { value: 0 },
+      stars: { value: 0 },
     },
   });
   const domeMesh = new THREE.Mesh(dome, material);
@@ -266,10 +282,15 @@ export function setSkyLight(sky: THREE.Group, p: LightPreset): void {
     (u.hills!.value as THREE.Color).set(p.sky.hills);
     (u.cloudTint!.value as THREE.Color).set(p.sky.clouds);
     (u.sunDir!.value as THREE.Vector3).set(...p.key.from).normalize();
+    u.stars!.value = p.night;
   }
   const ground = sky.getObjectByName('himmel:mark') as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> | undefined;
   // Marka får litt av lysets farge og styrke (mørkere og varmere om kvelden).
-  if (ground) ground.material.color.set(p.key.color).lerp(new THREE.Color('#ffffff'), 0.6).multiplyScalar(Math.min(1, 0.45 + p.hemi.intensity / 4.3));
+  if (ground)
+    ground.material.color
+      .set(p.key.color)
+      .lerp(new THREE.Color('#ffffff'), 0.6)
+      .multiplyScalar(Math.min(1, 0.45 + p.hemi.intensity / 4.3) * (1 - 0.8 * p.night));
 }
 
 /** Legger marka like under det laveste (uteområder/gulv), i meter. */

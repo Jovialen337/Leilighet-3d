@@ -171,7 +171,7 @@ export class DesktopUI {
           h('p', { class: 'hint' }, 'Standard: dagslys, sol og himmel. Høy: også lysstråler og skarpere bilde i VR.'),
           this.effectsPanel(view),
           boundSelect<LightId>('Lys', view.light, LIGHT_IDS.map((l) => ({ value: l, label: LIGHT_TEXT[l] })), 'setting-light'),
-          h('p', { class: 'hint' }, 'Tast L. Morgen: sol fra øst (inngangssiden). Kveld: lampene er tent.'),
+          h('p', { class: 'hint' }, 'Tast L. Morgen: sol fra øst (inngangssiden). Kveld: lampene er tent. Natt: stjerner og bare lampelys.'),
           ceilingBox,
           measureBox,
           this.legend,
