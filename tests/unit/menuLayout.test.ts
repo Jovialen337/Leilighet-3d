@@ -7,9 +7,11 @@ const state = (tab: MenuTab, layerCount: number, filterCircuit: string | null = 
   highlight: false,
   fps: false,
   quality: 'medium',
+  effects: [],
   light: 'dag',
   turn: 30,
   rate: 90,
+  wristHelp: false,
   layers: Array.from({ length: layerCount }, (_, i) => ({ id: `lag-${i}`, name: `Lag ${i + 1}`, visible: true })),
   rooms: Array.from({ length: 8 }, (_, i) => ({ id: `rom-${i}`, name: `Rom ${i + 1}` })),
   showExisting: true,
@@ -50,16 +52,44 @@ describe('VR-menyen', () => {
     const tegn = buildMenu({ ...state('tegn', 13), drawCircuit: 'kurs-1' }).items.find((i) => i.id === 'drawcircuit:next');
     expect(tegn).toMatchObject({ label: 'Kurs for nye: Kurs 1 – gang og stue', active: true });
     expect(buildMenu({ ...state('tegn', 13), circuits: [] }).items.some((i) => i.id === 'drawcircuit:next')).toBe(false);
-    for (const tab of ['visning', 'lag', 'lagliste', 'tegn', 'ga', 'komfort'] as const)
+    for (const tab of ['visning', 'effekter', 'lag', 'lagliste', 'tegn', 'ga', 'komfort'] as const)
       for (const it of buildMenu({ ...state(tab, 13, 'kurs-1'), qualityNote: 'x' }).items) {
         expect(it.y + it.h).toBeLessThanOrEqual(MENU_H);
         expect(it.x + it.w).toBeLessThanOrEqual(MENU_W);
       }
   });
 
+  it('«Egendefinert» i Grafikk-raden, og en underside med hver effekt for seg', () => {
+    const effects = (['baked', 'sun', 'shafts', 'lamps', 'sky', 'detail', 'sharp'] as const).map((id) => ({ id, on: id !== 'shafts' && id !== 'sharp' }));
+    const row = buildMenu({ ...state('visning', 13), effects }).items.filter((i) => i.id.startsWith('quality:'));
+    expect(row.map((i) => [i.label, i.active])).toEqual([
+      ['Rask', false],
+      ['Standard', true],
+      ['Høy', false],
+      ['Egendefinert', false],
+    ]);
+    const page = buildMenu({ ...state('effekter', 13), effects, quality: 'custom', qualityNote: 'Oppløsningen endres neste gang i VR.' });
+    expect(page.items.filter((i) => i.id.startsWith('effect:')).map((i) => [i.label, i.active])).toEqual([
+      ['Dagslys og skygger', true],
+      ['Solflekker', true],
+      ['Lysstråler', false],
+      ['Lampelys kveld/natt', true],
+      ['Himmel og utsikt', true],
+      ['Gulvmønster', true],
+      ['Skarpere bilde', false],
+    ]);
+    expect(page.labels.map((l) => l.text)).toEqual(['Egendefinert: velg hver effekt selv.', 'Oppløsningen endres neste gang i VR.']);
+    // Fanen «Visning» er markert på undersiden, og alt får plass.
+    expect(page.items.find((i) => i.id === 'tab:visning' && i.kind === 'tab')?.active).toBe(true);
+    expect(page.items.some((i) => i.id === 'tab:visning' && i.kind === 'action')).toBe(true);
+    for (const it of page.items) expect(it.y + it.h).toBeLessThanOrEqual(MENU_H);
+    expect(Math.max(...page.labels.map((l) => l.y))).toBeLessThanOrEqual(MENU_H - 20);
+    expect(buildMenu({ ...state('effekter', 13), effects }).labels[0]?.text).toBe('Nå: Standard. Et valg her gjør det til «Egendefinert».');
+  });
+
   it('beskjed om skarphet vises under grafikkvalget', () => {
-    expect(buildMenu({ ...state('visning', 13), qualityNote: 'Skarpere nå – full oppløsning neste gang du går inn i VR.' }).labels.map((l) => l.text)).toContain(
-      'Skarpere nå – full oppløsning neste gang du går inn i VR.',
+    expect(buildMenu({ ...state('visning', 13), qualityNote: 'Skarpere nå – full oppløsning neste gang i VR.' }).labels.map((l) => l.text)).toContain(
+      'Skarpere nå – full oppløsning neste gang i VR.',
     );
   });
 });

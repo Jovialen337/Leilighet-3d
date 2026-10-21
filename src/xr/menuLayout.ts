@@ -5,12 +5,13 @@
  */
 import type { Quality, TurnMode, XRRate } from '../state/ViewState';
 import type { LightId } from '../scene/lighting';
+import { EFFECT_TEXT, type EffectId } from '../scene/graphicsProfile';
 
 export const MENU_W = 1024;
 export const MENU_H = 768;
 
-/** «lagliste» er en underside av «Lag» med hvert enkelt lag. */
-export type MenuTab = 'visning' | 'lag' | 'lagliste' | 'tegn' | 'ga' | 'komfort';
+/** «lagliste» er en underside av «Lag» med hvert enkelt lag, «effekter» av «Visning». */
+export type MenuTab = 'visning' | 'effekter' | 'lag' | 'lagliste' | 'tegn' | 'ga' | 'komfort';
 export const TABS: readonly { id: MenuTab; label: string }[] = [
   { id: 'visning', label: 'Visning' },
   { id: 'lag', label: 'Lag' },
@@ -36,6 +37,13 @@ export const DRAW_ITEMS: readonly { id: string; label: string }[] = [
 
 export type ItemKind = 'tab' | 'toggle' | 'choice' | 'action';
 
+const QUALITY_ITEMS: readonly { id: Quality; label: string }[] = [
+  { id: 'low', label: 'Rask' },
+  { id: 'medium', label: 'Standard' },
+  { id: 'high', label: 'Høy' },
+  { id: 'custom', label: 'Egendefinert' },
+];
+
 export interface MenuItem {
   id: string;
   kind: ItemKind;
@@ -54,11 +62,17 @@ export interface MenuState {
   highlight: boolean;
   fps: boolean;
   quality: Quality;
+  /** Effektene slik de er nå (forhåndsvalget eller «Egendefinert»). */
+  effects: readonly { id: EffectId; on: boolean }[];
   light: LightId;
   turn: TurnMode;
   rate: XRRate;
+  /** Vis alltid hjelpen på håndleddet. */
+  wristHelp: boolean;
   layers: readonly { id: string; name: string; visible: boolean }[];
   rooms: readonly { id: string; name: string }[];
+  /** Rommet man står i (markert under «Gå til»), eller null. */
+  here?: string | null;
   showExisting: boolean;
   showPlanned: boolean;
   xray: boolean;
@@ -100,7 +114,7 @@ export function buildMenu(s: MenuState): { items: MenuItem[]; labels: MenuLabel[
       id: `tab:${t.id}`,
       kind: 'tab',
       label: t.label,
-      active: s.tab === t.id || (t.id === 'lag' && s.tab === 'lagliste'),
+      active: s.tab === t.id || (t.id === 'lag' && s.tab === 'lagliste') || (t.id === 'visning' && s.tab === 'effekter'),
       x: PAD + i * (tabW + GAP),
       y: PAD,
       w: tabW,
@@ -145,18 +159,17 @@ export function buildMenu(s: MenuState): { items: MenuItem[]; labels: MenuLabel[
       toggle('toggle:fps', 'Vis bildefrekvens', s.fps);
       y += ROW_H + GAP;
       choices('Grafikk', [
-        { id: 'quality:low', label: 'Rask', active: s.quality === 'low' },
-        { id: 'quality:medium', label: 'Standard', active: s.quality === 'medium' },
-        { id: 'quality:high', label: 'Høy', active: s.quality === 'high' },
+        // «Egendefinert» åpner også siden med effektene hver for seg.
+        ...QUALITY_ITEMS.map((q) => ({ id: `quality:${q.id}`, label: q.label, active: s.quality === q.id })),
       ]);
-      if (s.qualityNote) {
-        labels.push({ text: s.qualityNote, x: PAD, y: y + 22 });
-        y += 40;
-      }
+      // Plass til beskjeden alltid, så «Lys» ikke flytter seg når den kommer.
+      if (s.qualityNote) labels.push({ text: s.qualityNote, x: PAD, y: y + 22 });
+      y += 40;
       choices('Lys', [
         { id: 'light:morgen', label: 'Morgen', active: s.light === 'morgen' },
         { id: 'light:dag', label: 'Dag', active: s.light === 'dag' },
         { id: 'light:kveld', label: 'Kveld', active: s.light === 'kveld' },
+        { id: 'light:natt', label: 'Natt', active: s.light === 'natt' },
       ]);
       break;
     case 'lag': {
@@ -177,9 +190,13 @@ export function buildMenu(s: MenuState): { items: MenuItem[]; labels: MenuLabel[
           ? [{ id: 'circuit:next', label: circuitName(s.filterCircuit) ?? 'Alle kurser', on: s.filterCircuit !== null, kind: 'action' as const }]
           : []),
       ];
-      const tw = (full - (t3.length - 1) * GAP) / t3.length;
-      t3.forEach((t, i) => items.push({ id: t.id, kind: t.kind, label: t.label, active: t.on, x: PAD + i * (tw + GAP), y, w: tw, h: ROW_H }));
-      y += ROW_H + GAP + 8;
+      // Fire knapper får ikke plass til tekstene på én rad: da to rader med to.
+      const perRow = t3.length > 3 ? 2 : t3.length;
+      const tw = (full - (perRow - 1) * GAP) / perRow;
+      t3.forEach((t, i) =>
+        items.push({ id: t.id, kind: t.kind, label: t.label, active: t.on, x: PAD + (i % perRow) * (tw + GAP), y: y + Math.floor(i / perRow) * (ROW_H + GAP), w: tw, h: ROW_H }),
+      );
+      y += Math.ceil(t3.length / perRow) * (ROW_H + GAP) + 8;
       labels.push({ text: 'Laggrupper', x: PAD, y: y + 34 });
       y += 52;
       grid(
@@ -192,6 +209,21 @@ export function buildMenu(s: MenuState): { items: MenuItem[]; labels: MenuLabel[
       );
       break;
     }
+    case 'effekter':
+      items.push({ id: 'tab:visning', kind: 'action', label: '‹ Tilbake', active: false, x: PAD, y, w: 260, h: 64 });
+      y += 64 + GAP;
+      labels.push({
+        text:
+          s.quality === 'custom'
+            ? 'Egendefinert: velg hver effekt selv.'
+            : `Nå: ${QUALITY_ITEMS.find((q) => q.id === s.quality)?.label ?? ''}. Et valg her gjør det til «Egendefinert».`,
+        x: PAD,
+        y: y + 30,
+      });
+      y += 52;
+      grid(s.effects.map((e) => ({ id: `effect:${e.id}`, label: EFFECT_TEXT[e.id], active: e.on, kind: 'toggle' as const })));
+      if (s.qualityNote) labels.push({ text: s.qualityNote, x: PAD, y: y + 30 });
+      break;
     case 'lagliste':
       items.push({ id: 'tab:lag', kind: 'action', label: '‹ Tilbake', active: false, x: PAD, y, w: 260, h: 64 });
       y += 64 + GAP;
@@ -218,7 +250,7 @@ export function buildMenu(s: MenuState): { items: MenuItem[]; labels: MenuLabel[
     case 'ga':
       grid([
         { id: 'start', label: 'Til start (døra)', active: false, kind: 'action' as const },
-        ...s.rooms.map((r) => ({ id: `room:${r.id}`, label: r.name, active: false, kind: 'action' as const })),
+        ...s.rooms.map((r) => ({ id: `room:${r.id}`, label: r.name, active: r.id === s.here, kind: 'choice' as const })),
       ]);
       break;
     case 'komfort':
@@ -233,6 +265,8 @@ export function buildMenu(s: MenuState): { items: MenuItem[]; labels: MenuLabel[
         { id: 'rate:90', label: '90 Hz', active: s.rate === 90 },
         { id: 'rate:120', label: '120 Hz', active: s.rate === 120 },
       ]);
+      toggle('toggle:wristhelp', 'Vis alltid hjelp på håndleddet', s.wristHelp);
+      y += ROW_H + GAP;
       labels.push({ text: 'Stikke bakover: snu 180°.', x: PAD, y: y + 30 });
       break;
   }

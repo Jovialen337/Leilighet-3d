@@ -397,7 +397,7 @@ test('VR: kurs for nye kabler velges i Tegn og står på håndleddet; «Høy» s
   expect(await app(page, 'a.xr.wrist.lines')).toContain(`Kurs: ${name}`);
 
   // «Høy» i VR: skarpere med en gang (foveering), full oppløsning fra neste økt.
-  const note = 'Skarpere nå – full oppløsning neste gang du går inn i VR.';
+  const note = 'Skarpere nå – full oppløsning neste gang i VR.';
   expect(await app(page, 'a.xr.menuLabels().map((l) => l.text)')).not.toContain(note);
   await menuPress(page, 'tab:visning');
   await menuPress(page, 'quality:high');

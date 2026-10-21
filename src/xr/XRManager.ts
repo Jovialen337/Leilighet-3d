@@ -16,6 +16,8 @@ import type { ApartmentModel } from '../model/ApartmentModel';
 import type { MeasureSession } from '../measure/MeasureSession';
 import type { ApartmentScene } from '../scene/ApartmentScene';
 import { MM } from '../scene/geom';
+import { polygonArea } from '../geometry/math2d';
+import { areaText, shortName } from '../ui/format';
 import { Observable } from '../state/Observable';
 import type { ViewState } from '../state/ViewState';
 import type { FpsMeter } from '../ui/FpsMeter';
@@ -23,6 +25,7 @@ import { MeasureMode, type MeasureDebugState } from './MeasureMode';
 import { BuildMode, type BuildDebugState } from './BuildMode';
 import type { BuilderSession } from '../builder/BuilderSession';
 import { TeleportArc } from './teleport';
+import { controllerModel } from './controllerModel';
 import { WristPanel } from './WristPanel';
 import { WristMenu } from './WristMenu';
 import { DRAW_ITEMS, buildMenu, type MenuTab } from './menuLayout';
@@ -33,7 +36,7 @@ import { WATER_FIXTURES } from '../schema/types';
 import { LAYER_GROUPS, LAYER_PRESETS, applyPreset, groupState, setGroup } from '../state/layerGroups';
 import { followFloor, placeAtSpawn, snapTurn, teleportTo } from './rig';
 import { Fade } from './fade';
-import { graphicsProfile } from '../scene/graphicsProfile';
+import { EFFECT_IDS, graphicsProfile, wantedEffects, type EffectId } from '../scene/graphicsProfile';
 import { LIGHT_IDS, type LightId } from '../scene/lighting';
 
 export type XRSupport = 'checking' | 'supported' | 'unsupported' | 'insecure' | 'no-webxr';
@@ -48,12 +51,18 @@ const AIM_RELEASE = -0.25;
 const TURN_START = 0.6;
 const TURN_REARM = 0.3;
 const SMOOTH_DEADZONE = 0.2;
+/** Etter så mange sekunder i VR (eller første teleport og snu) viser håndleddet bare rommet. */
+export const LEARN_SECONDS = 20;
+const ARC_OK = new THREE.Color('#39d98a');
+const ARC_BAD = new THREE.Color('#ff5a5a');
 
 interface Slot {
   index: number;
   controller: THREE.XRTargetRaySpace;
   grip: THREE.XRGripSpace;
   source: XRInputSource | null;
+  /** Pekestrålen (vises bare når den brukes: menyen eller tegning, høyre hånd). */
+  line: THREE.Line;
 }
 
 export interface XRDebugState {
@@ -71,6 +80,8 @@ export interface XRDebugState {
   /** Overgangen fra svart: hvor svart (0–1) og om den pågår. */
   fade: { opacity: number; visible: boolean; active: boolean };
   exposure: number;
+  /** Håndleddet: kontrollene er lært (bare rommet vises), og stedet som vises. */
+  wrist: { learned: boolean; place: string | null };
 }
 
 export class XRManager {
@@ -130,6 +141,14 @@ export class XRManager {
   private teleports = 0;
   private turns = 0;
   private floorUnderHead: number | null = null;
+  /** Kontrollene er lært: håndleddet viser bare rommet (se LEARN_SECONDS). */
+  private learned = false;
+  private walkSeconds = 0;
+  /** Rommet (eller uteområdet) man sist sto i, for håndleddet. */
+  private place: { name: string; area: number; roomId: string | null } | null = null;
+  private placeRef: object | null = null;
+  /** Hodet i planet (mm), gjenbrukt hver ramme. */
+  private readonly headPoint = { x: 0, z: 0 };
   private readonly head = new THREE.Vector3();
   private readonly tmpPos = new THREE.Vector3();
   private readonly tmpDir = new THREE.Vector3();
@@ -161,6 +180,7 @@ export class XRManager {
         controller: renderer.xr.getController(i),
         grip: renderer.xr.getControllerGrip(i),
         source: null,
+        line: pointerLine(),
       };
       slot.controller.addEventListener('connected', (e) => {
         slot.source = e.data ?? null;
@@ -170,8 +190,8 @@ export class XRManager {
         if (this.wrist.mesh.parent === slot.grip) slot.grip.remove(this.wrist.mesh);
         slot.source = null;
       });
-      slot.grip.add(controllerBody());
-      slot.controller.add(pointerLine());
+      slot.grip.add(controllerModel());
+      slot.controller.add(slot.line);
       this.rig.add(slot.controller, slot.grip);
       this.slots.push(slot);
     }
@@ -187,11 +207,12 @@ export class XRManager {
     scene.add(this.arcLine, this.marker);
 
     view.turn.subscribe(() => this.updateWristHelp(), true);
+    view.wristHelp.subscribe(() => this.updateWristHelp());
     scene.add(this.menu.mesh, this.menu.cursor);
     const dirty = (): void => {
       this.menuDirty = true;
     };
-    for (const o of [view.ceilings, view.measureHighlight, view.fps, view.quality, view.light, view.turn, view.xrRate, view.showExisting, view.showPlanned, view.xray, view.circuit] as const)
+    for (const o of [view.ceilings, view.measureHighlight, view.fps, view.quality, view.customEffects, view.light, view.turn, view.xrRate, view.wristHelp, view.showExisting, view.showPlanned, view.xray, view.circuit] as const)
       (o as { subscribe: (l: () => void) => void }).subscribe(dirty);
     view.xrRate.subscribe(() => void this.applyFrameRate());
     view.fps.subscribe(() => this.updateWristFps(), true);
@@ -244,11 +265,11 @@ export class XRManager {
     if (this.mode !== 'walk' || !this.presenting) return null;
     const scale = this.profile().framebufferScale;
     if (scale === this.sessionScale) return null;
-    return scale > this.sessionScale ? 'Skarpere nå – full oppløsning neste gang du går inn i VR.' : 'Oppløsningen endres neste gang du går inn i VR.';
+    return scale > this.sessionScale ? 'Skarpere nå – full oppløsning neste gang i VR.' : 'Oppløsningen endres neste gang i VR.';
   }
 
   private profile() {
-    return graphicsProfile({ quality: this.view.quality.value, top: false, passthrough: false });
+    return graphicsProfile({ quality: this.view.quality.value, top: false, passthrough: false, custom: this.view.customEffects.value });
   }
 
   /** Bildefrekvens fra innstillingene (eller ?hz= i adressen), hvis hodesettet støtter den. */
@@ -402,9 +423,19 @@ export class XRManager {
   }
 
   private setPointersVisible(visible: boolean): void {
+    for (const s of this.slots) s.line.visible = visible;
+  }
+
+  /**
+   * Pekestrålene når man går: bare høyre, og bare når menyen er åpen eller
+   * man tegner (ellers er teleport-buen tilbakemeldingen). To tegnekall
+   * mindre per øye det meste av tiden, og et roligere bilde.
+   */
+  private updatePointers(): void {
+    const use = this.menu.open || this.drawTool !== null;
     for (const s of this.slots) {
-      const line = s.controller.getObjectByName('peker');
-      if (line) line.visible = visible;
+      const want = use && s.source?.handedness === 'right';
+      if (s.line.visible !== want) s.line.visible = want;
     }
   }
 
@@ -424,6 +455,8 @@ export class XRManager {
       this.camera.getWorldPosition(this.head);
       return;
     }
+    // Overgangen fra svart går alltid ferdig, også om modellen mangler (ellers blir bildet stående svart).
+    if (this.fade.active && this.mode === 'walk') this.renderer.toneMappingExposure = this.exposure * this.fade.update(dt);
     const model = this.getModel();
     if (!model) return;
     this.frames++;
@@ -440,7 +473,6 @@ export class XRManager {
     }
 
     this.camera.getWorldPosition(this.head);
-    if (this.fade.active) this.renderer.toneMappingExposure = this.exposure * this.fade.update(dt);
 
     if (this.pendingSpawn && this.frames >= 3) {
       this.pendingSpawn = false;
@@ -453,6 +485,7 @@ export class XRManager {
 
     this.updateMenu(left, right);
     this.updateDraw(right);
+    this.updatePointers();
 
     // Teleport med venstre stikke.
     const ly = left?.axes[3] ?? 0;
@@ -465,6 +498,8 @@ export class XRManager {
         if (hit?.valid) {
           teleportTo(this.rig, this.head, hit.point);
           this.teleports++;
+          // Første teleport: håndleddet slutter å minne om stikka.
+          if (this.teleports === 1 && this.learned) this.updateWristHelp();
           this.camera.getWorldPosition(this.head);
         }
         this.aiming = false;
@@ -476,9 +511,38 @@ export class XRManager {
     this.turn(right, dt);
 
     // Gulvet følger med når man går fysisk opp/ned trinnet.
-    const level = model.floorLevelAt({ x: this.head.x / MM, z: this.head.z / MM });
+    const at = this.headPoint;
+    at.x = this.head.x / MM;
+    at.z = this.head.z / MM;
+    const level = model.floorLevelAt(at);
     this.floorUnderHead = level;
     if (level !== null) followFloor(this.rig, level * MM, dt);
+
+    this.updatePlace(model);
+    if (!this.learned) {
+      this.walkSeconds += dt;
+      if ((this.teleports > 0 && this.turns > 0) || this.walkSeconds >= LEARN_SECONDS) {
+        this.learned = true;
+        this.updateWristHelp();
+      }
+    }
+  }
+
+  /**
+   * Rommet (eller uteområdet) hodet er i, for håndleddet. I en døråpning
+   * (ingen av delene) står forrige rom til man er gjennom.
+   */
+  private updatePlace(model: ApartmentModel): void {
+    const room = model.roomAt(this.headPoint);
+    const where = room ?? model.outdoorAt(this.headPoint);
+    if (!where || where === this.placeRef) return;
+    this.placeRef = where;
+    this.place =
+      'room' in where
+        ? { name: where.room.name, area: where.area, roomId: where.room.id }
+        : { name: where.area.name, area: polygonArea(where.polygon), roomId: null };
+    if (this.menu.open) this.menuDirty = true;
+    this.updateWristHelp();
   }
 
   /* ---------------- VR-meny (X) ---------------- */
@@ -518,17 +582,21 @@ export class XRManager {
 
   private menuState() {
     const model = this.getModel();
+    const want = wantedEffects(this.view.quality.value, this.view.customEffects.value);
     return {
       tab: this.menuTab,
       ceilings: this.view.ceilings.value,
       highlight: this.view.measureHighlight.value,
       fps: this.view.fps.value,
       quality: this.view.quality.value,
+      effects: EFFECT_IDS.map((id) => ({ id, on: want[id] })),
       light: this.view.light.value,
       turn: this.view.turn.value,
       rate: this.view.xrRate.value,
+      wristHelp: this.view.wristHelp.value,
       layers: this.view.layers.layers.map((l) => ({ id: l.id, name: l.name, visible: this.view.layers.isVisible(l.id) })),
       rooms: model ? [...model.rooms.values()].map((r) => ({ id: r.room.id, name: r.room.name })) : [],
+      here: this.place?.roomId ?? null,
       showExisting: this.view.showExisting.value,
       showPlanned: this.view.showPlanned.value,
       xray: this.view.xray.value,
@@ -560,6 +628,7 @@ export class XRManager {
         else if (arg === 'existing') v.showExisting.set(!v.showExisting.value);
         else if (arg === 'planned') v.showPlanned.set(!v.showPlanned.value);
         else if (arg === 'xray') v.xray.set(!v.xray.value);
+        else if (arg === 'wristhelp') v.wristHelp.set(!v.wristHelp.value);
         break;
       case 'preset':
         applyPreset(v.layers, arg);
@@ -569,6 +638,11 @@ export class XRManager {
         break;
       case 'quality':
         if ((QUALITIES as readonly string[]).includes(arg)) v.quality.set(arg as Quality);
+        // «Egendefinert»: rett til effektene.
+        if (arg === 'custom') this.menuTab = 'effekter';
+        break;
+      case 'effect':
+        if ((EFFECT_IDS as readonly string[]).includes(arg)) v.toggleEffect(arg as EffectId);
         break;
       case 'light':
         if ((LIGHT_IDS as readonly string[]).includes(arg)) v.light.set(arg as LightId);
@@ -774,12 +848,12 @@ export class XRManager {
     }
     attr.needsUpdate = true;
     this.arcLine.geometry.setDrawRange(0, this.arc.count);
-    const color = hit?.valid ? '#39d98a' : '#ff5a5a';
-    (this.arcLine.material as THREE.LineBasicMaterial).color.set(color);
+    const color = hit?.valid ? ARC_OK : ARC_BAD;
+    (this.arcLine.material as THREE.LineBasicMaterial).color.copy(color);
     this.arcLine.visible = true;
     if (hit) {
       this.marker.position.copy(hit.point).y += 0.005;
-      for (const c of this.marker.children) ((c as THREE.Mesh).material as THREE.MeshBasicMaterial).color.set(color);
+      for (const c of this.marker.children) ((c as THREE.Mesh).material as THREE.MeshBasicMaterial).color.copy(color);
       this.marker.visible = true;
     } else {
       this.marker.visible = false;
@@ -833,6 +907,13 @@ export class XRManager {
       ]);
       return;
     }
+    if (this.learned && !this.view.wristHelp.value) {
+      const area = this.place ? `${areaText(this.place.area)} · ` : '';
+      // Lært på tid uten å ha teleportert: minn om stikka.
+      const lines = this.teleports > 0 ? [`${area}X: meny`] : [`${area}X: meny`, 'Venstre stikke: teleport'];
+      this.wrist.setLines(lines, this.place ? shortName(this.place.name) : null);
+      return;
+    }
     const t = this.view.turn.value;
     this.wrist.setLines([
       'Venstre stikke: teleport',
@@ -867,25 +948,9 @@ export class XRManager {
       },
       fade: { opacity: this.fade.opacity, visible: this.fade.mesh.visible, active: this.fade.active },
       exposure: this.renderer.toneMappingExposure,
+      wrist: { learned: this.learned, place: this.place?.name ?? null },
     };
   }
-}
-
-function controllerBody(): THREE.Object3D {
-  const g = new THREE.Group();
-  const body = new THREE.Mesh(
-    new THREE.BoxGeometry(0.035, 0.03, 0.11),
-    new THREE.MeshLambertMaterial({ color: '#2b2f33' }),
-  );
-  body.position.z = 0.02;
-  const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(0.04, 0.006, 6, 20),
-    new THREE.MeshLambertMaterial({ color: '#4a5058' }),
-  );
-  ring.position.set(0, 0.02, -0.035);
-  ring.rotation.x = Math.PI / 2.5;
-  g.add(body, ring);
-  return g;
 }
 
 function pointerLine(): THREE.Line {

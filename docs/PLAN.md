@@ -366,8 +366,10 @@ Other details:
 ## Phase 2d – «wow» graphics on the Quest 3
 
 Goal: «I want a wow experience when I put on the Quest 3». Scored per [SCORING.md](SCORING.md); the round is recorded in [QA.md](QA.md). It stays within the Quest 3 budget on «Standard» with the real `apartment.json`, as measured by the gatekeeper:
-- **draw calls per eye:** 32 at the start (unchanged, though the view now looks through the whole apartment), at most 33 in any room and direction (limit 40);
-- **textures:** about 10 MB (limit 32 MB);
+- **Draw calls per eye** (6 rooms × 8 directions, gatekeeper, round 2): at most 32 on «Standard» by day and 34 in the evening (limit 40).
+  - The worst case is always the start view, looking down the whole apartment.
+  - Round 3 takes 2–4 off that: one mesh per controller, and pointer lines only while they are in use.
+- **Textures:** about 12 MB (limit 32 MB).
 - **per frame:** nothing new.
 
 ### The first seconds in VR
@@ -382,19 +384,31 @@ Goal: «I want a wow experience when I put on the Quest 3». Scored per [SCORING
   - **light from each window in the room**, from how much of the window the point «sees» (the window's form factor). Points facing a window are bright, and the light falls off into the room;
   - **reflected light:** rooms with more window area are brighter all over, and a share of the light from rooms you can see into (open transitions, doors and openings) is added;
   - **darker edges and corners:** floors and ceilings along the walls, walls near the floor, ceiling and inner corners, and the bottom of furniture.
-  - **lamp light:** each lamp point («light» fixture) lights the room it hangs in, most of all straight below, falling off with distance.
-  - The three parts (base light, daylight from the windows, lamp light) are stored separately for every corner. «Lys» mixes them again on the CPU when it changes: no new bake, no new shader and no new draw calls. The bright end flattens out softly (at most 1.3), so walls never go flat white.
+  - **Lamp light:**
+    - Each lamp point («light» fixture) lights the room it hangs in, most of all straight below, falling off with distance.
+    - It is computed apart from the daylight, in a few milliseconds, only from the lamps that exist and pass the el filter (existing/planned, circuit). That is the same test as the glow.
+    - Drawing, moving, deleting or hiding a lamp changes the light at once. It used to stay until a reload.
+  - **Mixing:**
+    - The three parts (base light, daylight from the windows, lamp light) are stored separately for every corner.
+    - «Lys» mixes them again on the CPU when it changes: no new bake, no new shader and no new draw calls.
+    - The bright end flattens out softly (at most 1.3), so walls never go flat white.
+    - **Each part has its own colour per «Lys»,** while the brightness stays the same: golden window light in the morning, blue window light against warm lamps (about 2700 K) in the evening, and cool moonlight against warm lamps at night. «Dag» is white, as before.
   - The grid follows fixed world lines, so neighbouring surfaces share corners (no cracks).
   - **When it is baked:**
     - The bake runs only when it is needed (never on «Rask»).
     - It is cached per part: when the model changes, only parts whose own geometry changed, or whose rooms, walls or openings changed, are baked again.
     - Merged meshes made of exactly the same parts as last time are reused, so drawing a cable or a pipe merges only the el/vann mesh again.
-    - A rebuild takes about 20 ms in the browser on this machine (about 70 ms at 4× CPU slowdown). Before phase 2d it took about 40 ms; in round 1, about 120 ms.
+    - **Rebuild after drawing a pipe:**
+      - In the browser, `apartment.build` takes a median of 35–39 ms (77–115 ms at 4× CPU slowdown, gatekeeper and judge). That is about the same as before phase 2d; in round 1 it was about 100 ms and 330 ms.
+      - A rebuild of an unchanged model takes about 20 ms.
+      - Drawing a lamp recomputes only the lamp light and merges the building's meshes again.
     - Unit tests check that a cached rebuild takes under 60 % of a full bake, and that the walls, floors and ceilings keep the same meshes when you draw.
   - **No surfaces on top of each other:**
     - A wall end that is covered by another wall's face in the same plane (at flush corners) is not drawn.
     - Door casings are thicker than the skirting, and the skirting stops behind them.
     - Otherwise two faces with slightly different baked light would flicker; a test checks that no visible wall faces overlap.
+    - **Overlapping corners:** where a wall runs into another wall (both cover the corner), its covered end is pulled 2 cm into the other wall. Otherwise the edge of its hidden side face lies exactly in the other wall's visible face, and shows through as a thin dotted line, as in the bathroom corner. A test checks that no hidden side face has an edge in a visible wall face.
+    - Tessellated corners are fixed to 1 µm, so neighbouring cells meet exactly.
 - **Sun patches through the windows** (`sunlight.ts`). The sun shines through each window that faces it. The glass and the hole in the wall on both sides are projected along the sun's rays onto the floor and walls of the room and clipped to what is lit through all three, so the patch has the window's shape, with the mullion's shadow and soft edges. The patches go up the far wall when the sun is low, and are cut at doors and openings (the light goes through). One draw call. «Screen» blending, so patches on white walls never burn out.
 - **Light rays («Høy» only):** faint columns from the glass into the room that fade out before they reach the floor.
 
@@ -415,43 +429,69 @@ Goal: «I want a wow experience when I put on the Quest 3». Scored per [SCORING
   - **vinyl** everywhere else. The grey-green grow room and the grey kitchen get no wood boards.
 - A `room.floorFinish` field can replace this rule later (see «Ideas backlog», floor types).
 
-### «Lys»: morning, day, evening
+### «Lys»: morning, day, evening, night
 
 - **«Morgen»:** a low, warm sun from the east (the entrance side), long patches up the living room's back wall, a warm horizon.
 - **«Dag»** (default): exactly the lighting from phase 2b, with the sun through the front windows.
 - **«Kveld»:** a low sun from the west, an orange sky and a darker, warmer interior.
-  - Daylight from the windows is cut to 30 %, and the hemisphere light from 1.7 to 1.1. The start view is about half as bright as the day.
-  - The **lamps are lit:** the lamp's underside glows, and its light is baked into the room. A warm glow on the ceiling follows the ceiling, even when it slopes, and a pool of light lies on the floor below. Both stop at the room's walls.
-  - The light belongs to the room's layer, so layer choices for el do not switch the evening light off, and it follows the existing, planned and circuit filters.
+  - Daylight from the windows is cut to 30 % and turns blue. The hemisphere light goes from 1.7 to 1.1, and the sun's direct light from 0.8 to 0.3, so the window wall no longer looks sunlit from inside. The start view is about half as bright as the day.
+  - **The lamps are lit:**
+    - the lamp's underside glows, and its warm light is baked into the room;
+    - a glow on the ceiling follows the ceiling, even when it slopes, and a pool of light lies on the floor below;
+    - both fade softly, with no peak in the middle and no ring at the edge, and both stop at the room's walls.
+  - **Layers and filters:**
+    - The glow belongs to the room's layer, so layer choices for el do not switch the evening light off.
+    - The lit underside belongs to the lamp's own layer, so it disappears with the lamp.
+    - The glow and the baked lamp light both follow the existing, planned and circuit filters.
+- **«Natt»:**
+  - **Sky:** a dark sky with stars (small points computed in the sky shader, no texture) and the moon high in the south-west. The moon is dim and casts no patches, so there are no sun or ray meshes.
+  - **Inside:** window daylight is cut to 4 %, and the lamps are stronger than in the evening. Rooms without a lamp are dim and cool (moonlight); the lamp's room is warm.
+  - **Outside:** the windows reflect dark instead of a pale sky, and the ground is dark.
 - The compass direction is an assumption (the entrance wall faces east, −z). A `settings.north` field can come later.
-- **Where:** «Lys» on the laptop (under «Visning», next to «Grafikk»), the **L** key cycles it, and «Lys» in the VR menu (X → Visning). Saved per device like the other settings.
+- **Where:** «Lys» on the laptop (under «Visning», next to «Grafikk»), the **L** key cycles it (morning → day → evening → night), and «Lys» in the VR menu (X → Visning). Saved per device like the other settings.
 
 ### Graphics profile and presets
 
 One pure function, `graphicsProfile` (`src/scene/graphicsProfile.ts`), decides what is on for the laptop, the 2D plan, VR and passthrough. App and VR both use it.
 
-| | Rask | Standard (default) | Høy |
-|---|---|---|---|
-| Baked daylight | – | ✓ | ✓ |
-| Sun patches, sky, lamps (evening) | – | ✓ | ✓ |
-| Contact shadows under furniture | – | ✓ | ✓ |
-| Wood floors and tiles | – | ✓ | ✓ |
-| Light rays | – | – | ✓ |
-| VR resolution | 1.0 | 1.0 | 1.3 (next time you enter VR) |
-| VR foveation (blur at the edges) | 1.0 | 1.0 | 0.25 (applies at once) |
+| | Rask | Standard (default) | Høy | Egendefinert |
+|---|---|---|---|---|
+| Baked daylight and contact shadows («Dagslys og skygger») | – | ✓ | ✓ | your choice |
+| Sun patches («Solflekker») | – | ✓ | ✓ | your choice |
+| Lamps in the evening, glow and baked light («Lampelys kveld/natt») | – | ✓ | ✓ | your choice |
+| Sky and outside («Himmel og utsikt») | – | ✓ | ✓ | your choice |
+| Wood floors and tiles («Gulvmønster») | – | ✓ | ✓ | your choice |
+| Light rays («Lysstråler») | – | – | ✓ | your choice |
+| «Skarpere bilde»: VR resolution / foveation | 1.0 / 1.0 | 1.0 / 1.0 | 1.3 (next VR session) / 0.25 (at once) | your choice |
 
 - In **passthrough** (measuring and «Lag ny modell») there is never sky or effects.
-- In the **2D plan** there is no sky, sun or lamps, but the baked light stays.
+- In the **2D plan** there is no sky, sun or lamps, but the baked light stays. It is always lit like «Dag», whatever «Lys» says: the plan is a drawing.
+- **«Egendefinert»: each effect on or off by itself**, including the sharper image.
+  - Changing one effect starts from what is on now, and the choice becomes «Egendefinert», unless the set is exactly one of the presets.
+  - The set is saved per device and comes back when you choose «Egendefinert» again; a preset does not erase it.
+  - The rules above still apply: no sun or lamps in 2D or x-ray, and nothing in passthrough.
+  - **On the laptop:** «Egendefinert» in the «Grafikk» list, and the «Tilpass effekter» box under it, which opens when you choose «Egendefinert». «Skarpere bilde» gives the «Høy» pixel density.
+  - **In VR:** X → Visning → «Egendefinert» in the «Grafikk» row opens a sub-page with one button per effect.
 - «Standard» keeps the phase 1 resolution and foveation until a reading on the real Quest shows headroom (see QA.md).
 
 ### Later work (graphics)
 
-- Wall finishes in the same texture array as the floors (paint, wallpaper, wet-room tiles); see «Ideas backlog».
-- Floor reflections on «Høy» (one cube map per room).
-- A `settings.north` field so «Lys» follows the real compass; «Natt».
-- A quieter wrist panel that shows the room you are in; comfort options (seated mode, vignette during smooth turning) – Research B, proposals 4–5.
-- Per-effect toggles («Grafikk …» with «Egendefinert») on the laptop and in VR.
-- If the Quest shows headroom at 90 fps: foveation 0.5 on «Standard».
+From research round 3, not built yet (the judge asked for a small round 3):
+- **Window reflections in the floors:** reflections of the room's windows in wood, vinyl and tile, computed in the floor shader with Fresnel. They have true depth in VR, and need no draw calls or textures.
+- **Paint and tiles on the walls:**
+  - a faint roller pattern on walls and ceilings, for stereo depth;
+  - tiles on the walls of wet rooms, using the same rule as the floors;
+  - wood grain on wood-coloured furniture.
+- **More depth outside:** lawn and pavers on the outside areas, and two soft tree rings with real parallax, in the sky shader.
+- **Bevelled edges** on furniture and doors; door swing arcs shown only in 2D and the dollhouse view.
+- **Comfort** (Research B):
+  - seated mode, which lifts the view to standing height;
+  - a vignette during smooth turning, and a blink when teleporting;
+  - «Gå rundt» on the laptop at eye height.
+- **Wall junctions:** the stue/planterom partition starts inside the grow-room wall, and two facades have walls whose faces lie on top of each other (a wall with a higher floor is not counted as covering). Tests list the known cases. This needs real merging of the walls. Corners where both walls run through are owned by one wall, and joints in the same plane share their points (round 4).
+- **Holes across a cut line:** a window or passage drawn across the line where a wall is cut (only possible by editing the file by hand) shows a strip of the cut face inside the opening.
+- A `settings.north` field so «Lys» follows the real compass.
+- If the Quest shows headroom at 90 fps: foveation 0.5 on «Standard». Please report the ms reading.
 
 ## Ideas backlog (from the user, 2026-10-16)
 
@@ -662,10 +702,19 @@ src/
 
 - **Laptop, 3D:** drag to rotate, scroll to zoom, right-drag to pan.
 - **Laptop, Ovenfra (2D):** drag to pan, scroll to zoom. The plan is cut at `settings.planCutHeight` like an architectural drawing, with a 1 m grid, scale bar and cursor coordinates in mm. F toggles FPS.
-- **Quest:** left stick forward = aim the teleport arc, release = jump. Right stick left/right = snap turn 30°. Y = show/hide FPS. You start standing just inside the entrance door, facing the longest view (through the openings to the living room and the kitchen), after a short fade in from black.
+- **Quest:**
+  - Left stick forward aims the teleport arc; release to jump. Right stick left/right snap-turns 30°. Y shows or hides FPS.
+  - You start standing just inside the entrance door, facing the longest view (through the openings to the living room and the kitchen), after a short fade in from black.
+  - **The wrist panel** shows the four control lines until you have teleported and turned once (or after 20 s).
+  - After that it shows only the room you are in and its area, for example «Stue» / «24,5 m² · X: meny». In a doorway, the last room stays until you are through.
+  - «Vis alltid hjelp på håndleddet» (X → Komfort) keeps the help lines.
+  - Each controller is one mesh (one draw call). The pointer line shows only on the right hand while the menu is open or you are drawing; otherwise the teleport arc is the feedback.
+  - The wrist panel shows the area like the laptop labels («24,5 m²»). Long names are cut before a bracket («Hage»).
+  - If the panel went quiet on the timer before you teleported, it keeps «Venstre stikke: teleport».
+  - «Gå til» marks the room you are in.
 - **Quest, measuring:** see the controls table in phase 2.
-- **Quest, menu (X):** point with the right controller and pull the trigger. Tabs: Visning, Lag, Tegn, Gå til, Komfort. Right stick back turns 180°.
-- **Laptop, keys:** 1/2 (3D/2D), T (ceilings), U (placeholders), K (dollhouse), R (reset view), F (FPS), L (light: morning → day → evening), H (help), S/E/V/P (draw tools), Enter/Backspace/Esc/Delete/Ctrl+Z while drawing.
+- **Quest, menu (X):** point with the right controller and pull the trigger. Tabs: Visning (with the «Effekter …» sub-page), Lag, Tegn, Gå til, Komfort. Right stick back turns 180°.
+- **Laptop, keys:** 1/2 (3D/2D), T (ceilings), U (placeholders), K (dollhouse), R (reset view), F (FPS), L (light: morning → day → evening → night), H (help), S/E/V/P (draw tools), Enter/Backspace/Esc/Delete/Ctrl+Z while drawing.
 - **Laptop, «Lag ny modell»:**
   - tools S/R/M/I/D/V/O; type numbers for lengths;
   - Enter/double-click/right-click to finish a polygon, Backspace (last point or delete), Esc, Delete;

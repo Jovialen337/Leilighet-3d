@@ -77,6 +77,29 @@ export async function pixelAt(page: Page, x: number, y: number): Promise<[number
   }, shot.toString('base64'));
 }
 
+/** Leser flere piksler fra ett skjermbilde av siden (RGB). */
+export async function pixelsAt(page: Page, points: readonly { x: number; y: number }[]): Promise<[number, number, number][]> {
+  const shot = await page.screenshot();
+  return page.evaluate(
+    async ([b64, pts]) => {
+      const img = new Image();
+      img.src = `data:image/png;base64,${b64}`;
+      await img.decode();
+      const c = document.createElement('canvas');
+      c.width = img.width;
+      c.height = img.height;
+      const ctx = c.getContext('2d')!;
+      ctx.drawImage(img, 0, 0);
+      const scale = img.width / window.innerWidth;
+      return pts.map((p) => {
+        const d = ctx.getImageData(Math.round(p.x * scale), Math.round(p.y * scale), 1, 1).data;
+        return [d[0]!, d[1]!, d[2]!] as [number, number, number];
+      });
+    },
+    [shot.toString('base64'), points] as const,
+  );
+}
+
 export const colorDistance = (a: number[], b: number[]): number =>
   Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!);
 
@@ -93,6 +116,7 @@ export interface XRState {
   floorUnderHead: number | null;
   menu: { open: boolean; tab: string; hovered: string | null };
   draw: { tool: string | null; points: number; hover: { x: number; h: number; z: number } | null };
+  wrist: { learned: boolean; place: string | null };
 }
 
 export const xrState = (page: Page): Promise<XRState> =>

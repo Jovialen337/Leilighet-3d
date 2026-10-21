@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { Observable } from '../../src/state/Observable';
 import { PersistedSettings, inRange, isBool, oneOf, type KV } from '../../src/state/persist';
+import { SettingsBinding, SETTINGS_KEY } from '../../src/state/settings';
+import { ViewState } from '../../src/state/ViewState';
+import { presetEffects, wantedEffects } from '../../src/scene/graphicsProfile';
 
 class MemoryKV implements KV {
   readonly data = new Map<string, string>();
@@ -56,5 +59,47 @@ describe('lagrede innstillinger', () => {
     p.set(true);
     s.clear();
     expect(kv.data.size).toBe(0);
+  });
+});
+
+describe('innstillingene i appen', () => {
+  it('«Tilbakestill innstillinger» setter alt som lagres tilbake til standard og tømmer lagringen', () => {
+    const kv = new MemoryKV();
+    const view = new ViewState();
+    const fresh = new ViewState();
+    const binding = new SettingsBinding(view, kv);
+    // Endre alt som lagres.
+    view.ceilings.set(false);
+    view.measureHighlight.set(true);
+    view.quality.set('custom');
+    view.customEffects.set({ shafts: true });
+    view.light.set('natt');
+    view.xrRate.set(120);
+    view.turn.set('smooth');
+    view.wristHelp.set(true);
+    view.sectionHeight.set(1200);
+    view.dollhouse.set(true);
+    view.cameraMode.set('top');
+    view.showExisting.set(false);
+    view.showPlanned.set(false);
+    view.circuit.set('kurs-1');
+    view.xray.set(true);
+    expect(JSON.parse(kv.getItem(SETTINGS_KEY)!)).toMatchObject({ kvalitet: 'custom', effekter: { shafts: true }, lys: 'natt', hjelp: true });
+    binding.reset({ layers: [] });
+    for (const key of Object.keys(fresh) as (keyof ViewState)[]) {
+      const o = fresh[key] as unknown;
+      if (o && typeof o === 'object' && 'value' in o && key !== 'inXR' && key !== 'fps') expect((view[key] as { value: unknown }).value, key).toEqual((o as { value: unknown }).value);
+    }
+    expect(kv.data.size).toBe(0);
+  });
+
+  it('lagret «Egendefinert»-sett med ukjente eller ødelagte verdier gir standard', () => {
+    const kv = new MemoryKV();
+    kv.setItem(SETTINGS_KEY, JSON.stringify({ kvalitet: 'custom', effekter: { tåke: true } }));
+    const view = new ViewState();
+    new SettingsBinding(view, kv);
+    expect(view.quality.value).toBe('custom');
+    // Effektene er de samme som «Standard».
+    expect(wantedEffects(view.quality.value, view.customEffects.value)).toEqual(presetEffects('medium'));
   });
 });

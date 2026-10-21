@@ -3,7 +3,7 @@
  * samme motor som Immersive Web Emulator-utvidelsen).
  */
 import { expect } from '@playwright/test';
-import { button, collectErrors, enterVR, frames, stats, stick, teleport, test, xrState } from './helpers';
+import { button, collectErrors, enterVR, frames, menuPress, press, stats, stick, teleport, test, waitForModel, xrState } from './helpers';
 
 test('går inn i VR og starter stående innenfor inngangsdøra', async ({ page }) => {
   const errors = collectErrors(page);
@@ -70,6 +70,44 @@ test('snu 30° med høyre stikke, rundt hodet', async ({ page }) => {
   const s2 = await xrState(page);
   expect(s2.turns).toBe(2);
   expect(s2.rig.yaw).toBeCloseTo(s0.rig.yaw, 6);
+});
+
+test('håndleddet: hjelp til kontrollene er lært, så bare rommet du står i; én mesh per kontroller', async ({ page }) => {
+  test.setTimeout(90_000);
+  await enterVR(page);
+  const wrist = () =>
+    page.evaluate(() => {
+      const w = (window as any).leilighet.xr.wrist;
+      return { lines: w.lines as string[], title: w.title as string | null };
+    });
+  // Hver kontroller er én mesh (ett tegnekall).
+  const meshes = await page.evaluate(() =>
+    (window as any).leilighet.xr.slots.map((s: any) => s.grip.children.filter((c: any) => c.isMesh && c.name === 'kontroller').length),
+  );
+  expect(meshes).toEqual([1, 1]);
+  expect((await wrist()).lines).toContain('Venstre stikke: teleport');
+  expect((await xrState(page)).wrist).toEqual({ learned: false, place: 'Gang' });
+  // Teleport til stua og snu: da viser håndleddet bare rommet og arealet.
+  await teleport(page, 1, 0, -15);
+  expect((await xrState(page)).wrist.learned).toBe(false);
+  await stick(page, 'right', 1, 0);
+  await stick(page, 'right', 0, 0);
+  expect((await xrState(page)).wrist).toEqual({ learned: true, place: 'Stue' });
+  const w = await wrist();
+  expect(w.title).toBe('Stue');
+  expect(w.lines).toEqual([expect.stringMatching(/^\d+(,\d)? m² · X: meny$/)]);
+  // «Gå til rom» viser det nye rommet.
+  await page.evaluate(() => (window as any).leilighet.xr.goToRoom('kjokken'));
+  await expect.poll(async () => (await wrist()).title, { timeout: 5_000 }).toBe('Kjøkken');
+  // «Vis alltid hjelp på håndleddet» (Komfort): hjelpen kommer tilbake, og valget huskes.
+  await press(page, 'left', 'x-button');
+  await menuPress(page, 'tab:komfort');
+  await menuPress(page, 'toggle:wristhelp');
+  expect(await page.evaluate(() => (window as any).leilighet.xr.menuItemsNow().find((i: any) => i.id === 'toggle:wristhelp').active)).toBe(true);
+  expect((await wrist()).lines).toContain('Venstre stikke: teleport');
+  await page.reload();
+  await waitForModel(page);
+  expect(await page.evaluate(() => (window as any).leilighet.view.wristHelp.value)).toBe(true);
 });
 
 test('går man fysisk opp trinnet, følger gulvhøyden etter', async ({ page }) => {

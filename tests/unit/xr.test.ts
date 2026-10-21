@@ -4,6 +4,7 @@ import { ApartmentScene } from '../../src/scene/ApartmentScene';
 import { Materials } from '../../src/scene/materials';
 import { TeleportArc } from '../../src/xr/teleport';
 import { followFloor, placeAtSpawn, snapTurn, teleportTo } from '../../src/xr/rig';
+import { controllerModel } from '../../src/xr/controllerModel';
 import { modelOf } from './helpers';
 
 const model = modelOf();
@@ -109,6 +110,26 @@ describe('spillerrigg', () => {
     expect(rig.position.y).toBeGreaterThan(0.17); // ca. 0,5 s
     for (let i = 0; i < 36; i++) followFloor(rig, 0.18, 1 / 72);
     expect(rig.position.y).toBeCloseTo(0.18, 3);
+  });
+});
+
+describe('kontrollermodellen', () => {
+  it('er én mesh (ett tegnekall) med kroppen og ringen i hver sin farge', () => {
+    const m = controllerModel();
+    expect(m.isMesh).toBe(true);
+    expect(m.children).toHaveLength(0);
+    expect(m.geometry.groups).toHaveLength(0);
+    expect((m.material as THREE.MeshLambertMaterial).vertexColors).toBe(true);
+    const col = m.geometry.getAttribute('color');
+    const colours = new Set<string>();
+    for (let i = 0; i < col.count; i++) colours.add(`${col.getX(i).toFixed(4)},${col.getY(i).toFixed(4)},${col.getZ(i).toFixed(4)}`);
+    expect(colours.size).toBe(2);
+    // Samme mål som før: kroppen 3,5 × 3 × 11 cm, ringen foran.
+    m.geometry.computeBoundingBox();
+    const b = m.geometry.boundingBox!;
+    expect(b.max.z).toBeCloseTo(0.075, 3);
+    expect(b.min.z).toBeLessThan(-0.07);
+    expect(b.max.x - b.min.x).toBeCloseTo(0.092, 2);
   });
 });
 

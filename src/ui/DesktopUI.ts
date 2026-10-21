@@ -19,6 +19,7 @@ import { boundCheckbox, boundRange, boundSelect } from './controls';
 import { ACTION_TEXT, SHORTCUTS, isTypingTarget, shortcutFor } from './shortcuts';
 import { QUALITIES, TURN_MODES, XR_RATES, type Quality, type TurnMode, type XRRate } from '../state/ViewState';
 import { LIGHT_IDS, LIGHT_TEXT, type LightId } from '../scene/lighting';
+import { EFFECT_IDS, EFFECT_TEXT, wantedEffects } from '../scene/graphicsProfile';
 
 export interface DesktopActions {
   reload: () => void;
@@ -34,7 +35,7 @@ export interface DesktopActions {
   builder?: { entry: HTMLElement; panel: HTMLElement; open: () => void };
 }
 
-const QUALITY_TEXT: Record<Quality, string> = { low: 'Rask', medium: 'Standard', high: 'Høy' };
+const QUALITY_TEXT: Record<Quality, string> = { low: 'Rask', medium: 'Standard', high: 'Høy', custom: 'Egendefinert' };
 const TURN_TEXT = (t: TurnMode): string => (t === 'smooth' ? 'Myk dreiing' : `${t}° om gangen`);
 
 const VR_TEXT: Record<XRSupport, { label: string; hint: string; enabled: boolean }> = {
@@ -111,6 +112,12 @@ export class DesktopUI {
       if (document.fullscreenElement) void document.exitFullscreen();
       else void document.documentElement.requestFullscreen?.().catch(() => undefined);
     });
+    const qualitySelect = boundSelect<Quality>('Grafikk', view.quality, QUALITIES.map((q) => ({ value: q, label: QUALITY_TEXT[q] })), 'setting-quality');
+    const effects = this.effectsPanel(view);
+    // Velger man «Egendefinert», åpnes effektene.
+    qualitySelect.addEventListener('change', () => {
+      if (view.quality.value === 'custom') effects.open = true;
+    });
     const shortcutsButton = h('button', { class: 'small', 'data-testid': 'show-help' }, 'Hurtigtaster (H)');
     shortcutsButton.addEventListener('click', () => this.toggleHelp());
     this.roomList = h('div', { class: 'room-list', 'data-testid': 'rooms' });
@@ -121,6 +128,7 @@ export class DesktopUI {
       h('h2', {}, 'Innstillinger'),
       boundSelect<TurnMode>('VR: snu', view.turn, TURN_MODES.map((t) => ({ value: t, label: TURN_TEXT(t) })), 'setting-turn'),
       boundSelect<XRRate>('VR: bildefrekvens', view.xrRate, XR_RATES.map((r) => ({ value: r, label: `${r} Hz` })), 'setting-rate'),
+      boundCheckbox('VR: vis alltid hjelp på håndleddet', view.wristHelp, 'setting-wrist-help'),
       h('p', { class: 'hint' }, 'Valgene lagres i denne nettleseren. Quest og laptop har hver sine valg; i VR finner du dem i menyen (X).'),
     );
     const resetSettings = h('button', { class: 'link', 'data-testid': 'reset-settings' }, 'Tilbakestill innstillinger');
@@ -163,10 +171,11 @@ export class DesktopUI {
         h('div', { class: 'group' },
           h('h2', {}, 'Visning'),
           h('div', { class: 'segmented' }, this.modeButtons.orbit, this.modeButtons.top),
-          boundSelect<Quality>('Grafikk', view.quality, QUALITIES.map((q) => ({ value: q, label: QUALITY_TEXT[q] })), 'setting-quality'),
-          h('p', { class: 'hint' }, 'Standard: dagslys, sol og himmel. Høy: også lysstråler og skarpere bilde i VR.'),
+          qualitySelect,
+          h('p', { class: 'hint' }, 'Standard: dagslys, sol og himmel. Høy: også lysstråler og skarpere bilde i VR. Egendefinert: velg selv.'),
+          effects,
           boundSelect<LightId>('Lys', view.light, LIGHT_IDS.map((l) => ({ value: l, label: LIGHT_TEXT[l] })), 'setting-light'),
-          h('p', { class: 'hint' }, 'Tast L. Morgen: sol fra øst (inngangssiden). Kveld: lampene er tent.'),
+          h('p', { class: 'hint' }, 'Tast L. Morgen: sol fra øst (inngangssiden). Kveld: lampene er tent. Natt: stjerner og bare lampelys. Gjelder 3D og VR; 2D-planen har alltid dagslys.'),
           ceilingBox,
           measureBox,
           this.legend,
@@ -264,6 +273,31 @@ export class DesktopUI {
         this.toggleHelp();
         break;
     }
+  }
+
+  /** «Tilpass effekter»: hver effekt av og på for seg (gjør grafikkvalget til «Egendefinert»). */
+  private effectsPanel(view: ViewState): HTMLDetailsElement {
+    const boxes = EFFECT_IDS.map((id) => {
+      const input = h('input', { type: 'checkbox', 'data-testid': `effect-${id}` });
+      input.addEventListener('change', () => {
+        if (input.checked !== wantedEffects(view.quality.value, view.customEffects.value)[id]) view.toggleEffect(id);
+      });
+      return { id, input, label: h('label', { class: 'check' }, input, EFFECT_TEXT[id]) };
+    });
+    const sync = (): void => {
+      const want = wantedEffects(view.quality.value, view.customEffects.value);
+      for (const b of boxes) b.input.checked = want[b.id];
+    };
+    view.quality.subscribe(sync);
+    view.customEffects.subscribe(sync, true);
+    const details = h(
+      'details',
+      { class: 'effects', 'data-testid': 'effects' },
+      h('summary', {}, 'Tilpass effekter'),
+      ...boxes.map((b) => b.label),
+      h('p', { class: 'hint' }, 'Et valg her gjør grafikken til «Egendefinert», og settet huskes. I VR: X → Visning → Egendefinert.'),
+    );
+    return details;
   }
 
   private buildHelp(): HTMLElement {

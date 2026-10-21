@@ -6,8 +6,9 @@ import { buildContactShade } from '../../src/scene/shade';
 import { buildParts, partsFor } from '../../src/scene/buildParts';
 import { BAKE, Baker, formFactor, mixLight, tessellate } from '../../src/scene/bake';
 import { buildSunPatches, buildSunShafts, clipConvex, sunPatches, SUN_PATCH } from '../../src/scene/sunlight';
-import { buildLampGlow, LAMP } from '../../src/scene/lamps';
-import { graphicsProfile } from '../../src/scene/graphicsProfile';
+import { buildLampGlow, falloff, LAMP } from '../../src/scene/lamps';
+import { EFFECT_IDS, customStart, graphicsProfile, isEffectChoices, matchingPreset, presetEffects, toggleEffect, wantedEffects } from '../../src/scene/graphicsProfile';
+import { ViewState } from '../../src/state/ViewState';
 import { DETAIL, detailLayers, floorSurface, SURF, woodLike } from '../../src/scene/detail';
 import { Fade, FADE } from '../../src/xr/fade';
 import { pointInPolygon, polygonGap } from '../../src/geometry/math2d';
@@ -16,6 +17,7 @@ import { loadDoc, modelOf, PUBLISHED_PATH } from './helpers';
 import { readFileSync } from 'node:fs';
 import { ApartmentScene } from '../../src/scene/ApartmentScene';
 import { Materials } from '../../src/scene/materials';
+import { interpolate } from '../../src/model/ApartmentModel';
 
 const model = modelOf();
 
@@ -85,8 +87,15 @@ describe('bildefrekvens', () => {
   });
 });
 
-describe('lys: morgen, dag og kveld', () => {
-  it('«Dag» er standardlyset, og alle tre gir tydelig ulike veggretninger', () => {
+/** Største forskjell mellom to like lange tallrekker. */
+const maxDiff = (a: ArrayLike<number>, b: ArrayLike<number>): number => {
+  let m = 0;
+  for (let i = 0; i < a.length; i++) m = Math.max(m, Math.abs(a[i]! - b[i]!));
+  return m;
+};
+
+describe('lys: morgen, dag, kveld og natt', () => {
+  it('«Dag» er standardlyset, og alle gir tydelig ulike veggretninger', () => {
     expect(LIGHTS.dag).toBe(LIGHTING);
     for (const id of LIGHT_IDS) {
       const p = LIGHTS[id];
@@ -99,8 +108,8 @@ describe('lys: morgen, dag og kveld', () => {
       expect((Math.max(...walls) - Math.min(...walls)) / Math.max(...walls)).toBeGreaterThan(0.1);
       // Sola står over horisonten, og taket blir ikke mørkt.
       expect(p.key.from[1]).toBeGreaterThan(0);
-      // Taket blir ikke svart (om kvelden lyser lampene det opp i tillegg).
-      expect(shadeOf({ x: 0, y: -1, z: 0 }, p)).toBeGreaterThan(id === 'kveld' ? 0.2 : 0.3);
+      // Taket blir ikke svart (om kvelden og natta lyser lampene det opp i tillegg).
+      expect(shadeOf({ x: 0, y: -1, z: 0 }, p)).toBeGreaterThan(id === 'natt' ? 0.06 : id === 'kveld' ? 0.2 : 0.3);
     }
   });
 
@@ -114,6 +123,20 @@ describe('lys: morgen, dag og kveld', () => {
     expect(LIGHTS.kveld.bake.window).toBeLessThan(0.5);
     expect(LIGHTS.kveld.bake.lamp).toBe(1);
     expect(LIGHTS.dag.bake).toEqual({ ambient: 1, window: 1, lamp: 0 });
+  });
+
+  it('natta er mørkest: ingen sol, nesten ikke dagslys, sterkere lamper og stjerner', () => {
+    const up = (id: keyof typeof LIGHTS) => shadeOf({ x: 0, y: 1, z: 0 }, LIGHTS[id]);
+    expect(up('natt')).toBeLessThan(up('kveld'));
+    expect(up('natt')).toBeLessThan(0.4 * up('dag'));
+    expect(LIGHTS.natt.sun.strength).toBe(0);
+    expect(LIGHTS.natt.bake.window).toBeLessThan(0.1);
+    expect(LIGHTS.natt.lamps).toBeGreaterThan(LIGHTS.kveld.lamps);
+    expect(LIGHTS.natt.bake.lamp).toBeGreaterThan(LIGHTS.kveld.bake.lamp);
+    expect(LIGHTS.natt.night).toBe(1);
+    for (const id of ['morgen', 'dag', 'kveld'] as const) expect(LIGHTS[id].night).toBe(0);
+    // L går rundt: morgen → dag → kveld → natt.
+    expect(LIGHT_IDS).toEqual(['morgen', 'dag', 'kveld', 'natt']);
   });
 });
 
@@ -306,37 +329,48 @@ describe('sollys gjennom vinduene', () => {
 });
 
 describe('lampelys om kvelden', () => {
-  it('glød i taket og en lys flekk på gulvet under hvert lampepunkt, i lampens lag', () => {
+  it('glød i taket og en lys flekk på gulvet i rommets lag; den lysende undersiden i lampas lag', () => {
     const lamps = model.data.fixtures.filter((f) => f.type === 'light');
     expect(lamps.length).toBeGreaterThan(0);
     const glow = buildLampGlow(model, 1);
-    // Lyset hører til rommet lampa henger i (rommets lag), ikke el-laget.
-    const roomLayers = lamps.map((l) => model.roomAt(model.fixturePlacement(l)! as never)?.room.layer ?? 'structure');
-    expect([...glow.keys()].sort()).toEqual([...new Set(roomLayers)].sort());
-    const g = [...glow.values()][0]!;
-    const c = g.getAttribute('color');
-    const p = g.getAttribute('position');
     const lamp = lamps[0]!;
     const pl = model.fixturePlacement(lamp)!;
     const info = model.roomAt({ x: pl.x, z: pl.z })!;
+    // Lyset hører til rommet lampa henger i (rommets lag), undersiden til lampa (el-laget).
+    expect([...glow.keys()].sort()).toEqual([...new Set([info.room.layer ?? 'structure', lamp.layer!])].sort());
+    const g = glow.get(info.room.layer ?? 'structure')!;
+    const c = g.getAttribute('color');
+    const p = g.getAttribute('position');
     const floor = info.room.floorLevel;
+    const kinds = { floor: 0, ceiling: 0, other: 0 };
     let max = 0;
-    const kinds = { floor: 0, bulb: 0, ceiling: 0 };
     for (let i = 0; i < c.count; i++) {
       max = Math.max(max, c.getW(i));
       const y = p.getY(i) * 1000;
       const at = { x: p.getX(i) * 1000, z: p.getZ(i) * 1000 };
       if (Math.abs(y - (floor + LAMP.lift)) < 0.5) kinds.floor++;
       else if (Math.abs(y - (model.ceilingAt(info, at) - LAMP.lift)) < 0.5) kinds.ceiling++;
-      else kinds.bulb++;
+      else kinds.other++;
     }
-    // Selve lampa lyser sterkest.
-    expect(max).toBeCloseTo(LAMP.bulb, 6);
-    // Gløden følger taket (også skrått), flekken ligger på gulvet, og lampas underside lyser.
+    // Gløden følger taket (også skrått), og flekken ligger på gulvet.
     expect(kinds.floor).toBeGreaterThan(0);
     expect(kinds.ceiling).toBeGreaterThan(0);
-    expect(kinds.bulb).toBe(LAMP.segments * 3);
-    expect([...buildLampGlow(model, 0.5).values()][0]!.getAttribute('color').getW(0)).toBeCloseTo(LAMP.halo.alpha / 2, 6);
+    expect(kinds.other).toBe(0);
+    expect(max).toBeCloseTo(LAMP.halo.alpha, 6);
+    // Selve lampa lyser sterkest, jevnt.
+    const bulb = glow.get(lamp.layer!)!.getAttribute('color');
+    expect(bulb.count).toBe(LAMP.segments * 3);
+    for (let i = 0; i < bulb.count; i++) expect(bulb.getW(i)).toBeCloseTo(LAMP.bulb, 6);
+    expect(buildLampGlow(model, 0.5).get(info.room.layer ?? 'structure')!.getAttribute('color').getW(0)).toBeCloseTo(LAMP.halo.alpha / 2, 6);
+  });
+
+  it('lysflekken er myk: flat i midten, ingen ring i kanten', () => {
+    expect(falloff(0)).toBe(1);
+    expect(falloff(1)).toBe(0);
+    // Flat i midten og helt flat ut mot kanten (ingen knekk).
+    expect(falloff(0.1)).toBeGreaterThan(0.97);
+    expect((falloff(0.99) - falloff(1)) / 0.01).toBeLessThan(0.1);
+    for (let t = 0; t < 1; t += 0.05) expect(falloff(t + 0.05)).toBeLessThanOrEqual(falloff(t));
   });
 });
 
@@ -347,7 +381,7 @@ describe('grafikkprofilen', () => {
     expect(Object.values(low.effects).every((v) => v === false)).toBe(true);
     const med = graphicsProfile({ quality: 'medium', top: false, passthrough: false });
     expect(med.sky).toBe(true);
-    expect(med.effects).toEqual({ shades: true, baked: true, sun: true, shafts: false, lamps: true, detail: true });
+    expect(med.effects).toEqual({ shades: true, baked: true, sun: true, shafts: false, lamps: true, bakedLamps: true, detail: true });
     // Standard i VR: samme oppløsning og foveering som før.
     expect(med.framebufferScale).toBe(1);
     expect(med.foveation).toBe(1);
@@ -371,6 +405,63 @@ describe('grafikkprofilen', () => {
       expect([xray.effects.sun, xray.effects.shafts, xray.effects.lamps]).toEqual([false, false, false]);
       expect(xray.sky).toBe(quality !== 'low');
     }
+  });
+
+  it('«Egendefinert»: hver effekt for seg, også skarpere bilde, med forhåndsvalget som utgangspunkt', () => {
+    // Lysstråler på «Standard»: blir «Egendefinert» med Standard + stråler.
+    let t = toggleEffect('medium', {}, 'shafts');
+    expect(t.quality).toBe('custom');
+    expect(t.custom).toEqual({ ...presetEffects('medium'), shafts: true });
+    const p = graphicsProfile({ quality: t.quality, top: false, passthrough: false, custom: t.custom });
+    expect(p.effects).toMatchObject({ shafts: true, sun: true, detail: true });
+    // Stråler uten skarpere bilde: samme oppløsning som «Standard».
+    expect([p.framebufferScale, p.foveation]).toEqual([1, 1]);
+    // Skarpere bilde uten stråler.
+    const sharp = graphicsProfile({ quality: 'custom', top: false, passthrough: false, custom: { sharp: true } });
+    expect([sharp.framebufferScale, sharp.foveation, sharp.effects.shafts]).toEqual([1.3, 0.25, false]);
+    // Blir settet likt et forhåndsvalg, er det det forhåndsvalget.
+    t = toggleEffect('custom', t.custom, 'sharp');
+    expect(t.quality).toBe('high');
+    expect(matchingPreset(presetEffects('low'))).toBe('low');
+    // Lampelys av: heller ikke bakt inn i fargene; himmel av; dagslys styrer også de myke skyggene.
+    const own = graphicsProfile({ quality: 'custom', top: false, passthrough: false, custom: { lamps: false, sky: false, baked: false } });
+    expect([own.effects.lamps, own.effects.bakedLamps, own.sky, own.effects.baked, own.effects.shades]).toEqual([false, false, false, false, false]);
+    // Et lagret sett som mangler noe, er som «Standard» der.
+    expect(wantedEffects('custom', { shafts: true })).toEqual({ ...presetEffects('medium'), shafts: true });
+    // «Egendefinert» valgt fra «Høy» uten lagret sett: starter med «Høy» (stråler og skarpere bilde beholdes).
+    expect(customStart('high', {})).toEqual(presetEffects('high'));
+    expect(customStart('high', { shafts: false })).toEqual({ shafts: false });
+    const view = new ViewState();
+    view.quality.set('high');
+    view.quality.set('custom');
+    expect(wantedEffects(view.quality.value, view.customEffects.value)).toEqual(presetEffects('high'));
+    // Forhåndsvalgene bryr seg ikke om det lagrede settet.
+    for (const q of ['low', 'medium', 'high'] as const) expect(wantedEffects(q, { sun: false, shafts: true })).toEqual(presetEffects(q));
+  });
+
+  it('egne valg slår aldri på noe i gjennomsyn, 2D-planen eller røntgen', () => {
+    // Alle 2^7 sett: reglene for gjennomsyn, 2D og røntgen gjelder alltid, og ingenting er tyngre enn «Høy».
+    const high = graphicsProfile({ quality: 'high', top: false, passthrough: false });
+    for (let bits = 0; bits < 1 << EFFECT_IDS.length; bits++) {
+      const custom = Object.fromEntries(EFFECT_IDS.map((id, i) => [id, (bits & (1 << i)) !== 0]));
+      const ar = graphicsProfile({ quality: 'custom', top: false, passthrough: true, custom });
+      expect([ar.sky, ar.effects.shades, ar.effects.sun, ar.effects.shafts, ar.effects.lamps, ar.effects.detail, ar.framebufferScale, ar.foveation]).toEqual([
+        false, false, false, false, false, false, 1, 1,
+      ]);
+      const top = graphicsProfile({ quality: 'custom', top: true, passthrough: false, custom });
+      expect([top.sky, top.effects.sun, top.effects.shafts, top.effects.lamps]).toEqual([false, false, false, false]);
+      const xray = graphicsProfile({ quality: 'custom', top: false, passthrough: false, xray: true, custom });
+      expect([xray.effects.sun, xray.effects.shafts, xray.effects.lamps]).toEqual([false, false, false]);
+      const vr = graphicsProfile({ quality: 'custom', top: false, passthrough: false, custom });
+      for (const [k, v] of Object.entries(vr.effects)) if (v) expect(high.effects[k as keyof typeof high.effects]).toBe(true);
+      expect(vr.framebufferScale).toBeLessThanOrEqual(high.framebufferScale);
+    }
+  });
+
+  it('lagrede effektvalg sjekkes: bare kjente effekter med av/på', () => {
+    expect(isEffectChoices({ shafts: true, sky: false })).toBe(true);
+    expect(isEffectChoices({})).toBe(true);
+    for (const bad of [null, [], 'ja', { shafts: 'ja' }, { tåke: true }, { sun: 1 }]) expect(isEffectChoices(bad)).toBe(false);
   });
 });
 
@@ -602,6 +693,189 @@ describe('ingen flater oppå hverandre (de ville flimret med bakt lys)', () => {
     expect(overlaps(modelOf(JSON.parse(readFileSync(PUBLISHED_PATH, 'utf8'))))).toEqual([]);
   });
 
+  /**
+   * Sideflater fra en vegg som går inn i en annen (hjørner der veggene
+   * overlapper), med en kant akkurat i den andre veggens synlige flate: der
+   * flimrer de gjennom som en prikkete strek.
+   */
+  function hiddenEdgesOnSurfaces(m: ReturnType<typeof modelOf>): string[] {
+    type Tri = { id: string; pts: number[][]; axis: number; sign: number };
+    const tris: Tri[] = [];
+    for (const p of buildParts(m)) {
+      if (p.kind !== 'wall') continue;
+      const a = p.geometry.getAttribute('position');
+      const n = p.geometry.getAttribute('normal');
+      for (let i = 0; i < a.count; i += 3) {
+        const nn = [n.getX(i), n.getY(i), n.getZ(i)];
+        const axis = nn.findIndex((c) => Math.abs(c) > 0.999);
+        if (axis < 0 || axis === 1) continue;
+        tris.push({ id: p.id, pts: [0, 1, 2].map((k) => [a.getX(i + k) * 1000, a.getY(i + k) * 1000, a.getZ(i + k) * 1000]), axis, sign: Math.sign(nn[axis]!) });
+      }
+    }
+    const out = new Set<string>();
+    for (const b of tris) {
+      const off = b.pts[0]![b.axis]!;
+      const o = b.axis === 0 ? 2 : 0;
+      const u0 = Math.min(...b.pts.map((q) => q[o]!));
+      const u1 = Math.max(...b.pts.map((q) => q[o]!));
+      const v0 = Math.min(...b.pts.map((q) => q[1]!));
+      const v1 = Math.max(...b.pts.map((q) => q[1]!));
+      for (const a of tris) {
+        if (a.id === b.id || a.axis === b.axis) continue;
+        const on = a.pts.filter((q) => Math.abs(q[b.axis]! - off) < 1);
+        if (on.length < 2) continue;
+        // Resten av flaten ligger bak den synlige flaten (inne i den andre veggen).
+        if (!a.pts.some((q) => b.sign * (q[b.axis]! - off) < -1)) continue;
+        for (const q of on) {
+          if (q[o]! <= u0 + 1 || q[o]! >= u1 - 1 || q[1]! <= v0 + 1 || q[1]! >= v1 - 1) continue;
+          const front = b.axis === 0 ? { x: off + b.sign * 5, z: q[2]! } : { x: q[0]!, z: off + b.sign * 5 };
+          if ([...m.rooms.values()].some((r) => pointInPolygon(front, r.polygon))) out.add(`${a.id} i flaten til ${b.id}`);
+        }
+      }
+    }
+    return [...out];
+  }
+
+  it('ingen skjult sideflate har en kant i en synlig veggflate (ingen prikkete strek i hjørnet på badet)', () => {
+    expect(hiddenEdgesOnSurfaces(model)).toEqual([]);
+    // Den publiserte fila: badet er fikset, og hjørnet der gang og planterom møtes eies nå av én vegg.
+    // Kjent igjen (senere arbeid, PLAN.md): skilleveggen stue/planterom starter midt inne i
+    // planterom-veggen, så flatene har en kant der de møtes.
+    expect(hiddenEdgesOnSurfaces(modelOf(JSON.parse(readFileSync(PUBLISHED_PATH, 'utf8')))).sort()).toEqual([
+      'v-planterom-bunn i flaten til v-stue-plante',
+    ]);
+  });
+
+  /**
+   * Hull i hjørnene: stråler fra utenfor veggene mot hvert hjørne av hver
+   * veggende (fra alle kanter, i mange høyder). Går strålen inn i en vegg,
+   * skal den treffe en forside der – ikke gå gjennom eller treffe en bakside.
+   */
+  function cornerHoles(m: ReturnType<typeof modelOf>): string[] {
+    const walls = [...m.walls.values()];
+    const parts = buildParts(m);
+    const meshes = walls.map((f) => {
+      const geo = parts.find((p) => p.kind === 'wall' && p.id === f.wall.id)!.geometry;
+      const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+      mesh.updateMatrixWorld();
+      return { f, mesh };
+    });
+    const inside = (x: number, y: number, z: number, shrink: number): boolean =>
+      walls.some((f) => {
+        const dx = x - f.p0.x;
+        const dz = z - f.p0.z;
+        const u = dx * f.dir.x + dz * f.dir.z;
+        const n = dx * f.left.x + dz * f.left.z;
+        if (u < shrink || u > f.length - shrink || n < f.nMin + shrink || n > f.nMax - shrink) return false;
+        if (y <= m.wallBase(f) + shrink || y >= interpolate(m.wallTop(f), Math.min(f.length, Math.max(0, u))) - shrink) return false;
+        // Dører og vinduer er hull i veggen.
+        return !(m.openingsByWall.get(f.wall.id) ?? []).some((o) => {
+          const sp = m.openingSpan(o);
+          return sp !== null && u > sp.u0 - shrink && u < sp.u1 + shrink && y > sp.bottom - shrink && y < sp.top + shrink;
+        });
+      });
+    const caster = new THREE.Raycaster();
+    const out = new Set<string>();
+    for (const f of walls)
+      for (const P of [f.p0, f.p1])
+        for (const nn of [f.nMin, f.nMax]) {
+          const cx = P.x + f.left.x * nn;
+          const cz = P.z + f.left.z * nn;
+          const near = meshes.filter(({ f: g }) => Math.hypot(g.p0.x - cx, g.p0.z - cz) < g.length + 1000).map((x) => x.mesh);
+          for (let y = m.wallBase(f) + 40; y < interpolate(m.wallTop(f), P === f.p0 ? 0 : f.length) - 40; y += 230)
+            for (let ang = 0; ang < 360; ang += 45) {
+              const a = (ang * Math.PI) / 180;
+              const dx = Math.cos(a);
+              const dz = Math.sin(a);
+              for (const off of [-12, -4, 4, 12]) {
+                const ox = cx - dz * off - dx * 150;
+                const oz = cz + dx * off - dz * 150;
+                if (inside(ox, y, oz, -1)) continue;
+                // Hvor strålen først går inn i en vegg (med god margin inn).
+                let enter = -1;
+                for (let t = 0; t <= 300; t += 2)
+                  if (inside(ox + dx * t, y, oz + dz * t, 1)) {
+                    enter = t;
+                    break;
+                  }
+                if (enter < 0) continue;
+                const d = new THREE.Vector3(dx, 0, dz);
+                caster.set(new THREE.Vector3(ox / 1000, y / 1000, oz / 1000), d);
+                caster.far = (enter + 3) / 1000;
+                // Flater på samme sted (f.eks. to endeflater der to vegger i flukt møtes) teller som ett treff.
+                const hits = caster.intersectObjects(near, false);
+                const first = hits[0];
+                const front = first && hits.some((h) => h.distance < first.distance + 5e-4 && h.face!.normal.dot(d) < 0);
+                if (!front) out.add(`(${Math.round(cx)}, ${Math.round(cz)})`);
+              }
+            }
+        }
+    return [...out];
+  }
+
+  /**
+   * T-kryss: et hjørnepunkt i én veggs flate som ligger midt på en kant i en
+   * annen veggs flate i samme plan, samme vei. Der får kantene ikke de samme
+   * punktene, og skjermkortet lar en prikkete sprekk stå igjen langs kanten.
+   */
+  function tJunctions(m: ReturnType<typeof modelOf>): string[] {
+    type Tri = { id: string; pts: [number, number][] };
+    const planes = new Map<string, Tri[]>();
+    for (const p of buildParts(m)) {
+      if (p.kind !== 'wall') continue;
+      const a = p.geometry.getAttribute('position');
+      const n = p.geometry.getAttribute('normal');
+      for (let i = 0; i < a.count; i += 3) {
+        const nn = [n.getX(i), n.getY(i), n.getZ(i)];
+        const axis = nn.findIndex((c) => Math.abs(c) > 0.999);
+        if (axis < 0 || axis === 1) continue;
+        const pts = [0, 1, 2].map((k) => [a.getX(i + k) * 1000, a.getY(i + k) * 1000, a.getZ(i + k) * 1000]);
+        const key = `${axis}${nn[axis]! > 0 ? '+' : '-'}${Math.round(pts[0]![axis]!)}`;
+        const list = planes.get(key) ?? [];
+        list.push({ id: p.id, pts: pts.map((q) => [q[axis === 0 ? 2 : 0]!, q[1]!] as [number, number]) });
+        planes.set(key, list);
+      }
+    }
+    const out = new Set<string>();
+    for (const tris of planes.values())
+      for (const A of tris)
+        for (const B of tris) {
+          if (A.id === B.id) continue;
+          for (const p of A.pts)
+            for (let e = 0; e < 3; e++) {
+              const q0 = B.pts[e]!;
+              const q1 = B.pts[(e + 1) % 3]!;
+              const dx = q1[0] - q0[0];
+              const dy = q1[1] - q0[1];
+              const len = Math.hypot(dx, dy);
+              if (len < 1) continue;
+              const t = ((p[0] - q0[0]) * dx + (p[1] - q0[1]) * dy) / (len * len);
+              const d = Math.abs((p[0] - q0[0]) * dy - (p[1] - q0[1]) * dx) / len;
+              if (d > 0.3 || t * len < 0.5 || (1 - t) * len < 0.5) continue;
+              out.add([A.id, B.id].sort().join(' / '));
+            }
+        }
+    return [...out].sort();
+  }
+
+  it('ingen T-kryss der to vegger møtes i samme flate (ingen prikkete sprekk i hjørnene)', () => {
+    expect(tJunctions(model)).toEqual([]);
+    // Kjent i den publiserte fila (fra før, senere arbeid i PLAN.md): ikke skjøter, men vegger med
+    // flater oppå hverandre – fasaden der en vegg med høyere gulv ikke regnes som dekket, og
+    // skilleveggen stue/planterom som starter inne i planterom-veggen.
+    expect(tJunctions(modelOf(JSON.parse(readFileSync(PUBLISHED_PATH, 'utf8'))))).toEqual([
+      'v-gang-glass / v-inngang',
+      'v-inngang / v-kjokken-ende',
+      'v-planterom-bunn / v-planterom-hoyre',
+      'v-planterom-bunn / v-stue-plante',
+    ]);
+  });
+
+  it('ingen hull i hjørnene: en stråle inn i en vegg treffer alltid en forside', { timeout: 30_000 }, () => {
+    expect(cornerHoles(model)).toEqual([]);
+    expect(cornerHoles(modelOf(JSON.parse(readFileSync(PUBLISHED_PATH, 'utf8'))))).toEqual([]);
+  });
+
   it('fotlisten stopper bak geriktene ved dører', () => {
     const parts = buildParts(model);
     const door = model.data.openings.find((o) => o.id === 'dor-bad')!;
@@ -653,6 +927,118 @@ describe('lampelyset bakes inn, og «Lys» blander lyset på nytt', () => {
     expect(darker).toBeGreaterThan(before.length / 4);
     // Ingenting er bakt på nytt.
     expect([...cache.values()]).toEqual(entries);
+  });
+
+  it('lampelyset følger lampene: en ny lampe gir samme farger som en fersk baking, og slettet blir det som før', () => {
+    const withLamp = (): ReturnType<typeof modelOf> => {
+      const doc = loadDoc();
+      doc.fixtures.push({ id: 'lampe-ny', name: 'Ny lampe', measured: false, type: 'light', layer: 'electrical-planned', status: 'planned', position: [1150, 2100, 4100] } as never);
+      return modelOf(doc);
+    };
+    const structure = (scene: ApartmentScene): number[] =>
+      scene.merged.filter((m) => m.layer === 'structure').flatMap((m) => [...(m.mesh.geometry.getAttribute('color').array as Float32Array)]);
+    const sceneFor = (m: ReturnType<typeof modelOf>): ApartmentScene => {
+      const sc = new ApartmentScene(new Materials());
+      sc.setLight(LIGHTS.kveld);
+      sc.build(m);
+      return sc;
+    };
+    const geos = (scene: ApartmentScene): THREE.BufferGeometry[] => scene.merged.filter((m) => m.layer === 'structure').map((m) => m.mesh.geometry);
+    const warm = sceneFor(model);
+    const before = structure(warm);
+    const meshes = geos(warm);
+    warm.build(withLamp());
+    const drawn = structure(warm);
+    const fresh = structure(sceneFor(withLamp()));
+    expect(drawn.length).toBe(fresh.length);
+    expect(maxDiff(drawn, fresh)).toBeLessThan(1e-5);
+    expect(maxDiff(drawn, before)).toBeGreaterThan(0.05);
+    // Vegger, gulv og tak slås ikke sammen på nytt: bare fargene blandes på nytt.
+    expect(geos(warm)).toEqual(meshes);
+    expect(geos(warm).every((g, i) => g === meshes[i])).toBe(true);
+    warm.build(model);
+    const deleted = structure(warm);
+    expect(maxDiff(deleted, before)).toBeLessThan(1e-5);
+    // Om dagen er lampene av: en ny lampe endrer ingenting nå, men er med når kvelden kommer.
+    const day = new ApartmentScene(new Materials());
+    day.build(model);
+    const dayBefore = structure(day);
+    day.build(withLamp());
+    expect(maxDiff(structure(day), dayBefore)).toBe(0);
+    day.setLight(LIGHTS.kveld);
+    expect(maxDiff(structure(day), fresh)).toBeLessThan(1e-5);
+  });
+
+  it('lampelyset følger filteret for el: skjult lampe lyser ikke, heller ikke det bakte lyset', () => {
+    const doc = loadDoc();
+    doc.fixtures = doc.fixtures.filter((f) => f.type !== 'light');
+    const noLamp = modelOf(doc);
+    // Vegger og tak (filteret skjuler ingen av dem, så meshene er like store).
+    const structure = (scene: ApartmentScene): number[] =>
+      scene.merged
+        .filter((m) => m.layer === 'structure' && (m.bucket === 'wall' || m.bucket === 'ceiling'))
+        .flatMap((m) => [...(m.mesh.geometry.getAttribute('color').array as Float32Array)]);
+    const sceneFor = (m: ReturnType<typeof modelOf>): ApartmentScene => {
+      const sc = new ApartmentScene(new Materials());
+      sc.setLight(LIGHTS.kveld);
+      sc.build(m);
+      return sc;
+    };
+    const dark = structure(sceneFor(noLamp));
+    const sc = sceneFor(model);
+    const lit = structure(sc);
+    expect(maxDiff(lit, dark)).toBeGreaterThan(0.05);
+    for (const f of [
+      { existing: false, planned: true, circuit: null },
+      { existing: true, planned: true, circuit: 'kurs-2' },
+    ]) {
+      sc.setFilter(f);
+      const hidden = structure(sc);
+      expect(maxDiff(hidden, dark)).toBeLessThan(1e-5);
+      expect(sc.lightMeshes.some((m) => m.userData.effect === 'lamper' && m.geometry.getAttribute('position').count > 0)).toBe(false);
+      sc.setFilter({ existing: true, planned: true, circuit: null });
+      const back = structure(sc);
+      expect(maxDiff(back, lit)).toBeLessThan(1e-5);
+    }
+    // «Lampelys» av: heller ikke bakt inn.
+    sc.setEffects({ shades: true, baked: true, sun: true, shafts: false, lamps: false, bakedLamps: false, detail: true });
+    const off = structure(sc);
+    expect(maxDiff(off, dark)).toBeLessThan(1e-5);
+  });
+
+  it('kveld: blått lys fra vinduene og varme lamper; lysstyrken er den samme som uten farge', () => {
+    const sc = new ApartmentScene(new Materials());
+    sc.setLight(LIGHTS.kveld);
+    sc.build(model);
+    const m = sc.merged.find((x) => x.layer === 'structure' && x.bucket === 'ceiling')!;
+    const l = m.light!;
+    const ratio = (i: number, c: number): number => m.bakedColors[i * 3 + c]! / m.baseColors[i * 3 + c]!;
+    let lampI = 0;
+    for (let i = 0; i < l.lamp.length; i++) if (l.lamp[i]! > l.lamp[lampI]!) lampI = i;
+    expect(ratio(lampI, 0)).toBeGreaterThan(ratio(lampI, 2) * 1.3);
+    const w = sc.merged.find((x) => x.layer === 'structure' && x.bucket === 'wall')!;
+    const wl = w.light!;
+    let winI = 0;
+    for (let i = 0; i < wl.win.length; i++) if (wl.win[i]! - wl.lamp[i]! > wl.win[winI]! - wl.lamp[winI]!) winI = i;
+    expect(w.bakedColors[winI * 3 + 2]! / w.baseColors[winI * 3 + 2]!).toBeGreaterThan(w.bakedColors[winI * 3]! / w.baseColors[winI * 3]!);
+    // Lysstyrken (luminans) følger fortsatt faktoren uten farge, innen 10 %.
+    const f = mixLight(l.amb[lampI]!, l.win[lampI]!, l.lamp[lampI]!, LIGHTS.kveld.bake);
+    const lum = 0.2126 * ratio(lampI, 0) + 0.7152 * ratio(lampI, 1) + 0.0722 * ratio(lampI, 2);
+    expect(Math.abs(lum - f) / f).toBeLessThan(0.1);
+  });
+
+  it('natt: ingen solflekker eller stråler (ingen tegnekall for dem), men lampene lyser', () => {
+    const scene = new ApartmentScene(new Materials());
+    scene.setEffects({ shades: true, baked: true, sun: true, shafts: true, lamps: true, detail: true });
+    scene.build(model);
+    scene.setLight(LIGHTS.natt);
+    const kinds = scene.lightMeshes.map((m) => m.userData.effect);
+    expect(kinds).not.toContain('sol');
+    expect(kinds).not.toContain('stråler');
+    expect(kinds).toContain('lamper');
+    scene.setLight(LIGHTS.dag);
+    expect(scene.lightMeshes.some((m) => m.userData.effect === 'sol')).toBe(true);
+    expect(scene.lightMeshes.some((m) => m.userData.effect === 'lamper')).toBe(false);
   });
 
   it('«Rask» baker ikke; lyset bakes først når det trengs', () => {

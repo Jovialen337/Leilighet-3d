@@ -14,7 +14,7 @@ import type { MeasureState } from '../schema/types';
 import { buildParts, COLORS, type Bucket, type Part, type PartKind, type PickRole } from './buildParts';
 import { buildContactShade } from './shade';
 import { Materials } from './materials';
-import { Baker, BAKED_KINDS, mixLight, TESSELLATED_KINDS, tessellate, type LightArrays } from './bake';
+import { Baker, BAKED_KINDS, lampKey, lampLight, lampsByRoom, mixLight, TESSELLATED_KINDS, tessellate, type LightArrays } from './bake';
 import { buildSunPatches, buildSunShafts } from './sunlight';
 import { buildLampGlow } from './lamps';
 import { floorSurface, SURF } from './detail';
@@ -39,6 +39,8 @@ export interface MergedMesh {
   /** Hva meshen er laget av (deler, farger, målestatus, lys); lik ved neste bygging = gjenbrukes. */
   sig: string;
   measureColors: Float32Array;
+  /** Lampene lyset i `light.lamp` er regnet for (se `updateLamps`); nye lamper blandes inn uten ny mesh. */
+  lampKey: string;
 }
 
 /** Lyseffektene som er slått på (fra grafikkprofilen). */
@@ -55,6 +57,8 @@ export interface SceneEffects {
   lamps: boolean;
   /** Mønster på gulvet (tre og fliser). */
   detail: boolean;
+  /** Lampelyset som er bakt inn i fargene (om kvelden); standard på. */
+  bakedLamps?: boolean;
 }
 
 export const DEFAULT_EFFECTS: SceneEffects = { shades: true, baked: true, sun: true, shafts: false, lamps: true, detail: true };
@@ -75,6 +79,10 @@ export const passes = (p: { status?: string; circuit?: string; kind: string }, f
   if (f.circuit && (p.kind === 'wire' || p.circuit !== undefined) && p.circuit !== f.circuit) return false;
   return true;
 };
+
+/** Lyser lampa (el-punkt av typen «light») med filteret? Samme svar for gløden og det bakte lampelyset. */
+export const lampLit = (fx: { status: 'existing' | 'planned'; circuit?: string }, f: PartFilter): boolean =>
+  passes({ kind: 'fixture', status: fx.status, ...(fx.circuit ? { circuit: fx.circuit } : {}) }, f);
 
 export interface Range {
   mesh: MergedMesh;
@@ -120,6 +128,8 @@ export class ApartmentScene {
   private readonly partKeys = new Map<Part, string>();
   /** Nøkkelen for det som lyser opp modellen (rom, vegger, åpninger) ved siste baking. */
   private lightKey = '';
+  /** Nøkkelen for lampene som lyser (posisjon, rom; etter filteret), se `updateLamps`. */
+  private lampKey = '';
   private measureOn = false;
   private filter: PartFilter = NO_FILTER;
   /** Treffflatene i synlige lag; bygges på nytt bare når lag/tak endres (ikke hver ramme). */
@@ -193,6 +203,19 @@ export class ApartmentScene {
     for (const [key, e] of this.bakeCache) if (!next.has(key)) e.tess?.dispose();
     this.bakeCache = next;
     this.baked = true;
+    this.updateLamps(model);
+  }
+
+  /**
+   * Lampelyset i det bakte lyset: bare lampene som finnes og passerer
+   * filteret (som gløden). Regnes bare ut på nytt når lampene endres
+   * (tegnet, flyttet, slettet eller skjult) – noen få millisekunder.
+   */
+  private updateLamps(model: ApartmentModel): void {
+    const f = this.filter;
+    const lamps = lampsByRoom(model, (fx) => lampLit(fx, f));
+    this.lampKey = lampKey(lamps);
+    for (const r of this.render.values()) lampLight(r.geo, r.bake, lamps, this.lampKey);
   }
 
   /** Blander det bakte lyset etter «Lys» inn i fargene. */
@@ -204,13 +227,31 @@ export class ApartmentScene {
       out.set(base);
       return;
     }
-    const mix = this.light.bake;
+    const mix = this.effects.bakedLamps === false ? { ...this.light.bake, lamp: 0 } : this.light.bake;
+    // Farget lys (f.eks. blått kveldslys fra vinduene og varme lamper): hver del sin farge,
+    // blandet etter hvor mye den bidrar; lysstyrken er den samme som uten farge.
+    const t = this.light.bakeTint;
     for (let i = 0; i < l.amb.length; i++) {
-      const f = mixLight(l.amb[i]!, l.win[i]!, l.lamp[i]!, mix);
+      const a = l.amb[i]!;
+      const w = l.win[i]!;
+      const L = l.lamp[i]!;
+      const f = mixLight(a, w, L, mix);
+      let r = f;
+      let g = f;
+      let b = f;
+      if (t) {
+        const ca = mix.ambient * a;
+        const cw = mix.window * w;
+        const cl = mix.lamp * L;
+        const k = f / Math.max(1e-6, ca + cw + cl);
+        r = k * (ca * t.ambient[0] + cw * t.window[0] + cl * t.lamp[0]);
+        g = k * (ca * t.ambient[1] + cw * t.window[1] + cl * t.lamp[1]);
+        b = k * (ca * t.ambient[2] + cw * t.window[2] + cl * t.lamp[2]);
+      }
       const j = i * 3;
-      out[j] = base[j]! * f;
-      out[j + 1] = base[j + 1]! * f;
-      out[j + 2] = base[j + 2]! * f;
+      out[j] = base[j]! * r;
+      out[j + 1] = base[j + 1]! * g;
+      out[j + 2] = base[j + 2]! * b;
     }
   }
 
@@ -250,6 +291,7 @@ export class ApartmentScene {
   /** Alt en sammenslått mesh avhenger av, som én streng. */
   private bucketSig(bucket: Bucket, list: Part[]): string {
     const baked = list.some((p) => this.render.has(p));
+    // Lampene er ikke med: nye eller flyttede lamper blandes inn i meshen som er der (reuseBucket).
     const head = `${bucket}|${baked ? this.lightKey : 'flat'}`;
     return [
       head,
@@ -257,15 +299,32 @@ export class ApartmentScene {
     ].join('\n');
   }
 
-  /** Bruker en mesh fra forrige bygging igjen: bare plasseringen i laget og områdene per objekt. */
+  /**
+   * Bruker en mesh fra forrige bygging igjen: plasseringen i laget og områdene
+   * per objekt. Har lampene endret seg, kopieres det nye lampelyset inn og
+   * fargene blandes på nytt – ingen ny mesh (og ingenting å blande når «Lys»
+   * har lampene av).
+   */
   private reuseBucket(m: MergedMesh, list: Part[]): void {
+    const lamps = m.light && m.lampKey !== this.lampKey ? m.light.lamp : null;
     let offset = 0;
     for (const p of list) {
-      const n = (this.render.get(p)?.geo ?? p.geometry).getAttribute('position').count;
+      const r = this.render.get(p);
+      const n = (r?.geo ?? p.geometry).getAttribute('position').count;
+      if (lamps && r) lamps.set(r.bake.lamp, offset);
       const ranges = this.ranges.get(p.id) ?? [];
       ranges.push({ mesh: m, start: offset, count: n });
       this.ranges.set(p.id, ranges);
       offset += n;
+    }
+    if (lamps) {
+      m.lampKey = this.lampKey;
+      if (this.light.bake.lamp > 0) {
+        this.mixBaked(m);
+        const attr = m.mesh.geometry.getAttribute('color') as THREE.BufferAttribute;
+        (attr.array as Float32Array).set(this.colorsFor(m));
+        attr.needsUpdate = true;
+      }
     }
     this.merged.push(m);
     this.layerGroups.get(m.layer)?.add(m.mesh);
@@ -276,6 +335,7 @@ export class ApartmentScene {
     if (f.existing === this.filter.existing && f.planned === this.filter.planned && f.circuit === this.filter.circuit) return;
     this.filter = { ...f };
     if (!this.parts.length) return;
+    if (this.baked && this.model) this.updateLamps(this.model);
     this.remerge();
     this.buildLight();
   }
@@ -309,6 +369,7 @@ export class ApartmentScene {
       light,
       measureColors,
       sig,
+      lampKey: this.lampKey,
     };
     let offset = 0;
     for (const p of list) {
@@ -375,6 +436,7 @@ export class ApartmentScene {
   /** Slår lyseffektene av og på (fra grafikkprofilen). */
   setEffects(e: SceneEffects): void {
     const bakedChanged = e.baked !== this.effects.baked;
+    const lampsChanged = (e.bakedLamps ?? true) !== (this.effects.bakedLamps ?? true);
     this.effects = { ...e };
     // Bakes først når det trengs (ikke på «Rask»); så bygges meshene på nytt med det bakte lyset.
     if (e.baked && !this.baked && this.model) {
@@ -384,7 +446,8 @@ export class ApartmentScene {
     for (const m of this.shades) m.visible = e.shades;
     this.materials.setDetail(e.detail);
     this.applyLightVisibility();
-    if (bakedChanged) this.applyColors();
+    if (lampsChanged) for (const m of this.merged) this.mixBaked(m);
+    if (bakedChanged || lampsChanged) this.applyColors();
   }
 
   get currentEffects(): Readonly<SceneEffects> {
@@ -426,13 +489,14 @@ export class ApartmentScene {
         this.layerGroups.get(layer)?.add(mesh);
       }
     };
-    add('sol', buildSunPatches(model, p.key.from), this.materials.sun);
-    add('stråler', buildSunShafts(model, p.key.from), this.materials.glow);
+    // Ingen sol (natt): ingen flekker eller stråler, og ingen tegnekall for dem.
+    if (p.sun.strength > 0) {
+      add('sol', buildSunPatches(model, p.key.from), this.materials.sun);
+      add('stråler', buildSunShafts(model, p.key.from), this.materials.glow);
+    }
     if (p.lamps > 0) {
       const f = this.filter;
-      const lit = (fx: { status: 'existing' | 'planned'; circuit?: string }): boolean =>
-        passes({ kind: 'fixture', status: fx.status, ...(fx.circuit ? { circuit: fx.circuit } : {}) }, f);
-      add('lamper', buildLampGlow(model, p.lamps, lit), this.materials.lamp);
+      add('lamper', buildLampGlow(model, p.lamps, (fx) => lampLit(fx, f)), this.materials.lamp);
     }
     this.applyLightVisibility();
   }

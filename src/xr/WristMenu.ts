@@ -21,6 +21,8 @@ export class WristMenu {
   private readonly ctx: CanvasRenderingContext2D;
   private readonly texture: THREE.CanvasTexture;
   private lastKey = '';
+  /** Tekster som ble forkortet med «…» sist menyen ble tegnet (for tester). */
+  truncated: string[] = [];
   private readonly inv = new THREE.Matrix4();
   private readonly o = new THREE.Vector3();
   private readonly d = new THREE.Vector3();
@@ -129,6 +131,7 @@ export class WristMenu {
     const key = JSON.stringify([this.items, this.labels, this.hovered?.id ?? null]);
     if (key === this.lastKey) return;
     this.lastKey = key;
+    this.truncated = [];
     const c = this.ctx;
     c.clearRect(0, 0, MENU_W, MENU_H);
     c.fillStyle = 'rgba(16, 22, 30, 0.92)';
@@ -183,20 +186,26 @@ export class WristMenu {
         c.arc(on ? sx + sw - sh / 2 : sx + sh / 2, cy, sh * 0.375, 0, Math.PI * 2);
         c.fill();
         c.textAlign = 'left';
-        c.fillText(this.fit(it.label, it.w - sw - 56), it.x + 22, cy + 1);
+        c.fillText(this.fit(it.label, it.w - sw - 56, size), it.x + 22, cy + 1);
       } else {
         c.textAlign = 'center';
-        c.fillText(this.fit(it.label, it.w - 24), it.x + it.w / 2, cy + 1);
+        c.fillText(this.fit(it.label, it.w - 24, it.kind === 'tab' ? 0 : size), it.x + it.w / 2, cy + 1);
       }
     }
     this.texture.needsUpdate = true;
   }
 
-  private fit(text: string, width: number): string {
+  /** Teksten innenfor bredden: først mindre skrift (ned til 28 px), så forkortet med «…». */
+  private fit(text: string, width: number, size = 0): string {
     const c = this.ctx;
     if (c.measureText(text).width <= width) return text;
+    for (let s = size - 2; s >= 28; s -= 2) {
+      c.font = `500 ${s}px system-ui, sans-serif`;
+      if (c.measureText(text).width <= width) return text;
+    }
     let t = text;
     while (t.length > 1 && c.measureText(`${t}…`).width > width) t = t.slice(0, -1);
+    this.truncated.push(text);
     return `${t}…`;
   }
 }
