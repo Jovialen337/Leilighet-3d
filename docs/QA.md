@@ -916,3 +916,30 @@ Weighted total **7.25**. Another round is worth it (round 2 of 4).
    - A browser test checks that no text is shortened on any page of the VR menu, including the longest circuit names and «Egendefinert». It fails with the old labels.
 4. **Docs and code comments:** PLAN.md has the new labels and the 2D rule, and the comments are back above their functions.
 
+## Phase 2e – start menu, design and tutorial – 2026-10-21
+
+### How it was tested
+
+- **Unit tests (315):**
+  - design: contrast, CSS variables, circuit colours apart from water, the water-like warning, dashed runs and outlined points;
+  - the legend and «Neste steg» (`guide.test.ts`);
+  - the tutorial steps, progress and saving;
+  - the VR «Hjelp» and «Farger» pages, the menu hints, and six tabs that fit (`tutorial.test.ts`).
+- **Browser tests (`tests/e2e/start.spec.ts`, 8):**
+  - the start menu first, then «Se leiligheten», the welcome only once, and Esc;
+  - settings that apply at once and are saved;
+  - turning the menu off, `?start`, and reset;
+  - «Last inn» and «Ny modell»;
+  - «Neste steg» in the panel;
+  - the colour legend, with «Vis alle»;
+  - the PC tutorial step by step;
+  - «Hopp over» and «Avslutt»;
+  - the VR «Hjelp» tab and the whole VR tutorial in the emulated Quest 3.
+- The other browser tests open the app with `?direkte`. The fixture option `startMenu` turns the menu on.
+
+### Test on the Quest (phase 2e)
+
+1. Open the page: the start menu should be the first thing you see, readable at arm's length.
+2. «Opplæring og farger» → «Kom i gang i VR»: follow the steps on the left wrist.
+3. In VR: X → «Hjelp» → «Hva fargene betyr».
+
