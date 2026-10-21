@@ -154,7 +154,14 @@ export class StartMenu {
           'div',
           { class: 'start-welcome' },
           h('span', {}, 'Ny her?'),
-          this.button('Kom i gang (2 min)', 'start-welcome-learn', () => this.after(() => a.startTutorial('pc')), 'small'),
+          this.button('Kom i gang (2 min)', 'start-welcome-learn', () => {
+            // På Quest: opplæringen i VR (økten må startes i selve klikket); ellers på PC-en.
+            if (a.vrSupported()) {
+              a.startTutorial('vr');
+              a.enterVR();
+              this.close();
+            } else this.after(() => a.startTutorial('pc'));
+          }, 'small'),
         ),
       );
 
