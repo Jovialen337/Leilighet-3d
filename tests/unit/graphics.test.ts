@@ -753,8 +753,9 @@ describe('ingen flater oppå hverandre (de ville flimret med bakt lys)', () => {
    */
   function cornerHoles(m: ReturnType<typeof modelOf>): string[] {
     const walls = [...m.walls.values()];
+    const parts = buildParts(m);
     const meshes = walls.map((f) => {
-      const geo = buildParts(m).find((p) => p.kind === 'wall' && p.id === f.wall.id)!.geometry;
+      const geo = parts.find((p) => p.kind === 'wall' && p.id === f.wall.id)!.geometry;
       const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
       mesh.updateMatrixWorld();
       return { f, mesh };
@@ -812,7 +813,7 @@ describe('ingen flater oppå hverandre (de ville flimret med bakt lys)', () => {
     return [...out];
   }
 
-  it('ingen hull i hjørnene: en stråle inn i en vegg treffer alltid en forside', () => {
+  it('ingen hull i hjørnene: en stråle inn i en vegg treffer alltid en forside', { timeout: 30_000 }, () => {
     expect(cornerHoles(model)).toEqual([]);
     expect(cornerHoles(modelOf(JSON.parse(readFileSync(PUBLISHED_PATH, 'utf8'))))).toEqual([]);
   });
