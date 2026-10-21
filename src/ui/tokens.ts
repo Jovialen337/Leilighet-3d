@@ -83,7 +83,7 @@ export const SNAP: Record<string, string> = {
  * annet (oransje/gul/grønn = målestatus, rødt = varmtvann og «ikke her»,
  * blått = kaldtvann, valgt og mål). Testet: ΔE > 20 mot dem og mot hverandre.
  */
-export const CIRCUIT_COLORS: readonly string[] = ['#9b7be0', '#d0539b', '#ce93d8', '#8a2be2', '#ff80ab'];
+export const CIRCUIT_COLORS: readonly string[] = ['#9b7be0', '#d0539b', '#ce93d8', '#a259ff', '#ff80ab'];
 
 /** Fargene som allerede betyr noe (en kursfarge skal ikke ligne dem). */
 export const RESERVED_COLORS = (): Record<string, string> => ({

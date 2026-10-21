@@ -4,7 +4,7 @@
  * omriss, prikk) foran hver linje.
  */
 import { h } from './dom';
-import type { LegendGroup } from './legend';
+import { swatchBackdrop, type LegendGroup } from './legend';
 
 export function legendView(groups: readonly LegendGroup[], testId = 'legend'): HTMLElement {
   const root = h('div', { class: 'legend-view', 'data-testid': testId });
@@ -15,7 +15,8 @@ export function legendView(groups: readonly LegendGroup[], testId = 'legend'): H
   for (const g of groups) {
     const list = h('ul', {});
     for (const e of g.entries) {
-      const sw = h('span', { class: `swatch ${e.shape}`, 'aria-hidden': 'true' });
+      // Mørke farger på en lys brikke (de synes ellers ikke på den mørke flaten).
+      const sw = h('span', { class: `swatch ${e.shape}${swatchBackdrop(e.color) ? ' on-light' : ''}`, 'aria-hidden': 'true' });
       sw.style.setProperty('--c', e.color);
       list.append(h('li', {}, sw, e.label));
     }

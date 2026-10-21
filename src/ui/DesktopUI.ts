@@ -407,7 +407,9 @@ export class DesktopUI {
     const allBox = this.legendDialog.querySelector<HTMLInputElement>('[data-testid="legend-all"]')!;
     allBox.checked = all;
     box.replaceChildren(legendView(this.actions.legend(all)));
-    (this.legendDialog.querySelector('button') as HTMLButtonElement | null)?.focus();
+    // Fokus på «Lukk» uten å rulle: forklaringen starter øverst (også når alle fargene vises).
+    (this.legendDialog.querySelector('button') as HTMLButtonElement | null)?.focus({ preventScroll: true });
+    this.legendDialog.querySelector('.help-box')?.scrollTo({ top: 0 });
   }
 
   private buildLegend(): HTMLElement {

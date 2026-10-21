@@ -5,8 +5,8 @@
  * liten kule, så pekingen koster ingen opplasting av tekstur.
  */
 import * as THREE from 'three';
-import { COLOR, FONT, luminance, rgba } from '../ui/tokens';
-import type { SwatchShape } from '../ui/legend';
+import { COLOR, FONT, rgba } from '../ui/tokens';
+import { swatchBackdrop, type SwatchShape } from '../ui/legend';
 import { MENU_H, MENU_W, buildMenu, itemAt, type MenuItem, type MenuLabel, type MenuState } from './menuLayout';
 
 const WIDTH_M = 0.3;
@@ -205,6 +205,14 @@ export class WristMenu {
   private swatch(color: string, shape: SwatchShape, x: number, y: number): void {
     const c = this.ctx;
     c.save();
+    // Mørke farger på en lys brikke (samme regel som på siden).
+    const backdrop = swatchBackdrop(color);
+    if (backdrop) {
+      c.fillStyle = backdrop;
+      c.beginPath();
+      c.roundRect(x - 4, y - 14, 48, 28, 6);
+      c.fill();
+    }
     c.fillStyle = color;
     c.strokeStyle = color;
     c.beginPath();
@@ -230,12 +238,6 @@ export class WristMenu {
         c.arc(x + 20, y, 11, 0, Math.PI * 2);
         c.fill();
         break;
-    }
-    // Lys kant rundt mørke prøver (f.eks. kabel uten kurs), så de synes på den mørke flaten.
-    if ((shape === 'fill' || shape === 'line') && luminance(color) < 0.08) {
-      c.strokeStyle = rgba(COLOR.text, 0.45);
-      c.lineWidth = 2;
-      c.stroke();
     }
     c.restore();
   }

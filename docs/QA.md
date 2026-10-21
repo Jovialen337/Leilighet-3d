@@ -1012,3 +1012,16 @@ Both checks were kept short, at the user's request.
    - an event during the ✓ pause counts for the next step;
    - there is a test of «Gå inn i VR» from the start menu.
 
+### Phase 2e, round 2: gatekeeper **PASS**, judge **8.0, one item left**
+
+- **Gatekeeper:** PASS at af834bb. It found no regressions, and the real file now validates with no warnings.
+- **Judge:** start menu, design, «Neste steg» and tests are all ✅ at 8.
+- **The item left:** in the VR legend, the dark grey planned-el swatches were nearly invisible on the dark background.
+
+### Phase 2e, round 3 – what changed
+
+- **Dark swatches:** a swatch with less than 3:1 contrast to the background is drawn on a light chip, on the page and in VR (`swatchBackdrop`). A unit test checks at least 3:1 for every legend swatch.
+- **Circuit colours:** the 4th new circuit colour is a lighter purple (#a259ff), so it also meets 3:1.
+- **«Farger»:** the legend opens at the top, also with «Vis alle fargene».
+- **Gatekeeper's remark:** on the Quest, «Kom i gang» starts the tutorial in VR.
+

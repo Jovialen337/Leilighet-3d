@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { legendFor } from '../../src/ui/legend';
+import { legendFor, swatchBackdrop } from '../../src/ui/legend';
 import { nextStep, type NextStepState } from '../../src/ui/nextStep';
-import { COLOR } from '../../src/ui/tokens';
+import { CIRCUIT_COLORS, COLOR, contrast } from '../../src/ui/tokens';
+
+describe('fargeprøvene synes', () => {
+  it('hver prøve har minst 3:1 kontrast mot det den står på (mørke på en lys brikke)', () => {
+    const groups = legendFor({ all: true, highlight: true, el: true, water: true, mode: 'laptop', circuits: CIRCUIT_COLORS.map((color, i) => ({ name: `Kurs ${i + 1}`, color })) });
+    for (const e of groups.flatMap((g) => g.entries)) expect(contrast(e.color, swatchBackdrop(e.color) ?? COLOR.surface), e.label).toBeGreaterThanOrEqual(3);
+    // Planlagt el uten kurs er mørk: den får brikken.
+    expect(swatchBackdrop(COLOR.elPlanned)).not.toBeNull();
+  });
+});
 
 describe('fargeforklaringen', () => {
   const base = { highlight: false, el: false, water: false, circuits: [], mode: 'laptop' as const };

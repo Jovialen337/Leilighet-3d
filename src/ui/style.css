@@ -1669,6 +1669,31 @@ body.start-open .panel {
   background: var(--c);
 }
 
+/* Mørke farger på en lys brikke (se swatchBackdrop). */
+.swatch.on-light {
+  height: 14px;
+  border-radius: 3px;
+  box-shadow: none;
+  background: var(--text-2);
+}
+
+.swatch.line.on-light {
+  background: linear-gradient(var(--c), var(--c)) center / 100% 5px no-repeat, var(--text-2);
+}
+
+.swatch.dash.on-light {
+  background: repeating-linear-gradient(90deg, var(--c) 0 7px, transparent 7px 11px) center / 100% 5px no-repeat, var(--text-2);
+}
+
+.swatch.outline.on-light {
+  box-shadow: inset 0 0 0 2px var(--c);
+}
+
+.swatch.fill.on-light {
+  background: var(--c);
+  box-shadow: 0 0 0 2px var(--text-2);
+}
+
 .legend-dialog .help-box {
   max-width: 520px;
 }

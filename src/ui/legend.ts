@@ -6,7 +6,15 @@
  * Regelen i appen: fargen viser hva det er, formen om det er planlagt
  * (stiplet strek, bare omriss) eller finnes (hel strek, fylt).
  */
-import { COLOR, MEASURE_AR, SNAP } from './tokens';
+import { COLOR, MEASURE_AR, SNAP, contrast } from './tokens';
+
+/**
+ * Bakgrunnen en fargeprøve trenger: en mørk farge (f.eks. kabel uten kurs)
+ * synes ikke på den mørke flaten og tegnes på en lys brikke. null = ingen.
+ */
+export function swatchBackdrop(color: string): string | null {
+  return contrast(color, COLOR.surface) < 3 ? COLOR.text2 : null;
+}
 
 /** Formen på fargeprøven: fylt, strek, stiplet strek, omriss eller prikk. */
 export type SwatchShape = 'fill' | 'line' | 'dash' | 'outline' | 'dot';
