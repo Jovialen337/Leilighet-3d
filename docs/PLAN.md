@@ -522,7 +522,7 @@ The user's request (2026-10-20): a start menu that is the first thing you see on
   - green = measured / OK;
   - orange = not measured;
   - red = error / not allowed.
-- **Planned el and water** keep the colour of what they are: planned runs are dashed and planned points are only outlined. New circuit colours stay clear of hot and cold water, and a warning names a circuit colour that looks like water.
+- **Planned el and water** keep the colour of what they are: planned runs are dashed and planned points are only outlined. Circuits are violet, purple or pink, away from every colour that already means something (water, measured status, VR); a warning names a circuit colour that looks like one of them. Planned el without a circuit is the same dark grey as existing el.
 
 ### Colour legend and «Neste steg»
 

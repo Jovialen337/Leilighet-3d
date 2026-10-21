@@ -102,6 +102,19 @@ describe('opplæringen: framdrift', () => {
     expect(t.state.value).toEqual({ track: 'vr', index: 1, done: false });
     t.next();
     expect(t.step?.id).toBe('meny');
+    // Det neste steget gjort mens ✓ vises (menyen åpnet med en gang): telles når steget kommer.
+    t.event('menu');
+    expect(t.state.value?.done).toBe(true);
+    t.event('vr-room');
+    vi.advanceTimersByTime(700);
+    expect(t.step?.id).toBe('rom');
+    expect(t.state.value?.done).toBe(true);
+    vi.advanceTimersByTime(700);
+    expect(t.step?.id).toBe('farger');
+    t.stop();
+    t.start('vr');
+    t.next();
+    t.next();
     // Avbrutt mens ✓ vises: ingen forsinket hopp etterpå.
     t.event('menu');
     t.stop();

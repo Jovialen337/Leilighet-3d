@@ -24,6 +24,8 @@ export class Tutorial {
   readonly state = new Observable<TutorialState | null>(null);
   private readonly saved: PersistedSettings;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  /** Hendelsen for neste steg, hvis den kom mens ✓ ble vist. */
+  private early: TutorialEvent | null = null;
 
   /** `pause`: hvor lenge ✓ vises før neste steg (ms); 0 = straks. */
   constructor(
@@ -59,13 +61,20 @@ export class Tutorial {
 
   start(track: TutorialTrack): void {
     this.clearTimer();
+    this.early = null;
     this.state.set({ track, index: 0, done: false });
   }
 
   /** Appen melder at brukeren gjorde noe; fullfører steget som venter på det. */
   event(e: TutorialEvent): void {
     const s = this.state.value;
-    if (!s || s.done || this.step?.until !== e) return;
+    if (!s) return;
+    // Mens ✓ vises: det neste steget kan allerede være gjort (f.eks. menyen lukket med en gang).
+    if (s.done) {
+      if (stepsFor(s.track)[s.index + 1]?.until === e) this.early = e;
+      return;
+    }
+    if (this.step?.until !== e) return;
     this.complete(s);
   }
 
@@ -80,6 +89,7 @@ export class Tutorial {
   /** Avslutter uten å fullføre. */
   stop(): void {
     this.clearTimer();
+    this.early = null;
     this.state.set(null);
   }
 
@@ -103,6 +113,9 @@ export class Tutorial {
       return;
     }
     this.state.set({ track: s.track, index: s.index + 1, done: false });
+    const early = this.early;
+    this.early = null;
+    if (early) this.event(early);
   }
 
   private clearTimer(): void {

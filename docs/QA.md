@@ -967,3 +967,48 @@ Both checks were kept short, at the user's request.
 2. «Opplæring og farger» → «Kom i gang i VR»: follow the steps on the left wrist.
 3. In VR: X → «Hjelp» → «Hva fargene betyr».
 
+### Gatekeeper (phase 2e, short check at fcef2a7): **PASS**
+
+- **Budget:** 28 draw calls per eye on «Standard», the same as main, and 30 with the VR menu open during the tutorial.
+- **Code:**
+  - planned el and water add no draw calls;
+  - nothing new runs per frame;
+  - the tutorial timers are cleaned up;
+  - the VR tutorial can always be skipped or stopped;
+  - the `?direkte` fixture in the tests is legitimate.
+- **Remarks**, all fixed now:
+  - Esc did nothing after a click on the background;
+  - focus did not return when the menu closed;
+  - a tutorial event during the ✓ pause was lost;
+  - there was no e2e test for «Gå inn i VR» from the start menu;
+  - the real file's kurs-2 looked like hot water.
+
+### Judge (phase 2e, minimal check at fcef2a7): **7.85 – not accepted**
+
+| # | Item | Score | Verdict |
+|---|---|---|---|
+| 1 | Start menu | 7 | 🟡 At 1000 × 625 «Innstillinger» and «Opplæring og farger» fall below the edge |
+| 2 | Design consistency | 8 | ✅ |
+| 3 | Colours explained | 7 | 🟡 Kurs 1 is orange like «umålt»; Kurs 2 is red like hot water and «ikke her»; «Kurs: Kurs 1» repeats itself |
+| 4 | «Neste steg» and tutorial | 8 | ✅ |
+| 5 | Tests and docs | 8 | ✅ |
+
+### Phase 2e, round 2 – what changed
+
+1. **Start menu at Quest size:**
+   - The main choices come first: «Se leiligheten» / «Gå inn i VR», then the four cards. «Neste steg» follows below them.
+   - The welcome is one line: «Ny her? Kom i gang (2 min)» starts the tutorial straight away.
+   - On low screens (up to 720 px) the menu is tighter.
+   - **Browser test:** the five main choices lie inside a 1000 × 625 screen, both with and without VR.
+2. **One meaning per colour:**
+   - New circuits are violet, purple and pink. They are ΔE > 20 from every colour that means something else and from each other (tested).
+   - Both files use violet (kurs-1) and pink (kurs-2) now. In the real file, kurs-2 used to be almost the same red as hot water.
+   - Planned el without a circuit has the same dark grey as existing el, dashed or outlined.
+   - A warning names any circuit colour that looks like a status colour.
+   - The legend shows the circuit name once.
+3. **The gatekeeper's remarks:**
+   - Esc works wherever the focus is;
+   - focus goes back to «⌂ Start»;
+   - an event during the ✓ pause counts for the next step;
+   - there is a test of «Gå inn i VR» from the start menu.
+

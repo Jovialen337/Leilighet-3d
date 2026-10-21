@@ -38,6 +38,36 @@ test.describe('startmenyen', () => {
     expect(errors).toEqual([]);
   });
 
+  test('i Quest-nettleseren (1000 × 625) synes hovedvalgene uten å rulle', async ({ page }) => {
+    await page.setViewportSize({ width: 1000, height: 625 });
+    for (const url of ['./', './?emulator']) {
+      await page.goto(url);
+      await waitForModel(page);
+      const vr = url.includes('emulator');
+      for (const id of [vr ? 'start-vr' : 'start-continue', 'start-new', 'start-load', 'start-settings', 'start-learn']) {
+        const box = (await page.getByTestId(id).first().boundingBox())!;
+        expect(box.y + box.height, `${id} (${url})`).toBeLessThanOrEqual(625);
+      }
+    }
+  });
+
+  test('Quest: «Gå inn i VR» fra startmenyen; Esc virker også etter klikk på bakgrunnen', async ({ page }) => {
+    await page.goto('./?emulator');
+    await waitForModel(page);
+    await expect(page.getByTestId('start-vr')).toBeVisible();
+    await page.mouse.click(990, 10);
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('start-menu')).toBeHidden();
+    // Fokus tilbake til «⌂ Start» når menyen åpnes derfra og lukkes.
+    await page.getByTestId('open-start').click();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('open-start')).toBeFocused();
+    await page.getByTestId('open-start').click();
+    await page.getByTestId('start-vr').click();
+    await page.waitForFunction(() => (window as any).leilighet.xr.presenting === true);
+    await expect(page.getByTestId('start-menu')).toBeHidden();
+  });
+
   test('innstillingene virker med en gang og huskes; menyen kan slås av', async ({ page }) => {
     await page.goto('./');
     await waitForModel(page);
@@ -122,9 +152,9 @@ test.describe('opplæringen', () => {
     const errors = collectErrors(page);
     await page.goto('./');
     await waitForModel(page);
+    // «Ny her? Kom i gang» starter opplæringen med en gang.
     await page.getByTestId('start-welcome-learn').click();
-    await expect(page.getByTestId('start-legend')).toContainText('Kaldtvann');
-    await page.getByTestId('start-tutorial-pc').click();
+    await expect(page.getByTestId('start-menu')).toBeHidden();
     const card = page.getByTestId('tutorial');
     const title = page.getByTestId('tutorial-title');
     await expect(card).toContainText('1 av 6');
@@ -161,6 +191,7 @@ test.describe('opplæringen', () => {
     await page.goto('./');
     await waitForModel(page);
     await page.getByTestId('start-learn').click();
+    await expect(page.getByTestId('start-legend')).toContainText('Kaldtvann');
     await page.getByTestId('start-tutorial-pc').click();
     await page.getByTestId('tutorial-skip').click();
     await expect(page.getByTestId('tutorial-title')).toHaveText('Gå til et rom');

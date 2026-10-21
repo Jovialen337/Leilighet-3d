@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { CIRCUIT_COLORS, COLOR, contrast, cssVars, deltaE } from '../../src/ui/tokens';
+import { CIRCUIT_COLORS, COLOR, RESERVED_COLORS, contrast, cssVars, deltaE } from '../../src/ui/tokens';
 import { buildParts } from '../../src/scene/buildParts';
 import { validateApartment } from '../../src/schema/validate';
-import { loadDoc, modelOf } from './helpers';
+import { loadDoc, modelOf, PUBLISHED_PATH } from './helpers';
 
 const css = readFileSync(resolve(__dirname, '../../src/ui/style.css'), 'utf8');
 
@@ -33,6 +33,18 @@ describe('designet («Skifer»)', () => {
     expect(new Set(hex)).toEqual(new Set(['#ffd84d', '#3b3200', '#17a362', '#7d8a93', '#ff4d6d', '#fff']));
   });
 
+  it('én betydning per farge: kursfargene (nye og i begge filene) ligner ingen farge som betyr noe annet', () => {
+    const files = [loadDoc(), JSON.parse(readFileSync(PUBLISHED_PATH, 'utf8'))];
+    const used = [...CIRCUIT_COLORS, ...files.flatMap((d) => (d.circuits ?? []).map((k: { color?: string }) => k.color).filter(Boolean))];
+    for (const c of used)
+      for (const [name, r] of Object.entries(RESERVED_COLORS())) expect(deltaE(c, r), `${c} mot ${name}`).toBeGreaterThan(20);
+    // Og nye kurser er lette å skille fra hverandre.
+    for (let i = 0; i < CIRCUIT_COLORS.length; i++)
+      for (let j = i + 1; j < CIRCUIT_COLORS.length; j++) expect(deltaE(CIRCUIT_COLORS[i]!, CIRCUIT_COLORS[j]!)).toBeGreaterThan(20);
+    // Planlagt el uten kurs har samme farge som eksisterende (formen viser at den er planlagt).
+    expect(COLOR.elPlanned).toBe(COLOR.elExisting);
+  });
+
   it('kursfargene til nye kurser ligner ikke varmt- eller kaldtvann', () => {
     for (const c of CIRCUIT_COLORS) {
       expect(deltaE(c, COLOR.hot), c).toBeGreaterThan(25);
@@ -40,7 +52,6 @@ describe('designet («Skifer»)', () => {
     }
     // Vannfargene er tydelig forskjellige fra hverandre og fra el.
     expect(deltaE(COLOR.hot, COLOR.cold)).toBeGreaterThan(50);
-    expect(deltaE(COLOR.elPlanned, COLOR.hot)).toBeGreaterThan(25);
   });
 
   it('en kursfarge som ligner vann gir en advarsel (fila endres ikke)', () => {
@@ -49,6 +60,10 @@ describe('designet («Skifer»)', () => {
     const r = validateApartment(doc);
     expect(r.warnings.map((w) => w.message)).toContainEqual(expect.stringMatching(/Kursfargen ligner varmtvann/));
     expect(validateApartment(loadDoc()).warnings).toEqual([]);
+    // En oransje kurs ligner «umålt».
+    const orange = loadDoc();
+    orange.circuits![0]!.color = '#ff8000';
+    expect(validateApartment(orange).warnings.map((w) => w.message)).toContainEqual(expect.stringMatching(/Kursfargen ligner umålt/));
   });
 });
 

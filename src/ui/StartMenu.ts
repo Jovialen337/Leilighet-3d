@@ -72,6 +72,7 @@ export class StartMenu {
   private readonly col: HTMLElement;
   private page: Page = 'main';
   private onClose: (() => void) | null = null;
+  private returnFocus: HTMLElement | null = null;
 
   constructor(
     private readonly view: ViewState,
@@ -79,12 +80,13 @@ export class StartMenu {
   ) {
     this.col = h('div', { class: 'start-col' });
     this.root = h('div', { class: 'start', 'data-testid': 'start-menu', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Startmeny', hidden: '' }, this.col);
-    this.root.addEventListener('keydown', (e) => {
-      if (e.key !== 'Escape') return;
+    // Esc virker uansett hvor fokus er (også etter et klikk på bakgrunnen).
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || !this.isOpen) return;
       e.stopPropagation();
       if (this.page === 'main') this.close();
       else this.show('main');
-    });
+    }, true);
   }
 
   get isOpen(): boolean {
@@ -94,6 +96,8 @@ export class StartMenu {
   /** Åpner menyen (på hovedsiden). `onClose` kalles når den lukkes. */
   open(onClose: (() => void) | null = null): void {
     this.onClose = onClose;
+    // Fokus går tilbake dit det var (f.eks. «⌂ Start») når menyen lukkes.
+    this.returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     this.root.hidden = false;
     document.body.classList.add('start-open');
     this.show('main');
@@ -105,6 +109,8 @@ export class StartMenu {
     document.body.classList.remove('start-open');
     const cb = this.onClose;
     this.onClose = null;
+    this.returnFocus?.focus({ preventScroll: true });
+    this.returnFocus = null;
     cb?.();
   }
 
@@ -141,21 +147,18 @@ export class StartMenu {
     const out: HTMLElement[] = [h('div', { class: 'start-brand' }, '⌂ Leilighet 3D'), h('h1', { class: 'start-title' }, a.title())];
     const sum = a.summary();
     if (sum) out.push(h('p', { class: 'start-sub', 'data-testid': 'start-summary' }, sum));
+    // Første gang: én linje som starter opplæringen med en gang.
     if (a.firstVisit())
       out.push(
         h(
           'div',
           { class: 'start-welcome' },
-          h('p', {}, 'Velkommen! Her ser du leiligheten i 3D og VR, måler den opp med Quest 3 og planlegger el og vann.'),
-          this.button('Ny her? Ta opplæringen (2 min)', 'start-welcome-learn', () => this.show('opplaering'), 'small'),
+          h('span', {}, 'Ny her?'),
+          this.button('Kom i gang (2 min)', 'start-welcome-learn', () => this.after(() => a.startTutorial('pc')), 'small'),
         ),
       );
-    // Neste steg: hva man bør gjøre nå.
-    const next = a.nextStep();
-    const nextBox = h('div', { class: 'start-next', 'data-testid': 'start-next' }, h('span', { class: 'start-kicker' }, 'Neste steg'), h('p', {}, next.text));
-    if (next.action && next.label) nextBox.append(this.button(next.label, 'start-next-action', () => this.after(() => a.doNext(next.action!)), 'small'));
-    out.push(nextBox);
 
+    // Hovedvalgene først, så de alltid synes uten å rulle (også i Quest-nettleseren).
     const vr = a.vrSupported();
     const primary = vr
       ? this.button('Gå inn i VR', 'start-vr', () => {
@@ -164,8 +167,7 @@ export class StartMenu {
           this.close();
         }, 'primary')
       : this.button('Se leiligheten', 'start-continue', () => this.close(), 'primary');
-    out.push(primary);
-    if (vr) out.push(this.button('Fortsett i nettleseren', 'start-continue', () => this.close(), 'secondary'));
+    out.push(h('div', { class: 'start-actions' }, primary, ...(vr ? [this.button('Fortsett i nettleseren', 'start-continue', () => this.close(), 'secondary')] : [])));
 
     const cards = h(
       'div',
@@ -176,6 +178,13 @@ export class StartMenu {
       this.card('Opplæring og farger', 'Kom i gang, og hva fargene betyr', 'start-learn', () => this.show('opplaering')),
     );
     out.push(cards);
+
+    // Neste steg: hva man bør gjøre nå.
+    const next = a.nextStep();
+    const nextBox = h('div', { class: 'start-next', 'data-testid': 'start-next' }, h('span', { class: 'start-kicker' }, 'Neste steg'), h('p', {}, next.text));
+    if (next.action && next.label) nextBox.append(this.button(next.label, 'start-next-action', () => this.after(() => a.doNext(next.action!)), 'small'));
+    out.push(nextBox);
+
     const shortcuts = this.button('Hurtigtaster (H)', 'start-shortcuts', () => this.after(() => a.showShortcuts()), 'link');
     out.push(h('div', { class: 'start-foot' }, boundCheckbox('Vis startmenyen når appen åpnes', this.view.startMenu, 'start-show'), shortcuts));
     return out;

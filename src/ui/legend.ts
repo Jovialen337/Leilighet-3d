@@ -55,7 +55,7 @@ export function legendFor(c: LegendContext): LegendGroup[] {
       id: 'el',
       title: 'El',
       entries: [
-        ...c.circuits.filter((k) => k.color).map((k) => ({ color: k.color!, shape: 'line' as const, label: `Kurs: ${k.name}` })),
+        ...c.circuits.filter((k) => k.color).map((k) => ({ color: k.color!, shape: 'line' as const, label: /^kurs\b/i.test(k.name) ? k.name : `Kurs: ${k.name}` })),
         { color: COLOR.elExisting, shape: 'line', label: 'Kabel uten kurs – finnes' },
         { color: COLOR.elPlanned, shape: 'dash', label: 'Stiplet: planlagt kabel' },
         { color: COLOR.elPlanned, shape: 'outline', label: 'Bare omriss: planlagt punkt' },

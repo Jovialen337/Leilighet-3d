@@ -1267,14 +1267,19 @@ button.small[aria-pressed='true'] {
 }
 
 .start-welcome {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
   color: var(--text);
-  background: var(--surface-2);
-  border-radius: var(--r-l);
-  padding: var(--s-3) var(--s-4);
 }
 
-.start-welcome p {
-  margin: 0 0 var(--s-2);
+.start-actions {
+  display: flex;
+  gap: var(--s-3);
+}
+
+.start-actions .start-btn.primary {
+  flex: 1;
 }
 
 .start-next {
@@ -1448,6 +1453,28 @@ button.small[aria-pressed='true'] {
   display: flex;
   flex-wrap: wrap;
   gap: var(--s-2);
+}
+
+/* Lave skjermer (Quest-nettleseren, 1000 × 625): tettere, så hovedvalgene synes uten å rulle. */
+@media (max-height: 720px) {
+  .start-col {
+    padding: var(--s-4) var(--s-5);
+    gap: var(--s-2);
+  }
+  .start-title {
+    font-size: var(--fs-display);
+  }
+  .start-btn.primary {
+    min-height: 52px;
+  }
+  .start-cards {
+    gap: var(--s-2);
+    margin-top: 0;
+  }
+  .start-card {
+    min-height: 64px;
+    padding: var(--s-3);
+  }
 }
 
 @media (max-width: 640px) {

@@ -20,7 +20,8 @@ describe('fargeforklaringen', () => {
     const g = legendFor({ ...base, highlight: true })[0]!;
     expect(g.entries.map((e) => e.color)).toEqual([COLOR.placeholder, COLOR.partial, COLOR.measured]);
     const el = legendFor({ ...base, el: true, circuits: [{ name: 'Kurs 1 – gang', color: '#d35400' }, { name: 'Uten farge' }] })[0]!;
-    expect(el.entries[0]).toEqual({ color: '#d35400', shape: 'line', label: 'Kurs: Kurs 1 – gang' });
+    // Navnet står for seg selv når det allerede begynner med «Kurs».
+    expect(el.entries[0]).toEqual({ color: '#d35400', shape: 'line', label: 'Kurs 1 – gang' });
     expect(el.entries.some((e) => e.label.includes('Uten farge'))).toBe(false);
     // Planlagt: stiplet eller bare omriss, aldri bare en annen farge.
     for (const g2 of legendFor({ ...base, all: true }))

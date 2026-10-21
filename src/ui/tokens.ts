@@ -49,9 +49,9 @@ export const COLOR = {
   cold: '#2f7de1',
   hot: '#e0452f',
   drain: '#6f747a',
-  /* El uten kurs */
+  /* El uten kurs (planlagt: samme farge, stiplet eller bare omriss) */
   elExisting: '#33373c',
-  elPlanned: '#e8a33a',
+  elPlanned: '#33373c',
   /* Åpninger (byggeren og oppmålingen) */
   door: '#b07a4f',
   window: '#7fb8e0',
@@ -78,8 +78,27 @@ export const SNAP: Record<string, string> = {
   fri: '#ff9f1a',
 };
 
-/** Farger til nye kurser (godt unna varmt- og kaldtvann). */
-export const CIRCUIT_COLORS: readonly string[] = ['#e8a33a', '#9b7be0', '#d0539b', '#2a9d8f', '#a3a83a', '#a8693a', '#e58fb5'];
+/**
+ * Farger til nye kurser: fiolett, lilla og rosa – ingen farge som betyr noe
+ * annet (oransje/gul/grønn = målestatus, rødt = varmtvann og «ikke her»,
+ * blått = kaldtvann, valgt og mål). Testet: ΔE > 20 mot dem og mot hverandre.
+ */
+export const CIRCUIT_COLORS: readonly string[] = ['#9b7be0', '#d0539b', '#ce93d8', '#8a2be2', '#ff80ab'];
+
+/** Fargene som allerede betyr noe (en kursfarge skal ikke ligne dem). */
+export const RESERVED_COLORS = (): Record<string, string> => ({
+  'varmtvann (rødt)': COLOR.hot,
+  'kaldtvann (blått)': COLOR.cold,
+  'avløp (grått)': COLOR.drain,
+  'umålt (oransje)': COLOR.placeholder,
+  'delvis målt (gult)': COLOR.partial,
+  'målt (grønt)': COLOR.measured,
+  'grønn bue (du kan lande)': COLOR.teleportOk,
+  'rød bue (ikke her)': COLOR.teleportBad,
+  'det du peker på (blått)': COLOR.target,
+  'valgt (lyseblått)': COLOR.accent,
+  'kabel uten kurs (mørkegrått)': COLOR.elExisting,
+});
 
 export const FONT = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
 
