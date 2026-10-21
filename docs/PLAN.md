@@ -20,6 +20,7 @@ All UI text is Norwegian (bokmål). All geometry comes from one data file, `publ
 | 2b | **Graphics, options and planning** (improvement rounds scored per [SCORING.md](SCORING.md)): new lighting and quality presets; saved settings; VR menu (X); go to room; dollhouse; **electrical and water planning** with drawing on PC and in VR; layer groups, presets and filters with x-ray | **built**, being scored |
 | 2c | **«Lag ny modell»** – make a new model from scratch or from the current one: draw rooms on the PC or in the Quest Browser (walls are made automatically), or measure the rooms by touching the walls in passthrough on the Quest 3. Doors, windows and openings, checks with one-click fixes, undo, autosave, walk through it in VR, and export as `apartment.json`. | **built**, being scored |
 | 2d | **«Wow» graphics on the Quest 3:** baked daylight from the windows, sun patches through the windows, a real sky with clouds and a distant tree line, clear glass, «Lys» (morgen/dag/kveld, lamps lit in the evening), a fade in from black facing the longest view, and sharper VR on «Høy» | **built**, being scored |
+| 2e | **Start menu, design and tutorial:** a start menu (Ny / Last inn / Innstillinger / Opplæring og farger) that is the first thing you see on the Quest; one dark design («Skifer») for the page and the VR panels; one meaning per colour, with a colour legend everywhere; «Neste steg»; a step-by-step tutorial on the laptop and in VR | **built**, being scored |
 | 3 | **Editing** in VR: grab, move, turn, add and delete furniture and fixtures; edit walls, doors and windows with snapping and live dimensions; wrist menu; undo | planned |
 | 4+ | *(proposal)* Planning: electrical and wiring routes, ventilation, workshop zone, GLB furniture import, notes in VR | – |
 | Ideas | **The user's idea list (2026-10-16)**, developed below under «Ideas backlog»: outside content, a garden category, a furniture collection and creator, wallpapers, floor types, a colouring tool, view modes (electric, water …), and a HUD and menu upgrade | backlog |
@@ -489,9 +490,81 @@ From research round 3, not built yet (the judge asked for a small round 3):
   - a vignette during smooth turning, and a blink when teleporting;
   - «Gå rundt» on the laptop at eye height.
 - **Wall junctions:** the stue/planterom partition starts inside the grow-room wall, and two facades have walls whose faces lie on top of each other (a wall with a higher floor is not counted as covering). Tests list the known cases. This needs real merging of the walls. Corners where both walls run through are owned by one wall, and joints in the same plane share their points (round 4).
-- **Holes across a cut line:** a window or passage drawn across the line where a wall is cut (only possible by editing the file by hand) shows a strip of the cut face inside the opening.
+- **Openings at a cut corner:** an opening drawn across or right at the line where a wall is cut can give overlapping or walled-over faces. Across the line is only possible by editing the file by hand; right at a room corner may be possible from the builder. Fix: turn such holes into notches, and add unit cases (the gatekeeper's M1–M14).
 - A `settings.north` field so «Lys» follows the real compass.
 - If the Quest shows headroom at 90 fps: foveation 0.5 on «Standard». Please report the ms reading.
+
+## Phase 2e – start menu, design and tutorial
+
+The user's request (2026-10-20): a start menu that is the first thing you see on the Quest 3, nice and simple, in a design that runs through the whole app; New / Load / Settings and more; and help with what the colours mean and how to proceed.
+
+### Start menu
+
+- Shown when the app opens, as a dark column over the live model. It can be turned off; `?direkte` skips it and `?start` always shows it. «⌂ Start» in the panel opens it again.
+- **The main page:**
+  - the model's name and a summary;
+  - on the first visit, a welcome with a link to the tutorial;
+  - **«Neste steg»** with a button;
+  - «Gå inn i VR» (or «Se leiligheten» without VR) and «Fortsett i nettleseren»;
+  - four cards: «Ny modell», «Last inn», «Innstillinger», «Opplæring og farger».
+- **«Ny modell»:** continue the draft, start blank, start from the current model, measure the rooms in passthrough, or open an `apartment.json` file.
+- **«Last inn»:** the model, the file again, a download of local changes, the new model, or a file.
+- **«Innstillinger»:** graphics, «Lys», snap turn, frame rate, wrist help, the start menu itself, and reset.
+- Esc goes back to the main page, and from there closes the menu.
+
+### One design: «Skifer»
+
+- **Tokens:** `src/ui/tokens.ts` holds the colours, type sizes, radii and spacing. They are CSS variables on the page and are used directly on the VR canvases (menu, wrist panel).
+- **Dark everywhere:** calm in VR, also in the evening and at night, and the model is the brightest thing in view.
+- **Contrast:** text is at least 4.5:1, and controls at least 3:1. This is tested.
+- **One meaning per colour:**
+  - light blue = selected;
+  - green = measured / OK;
+  - orange = not measured;
+  - red = error / not allowed.
+- **Planned el and water** keep the colour of what they are: planned runs are dashed and planned points are only outlined. Circuits are violet, purple or pink, away from every colour that already means something (water, measured status, VR); a warning names a circuit colour that looks like one of them. Planned el without a circuit is the same dark grey as existing el.
+
+### Colour legend and «Neste steg»
+
+- **One legend:** `legendFor` lists only the colours in use (measured status, el, water, VR, drawing, measuring), or all of them.
+- **Where it shows:**
+  - «Farger» in the panel header;
+  - the start menu's tutorial page;
+  - the «Farger» page under «Hjelp» in the VR menu, with drawn swatches.
+- **«Neste steg»:** `nextStep` is a pure priority list:
+  1. a broken file;
+  2. an unfinished new model;
+  3. old measurements;
+  4. changes that exist only in this browser;
+  5. measuring progress;
+  6. placeholders;
+  7. drawing;
+  8. VR.
+
+  It shows in the start menu, at the top of the panel and in the VR «Hjelp» tab.
+
+### Tutorial
+
+- **Each step waits** for the user to do it, or for «Hopp over», and finished tracks are remembered.
+- **On the laptop:**
+  - look around;
+  - go to a room;
+  - 2D;
+  - mark unmeasured;
+  - colours;
+  - «⌂ Start».
+
+  A blue ring marks the control the step is about.
+- **In VR:**
+  - teleport;
+  - turn;
+  - open the menu;
+  - go to a room;
+  - colours;
+  - done.
+
+  The steps stand on the left wrist, and a yellow ring in the menu points at the tab first, then the button. The menu lifts a little so the wrist stays readable.
+- **Starting it:** from the start menu or from «Hjelp» in the VR menu.
 
 ## Ideas backlog (from the user, 2026-10-16)
 

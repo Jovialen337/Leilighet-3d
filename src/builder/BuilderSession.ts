@@ -277,6 +277,11 @@ export class BuilderSession {
     return result;
   }
 
+  /** Er tegningen lastet ned som apartment.json siden siste endring? */
+  get exported(): boolean {
+    return this.exportedHash !== undefined;
+  }
+
   /** Fila som tekst (origo ved inngangsdøra, dagens dato). Husker fingeravtrykket. */
   exportText(now = new Date()): string | null {
     if (!this.doc) return null;

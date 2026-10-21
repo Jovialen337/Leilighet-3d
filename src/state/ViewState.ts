@@ -81,6 +81,8 @@ export class ViewState {
   readonly light = new Observable<LightId>('dag');
   readonly xrRate = new Observable<XRRate>(90);
   readonly turn = new Observable<TurnMode>(30);
+  /** Vis startmenyen når appen åpnes. */
+  readonly startMenu = new Observable(true);
   /** Vis alltid hjelpen på håndleddet (ellers bare til kontrollene er lært). */
   readonly wristHelp = new Observable(false);
   /** Snitthøyde over laveste gulv (mm); null = fra fila (planCutHeight). */

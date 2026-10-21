@@ -916,3 +916,112 @@ Weighted total **7.25**. Another round is worth it (round 2 of 4).
    - A browser test checks that no text is shortened on any page of the VR menu, including the longest circuit names and «Egendefinert». It fails with the old labels.
 4. **Docs and code comments:** PLAN.md has the new labels and the 2D rule, and the comments are back above their functions.
 
+### Confirmation at eed8604: gatekeeper **PASS**, judge **8.0 – accepted**
+
+Both checks were kept short, at the user's request.
+
+**Gatekeeper:**
+- **Corner rays:** 0 bad rays in the real file (607,346) and in the placeholder (626,209).
+- **Seams** (same views as round 4):
+
+  | Seam | Round 4 | eed8604 |
+  |---|---|---|
+  | Bathroom | 75–84 % | 0 % |
+  | Grow room | 76 % | 0 % |
+  | Hallway | 45 % | 0 % |
+
+- At all five butt joints, both walls now have the same edge heights.
+- **Remark:** an opening placed right at a cut corner can give overlapping or walled-over faces. The real file has no such opening (later work in PLAN.md).
+
+**Judge:** every item is ✅ and each dimension is 8, so the total is 8.0.
+- The bathroom seam is cleaner than in round 3.
+- No VR text is cut off on any page.
+- The 2D test passed 3 out of 3 runs.
+
+**PR #10 merged** (82717fa).
+
+## Phase 2e – start menu, design and tutorial – 2026-10-21
+
+### How it was tested
+
+- **Unit tests (315):**
+  - design: contrast, CSS variables, circuit colours apart from water, the water-like warning, dashed runs and outlined points;
+  - the legend and «Neste steg» (`guide.test.ts`);
+  - the tutorial steps, progress and saving;
+  - the VR «Hjelp» and «Farger» pages, the menu hints, and six tabs that fit (`tutorial.test.ts`).
+- **Browser tests (`tests/e2e/start.spec.ts`, 8):**
+  - the start menu first, then «Se leiligheten», the welcome only once, and Esc;
+  - settings that apply at once and are saved;
+  - turning the menu off, `?start`, and reset;
+  - «Last inn» and «Ny modell»;
+  - «Neste steg» in the panel;
+  - the colour legend, with «Vis alle»;
+  - the PC tutorial step by step;
+  - «Hopp over» and «Avslutt»;
+  - the VR «Hjelp» tab and the whole VR tutorial in the emulated Quest 3.
+- The other browser tests open the app with `?direkte`. The fixture option `startMenu` turns the menu on.
+
+### Test on the Quest (phase 2e)
+
+1. Open the page: the start menu should be the first thing you see, readable at arm's length.
+2. «Opplæring og farger» → «Kom i gang i VR»: follow the steps on the left wrist.
+3. In VR: X → «Hjelp» → «Hva fargene betyr».
+
+### Gatekeeper (phase 2e, short check at fcef2a7): **PASS**
+
+- **Budget:** 28 draw calls per eye on «Standard», the same as main, and 30 with the VR menu open during the tutorial.
+- **Code:**
+  - planned el and water add no draw calls;
+  - nothing new runs per frame;
+  - the tutorial timers are cleaned up;
+  - the VR tutorial can always be skipped or stopped;
+  - the `?direkte` fixture in the tests is legitimate.
+- **Remarks**, all fixed now:
+  - Esc did nothing after a click on the background;
+  - focus did not return when the menu closed;
+  - a tutorial event during the ✓ pause was lost;
+  - there was no e2e test for «Gå inn i VR» from the start menu;
+  - the real file's kurs-2 looked like hot water.
+
+### Judge (phase 2e, minimal check at fcef2a7): **7.85 – not accepted**
+
+| # | Item | Score | Verdict |
+|---|---|---|---|
+| 1 | Start menu | 7 | 🟡 At 1000 × 625 «Innstillinger» and «Opplæring og farger» fall below the edge |
+| 2 | Design consistency | 8 | ✅ |
+| 3 | Colours explained | 7 | 🟡 Kurs 1 is orange like «umålt»; Kurs 2 is red like hot water and «ikke her»; «Kurs: Kurs 1» repeats itself |
+| 4 | «Neste steg» and tutorial | 8 | ✅ |
+| 5 | Tests and docs | 8 | ✅ |
+
+### Phase 2e, round 2 – what changed
+
+1. **Start menu at Quest size:**
+   - The main choices come first: «Se leiligheten» / «Gå inn i VR», then the four cards. «Neste steg» follows below them.
+   - The welcome is one line: «Ny her? Kom i gang (2 min)» starts the tutorial straight away.
+   - On low screens (up to 720 px) the menu is tighter.
+   - **Browser test:** the five main choices lie inside a 1000 × 625 screen, both with and without VR.
+2. **One meaning per colour:**
+   - New circuits are violet, purple and pink. They are ΔE > 20 from every colour that means something else and from each other (tested).
+   - Both files use violet (kurs-1) and pink (kurs-2) now. In the real file, kurs-2 used to be almost the same red as hot water.
+   - Planned el without a circuit has the same dark grey as existing el, dashed or outlined.
+   - A warning names any circuit colour that looks like a status colour.
+   - The legend shows the circuit name once.
+3. **The gatekeeper's remarks:**
+   - Esc works wherever the focus is;
+   - focus goes back to «⌂ Start»;
+   - an event during the ✓ pause counts for the next step;
+   - there is a test of «Gå inn i VR» from the start menu.
+
+### Phase 2e, round 2: gatekeeper **PASS**, judge **8.0, one item left**
+
+- **Gatekeeper:** PASS at af834bb. It found no regressions, and the real file now validates with no warnings.
+- **Judge:** start menu, design, «Neste steg» and tests are all ✅ at 8.
+- **The item left:** in the VR legend, the dark grey planned-el swatches were nearly invisible on the dark background.
+
+### Phase 2e, round 3 – what changed
+
+- **Dark swatches:** a swatch with less than 3:1 contrast to the background is drawn on a light chip, on the page and in VR (`swatchBackdrop`). A unit test checks at least 3:1 for every legend swatch.
+- **Circuit colours:** the 4th new circuit colour is a lighter purple (#a259ff), so it also meets 3:1.
+- **«Farger»:** the legend opens at the top, also with «Vis alle fargene».
+- **Gatekeeper's remark:** on the Quest, «Kom i gang» starts the tutorial in VR.
+

@@ -5,10 +5,10 @@
  * høyt som teksten, nederst mot kontrolleren.
  */
 import * as THREE from 'three';
+import { COLOR, FONT, rgba } from '../ui/tokens';
 
 const W = 512;
 const H = 256;
-const FONT = 'system-ui, sans-serif';
 
 interface Row {
   text: string;
@@ -61,19 +61,19 @@ export class WristPanel {
 
   private draw(): void {
     const rows: Row[] = [];
-    if (this.fpsLine) rows.push({ text: this.fpsLine, size: 32, weight: 700, color: '#7dffb0', gap: 18 });
-    if (this.title) rows.push({ text: this.title, size: 40, weight: 700, color: '#ffffff', gap: 16 });
+    if (this.fpsLine) rows.push({ text: this.fpsLine, size: 32, weight: 700, color: COLOR.success, gap: 18 });
+    if (this.title) rows.push({ text: this.title, size: 40, weight: 700, color: COLOR.text, gap: 16 });
     // Under bildefrekvens eller tittel: mindre tekst; ellers stor (hjelpen for å komme i gang).
     const small = rows.length > 0;
     const size = small ? 24 : this.lines.length > 3 ? 26 : 30;
     for (const text of this.lines)
-      rows.push({ text, size, weight: small ? 500 : 600, color: small ? '#d5dee6' : '#ffffff', gap: small ? 10 : 14 });
+      rows.push({ text, size, weight: small ? 500 : 600, color: small ? COLOR.text2 : COLOR.text, gap: small ? 10 : 14 });
     const c = this.ctx;
     c.clearRect(0, 0, W, H);
     const pad = 14;
     const height = Math.min(H - 8, 2 * pad + 4 + rows.reduce((s, r) => s + r.size + r.gap, 0) - (rows.at(-1)?.gap ?? 0));
     const top = H - 4 - height;
-    c.fillStyle = 'rgba(20, 28, 36, 0.82)';
+    c.fillStyle = rgba(COLOR.surface, 0.9);
     c.beginPath();
     c.roundRect(4, top, W - 8, height, 28);
     c.fill();

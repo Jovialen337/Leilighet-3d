@@ -19,6 +19,9 @@ import { boundCheckbox, boundRange, boundSelect } from './controls';
 import { ACTION_TEXT, SHORTCUTS, isTypingTarget, shortcutFor } from './shortcuts';
 import { QUALITIES, TURN_MODES, XR_RATES, type Quality, type TurnMode, type XRRate } from '../state/ViewState';
 import { LIGHT_IDS, LIGHT_TEXT, type LightId } from '../scene/lighting';
+import type { LegendGroup } from './legend';
+import type { NextAction, NextStep } from './nextStep';
+import { legendView } from './LegendView';
 import { EFFECT_IDS, EFFECT_TEXT, wantedEffects } from '../scene/graphicsProfile';
 
 export interface DesktopActions {
@@ -33,6 +36,14 @@ export interface DesktopActions {
   planBox?: HTMLElement;
   /** «Lag ny modell»: knappen som åpner byggeren, og panelet. */
   builder?: { entry: HTMLElement; panel: HTMLElement; open: () => void };
+  /** Startmenyen (⌂ øverst i panelet). */
+  openStart?: () => void;
+  /** Fargene som er i bruk nå, og alle fargene («Farger»). */
+  legend?: (all: boolean) => LegendGroup[];
+  /** En annen dialog (startmenyen) er åpen: hurtigtastene venter. */
+  modal?: () => boolean;
+  /** Knappen i «Neste steg» øverst i panelet. */
+  doNext?: (action: NextAction) => void;
 }
 
 const QUALITY_TEXT: Record<Quality, string> = { low: 'Rask', medium: 'Standard', high: 'Høy', custom: 'Egendefinert' };
@@ -62,6 +73,9 @@ export class DesktopUI {
   readonly layerPanel: LayerPanel;
   private readonly status: HTMLElement;
   private readonly measureInfo: HTMLElement;
+  /** «Neste steg» øverst i panelet (samme som i startmenyen). */
+  private readonly nextBox: HTMLElement;
+  private nextKey = '';
   private readonly legend: HTMLElement;
   private readonly warnings: HTMLDetailsElement;
   private readonly overlay: HTMLElement;
@@ -73,6 +87,7 @@ export class DesktopUI {
   readonly measureBox: MeasureBox;
   private measureSession: MeasureSession | null = null;
   private readonly roomList: HTMLElement;
+  private readonly legendDialog: HTMLElement;
   private readonly helpDialog: HTMLElement;
   private readonly tooltip: HTMLElement;
   private planState: { planChanges: number; planPublished: boolean; planStale?: number; planOlder?: number } = { planChanges: 0, planPublished: false };
@@ -158,12 +173,20 @@ export class DesktopUI {
       'Dra for å rotere, rull for å zoome, høyreklikk-dra for å panorere. Trykk H for hurtigtaster.',
     );
 
+    this.nextBox = h('div', { class: 'next-step', 'data-testid': 'next-step', hidden: '' });
     const toggle = h('button', { class: 'panel-toggle', 'aria-label': 'Vis/skjul meny', 'data-testid': 'panel-toggle' }, '☰');
+    const startButton = h('button', { 'aria-label': 'Åpne startmenyen', title: 'Startmenyen', 'data-testid': 'open-start' }, '⌂ Start');
+    startButton.hidden = !actions.openStart;
+    startButton.addEventListener('click', () => actions.openStart?.());
+    const coloursButton = h('button', { 'aria-label': 'Hva fargene betyr', title: 'Fargeforklaring', 'data-testid': 'open-legend' }, 'Farger');
+    coloursButton.hidden = !actions.legend;
+    coloursButton.addEventListener('click', () => this.toggleLegend(true));
     this.panel = h(
       'aside',
       { class: 'panel', 'data-testid': 'panel' },
-      h('header', {}, h('h1', {}, 'Leilighet 3D'), toggle),
+      h('header', {}, h('h1', {}, 'Leilighet 3D'), h('div', { class: 'header-buttons' }, startButton, coloursButton), toggle),
       h('div', { class: 'panel-body' },
+        this.nextBox,
         this.vrButton,
         this.vrHint,
         this.measureBox.root,
@@ -199,9 +222,10 @@ export class DesktopUI {
     this.coords = h('div', { class: 'coords', 'data-testid': 'coords', hidden: '' });
     this.fpsBox = h('div', { class: 'fps', 'data-testid': 'fps', hidden: '' });
 
+    this.legendDialog = this.buildLegend();
     this.helpDialog = this.buildHelp();
     this.tooltip = h('div', { class: 'plan-tooltip', 'data-testid': 'plan-tooltip', hidden: '' });
-    root.append(this.panel, this.overlay, this.scaleBar, this.coords, this.fpsBox, this.helpDialog, this.tooltip);
+    root.append(this.panel, this.overlay, this.scaleBar, this.coords, this.fpsBox, this.helpDialog, this.legendDialog, this.tooltip);
     // Snitthøyden er bare i bruk ovenfra eller i dukkehus.
     const showSection = (): void => {
       section.hidden = view.cameraMode.value !== 'top' && !view.dollhouse.value;
@@ -232,11 +256,13 @@ export class DesktopUI {
     view.fps.subscribe((v) => (this.fpsBox.hidden = !v), true);
 
     window.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && !this.helpDialog.hidden) {
+      if (e.key === 'Escape' && (!this.helpDialog.hidden || !this.legendDialog.hidden)) {
         this.toggleHelp(false);
-        e.stopImmediatePropagation(); // Esc lukker bare hjelpen
+        this.toggleLegend(false);
+        e.stopImmediatePropagation(); // Esc lukker bare dialogen
         return;
       }
+      if (this.actions.modal?.()) return;
       if (isTypingTarget(e.target) || e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
       const s = shortcutFor(e.key);
       if (!s) return;
@@ -365,7 +391,49 @@ export class DesktopUI {
   }
 
   get helpOpen(): boolean {
-    return !this.helpDialog.hidden;
+    return !this.helpDialog.hidden || !this.legendDialog.hidden;
+  }
+
+  /** Hurtigtastene (H) – også fra startmenyen. */
+  showHelp(): void {
+    this.toggleHelp(true);
+  }
+
+  /** «Farger»: fargene som er i bruk nå, eller alle. */
+  toggleLegend(show = this.legendDialog.hidden, all = false): void {
+    this.legendDialog.hidden = !show;
+    if (!show || !this.actions.legend) return;
+    const box = this.legendDialog.querySelector('.legend-slot')!;
+    const allBox = this.legendDialog.querySelector<HTMLInputElement>('[data-testid="legend-all"]')!;
+    allBox.checked = all;
+    box.replaceChildren(legendView(this.actions.legend(all)));
+    // Fokus på «Lukk» uten å rulle: forklaringen starter øverst (også når alle fargene vises).
+    (this.legendDialog.querySelector('button') as HTMLButtonElement | null)?.focus({ preventScroll: true });
+    this.legendDialog.querySelector('.help-box')?.scrollTo({ top: 0 });
+  }
+
+  private buildLegend(): HTMLElement {
+    const close = h('button', { class: 'small', 'data-testid': 'legend-close' }, 'Lukk');
+    close.addEventListener('click', () => this.toggleLegend(false));
+    const all = h('input', { type: 'checkbox', 'data-testid': 'legend-all' });
+    all.addEventListener('change', () => this.toggleLegend(true, all.checked));
+    const dialog = h(
+      'div',
+      { class: 'help-dialog legend-dialog', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Fargeforklaring', 'data-testid': 'legend-dialog', hidden: '' },
+      h(
+        'div',
+        { class: 'help-box' },
+        h('h2', {}, 'Hva fargene betyr'),
+        h('p', { class: 'hint' }, 'Fargen viser hva det er; stiplet strek og bare omriss betyr planlagt.'),
+        h('div', { class: 'legend-slot' }),
+        h('label', { class: 'check' }, all, 'Vis alle fargene'),
+        close,
+      ),
+    );
+    dialog.addEventListener('click', (e) => {
+      if (e.target === dialog) this.toggleLegend(false);
+    });
+    return dialog;
   }
 
   private toggleHelp(show = this.helpDialog.hidden): void {
@@ -381,6 +449,26 @@ export class DesktopUI {
         return b;
       }),
     );
+  }
+
+  /** «Neste steg»: hva man bør gjøre nå, med en knapp for det (tegnes bare når noe er endret). */
+  updateNext(step: NextStep | null): void {
+    const key = step ? `${step.text}|${step.action ?? ''}|${step.label ?? ''}` : '';
+    if (key === this.nextKey) return;
+    this.nextKey = key;
+    this.nextBox.hidden = !step;
+    if (!step) {
+      this.nextBox.replaceChildren();
+      return;
+    }
+    const children: (Node | string)[] = [h('span', { class: 'next-step-kicker' }, 'Neste steg'), h('p', {}, step.text)];
+    if (step.action && step.label && this.actions.doNext) {
+      const b = h('button', { class: 'small', 'data-testid': 'next-step-action' }, step.label);
+      const action = step.action;
+      b.addEventListener('click', () => this.actions.doNext?.(action));
+      children.push(b);
+    }
+    this.nextBox.replaceChildren(...children);
   }
 
   /** Oppdaterer oppmålingsboksen (kalles når målinger eller tegninger endres). */

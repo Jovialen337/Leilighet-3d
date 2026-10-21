@@ -1,5 +1,9 @@
 import './ui/style.css';
 import { App } from './app/App';
+import { applyCssVars } from './ui/tokens';
+
+// Designet (farger, skrift, mål) før noe tegnes, så siden ikke blinker i gamle farger.
+applyCssVars(document.documentElement);
 
 async function main(): Promise<void> {
   const params = new URLSearchParams(location.search);

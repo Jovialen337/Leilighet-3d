@@ -38,6 +38,9 @@ import { followFloor, placeAtSpawn, snapTurn, teleportTo } from './rig';
 import { Fade } from './fade';
 import { EFFECT_IDS, graphicsProfile, wantedEffects, type EffectId } from '../scene/graphicsProfile';
 import { LIGHT_IDS, type LightId } from '../scene/lighting';
+import type { Tutorial } from '../tutorial/Tutorial';
+import type { TutorialEvent } from '../tutorial/steps';
+import type { LegendGroup } from '../ui/legend';
 
 export type XRSupport = 'checking' | 'supported' | 'unsupported' | 'insecure' | 'no-webxr';
 /** walk = VR; measure = oppmåling av fila; build = oppmåling av ny modell (begge gjennomsyn). */
@@ -102,6 +105,8 @@ export class XRManager {
    * den har sin egen ramme, så tegningene ville havnet feil i fila.
    */
   canDraw: () => boolean = () => true;
+  /** Opplæringen, «Neste steg» og fargene (fanen «Hjelp»); settes av appen. */
+  private guide: { tutorial: Tutorial; next: () => string; legend: (drawing: boolean) => LegendGroup[] } | null = null;
   private requestedMode: XRMode = 'walk';
   private readonly slots: Slot[] = [];
   private readonly arc = new TeleportArc();
@@ -498,6 +503,7 @@ export class XRManager {
         if (hit?.valid) {
           teleportTo(this.rig, this.head, hit.point);
           this.teleports++;
+          this.tutorialEvent('teleport');
           // Første teleport: håndleddet slutter å minne om stikka.
           if (this.teleports === 1 && this.learned) this.updateWristHelp();
           this.camera.getWorldPosition(this.head);
@@ -548,9 +554,36 @@ export class XRManager {
   /* ---------------- VR-meny (X) ---------------- */
 
   setMenuOpen(open: boolean): void {
+    const was = this.menu.open;
     this.menu.setOpen(open);
-    this.wrist.mesh.visible = !open && this.mode === 'walk';
+    // Under opplæringen står steget på håndleddet også mens menyen er åpen (menyen løftes over).
+    this.wrist.mesh.visible = (!open || this.tutorialVR) && this.mode === 'walk';
     if (open) this.menuDirty = true;
+    if (open !== was) this.tutorialEvent(open ? 'menu' : 'menu-close');
+  }
+
+  /** Kobler til opplæringen, «Neste steg» og fargeforklaringen. */
+  setGuide(guide: { tutorial: Tutorial; next: () => string; legend: (drawing: boolean) => LegendGroup[] }): void {
+    this.guide = guide;
+    guide.tutorial.state.subscribe(() => {
+      this.menuDirty = true;
+      if (this.menu.open) this.wrist.mesh.visible = this.tutorialVR && this.mode === 'walk';
+      this.updateWristHelp();
+    });
+  }
+
+  /** Opplæringen i VR pågår. */
+  private get tutorialVR(): boolean {
+    return this.guide?.tutorial.track === 'vr';
+  }
+
+  private tutorialEvent(e: TutorialEvent): void {
+    if (this.tutorialVR) this.guide!.tutorial.event(e);
+  }
+
+  private turned(): void {
+    this.turns++;
+    this.tutorialEvent('turn');
   }
 
   private updateMenu(left: Gamepad | null, right: Gamepad | null): void {
@@ -566,7 +599,7 @@ export class XRManager {
 
     const leftSlot = this.slot('left');
     const rightSlot = this.slot('right');
-    if (leftSlot) this.menu.place(leftSlot.grip, this.head);
+    if (leftSlot) this.menu.place(leftSlot.grip, this.head, this.tutorialVR ? 0.06 : 0);
     if (this.menuDirty) {
       this.menuDirty = false;
       this.menu.setState(this.menuState());
@@ -610,7 +643,16 @@ export class XRManager {
       filterCircuit: this.view.circuit.value,
       drawBlocked: !this.canDraw(),
       qualityNote: this.qualityNote(),
+      next: this.guide?.next() ?? '',
+      legend: this.menuTab === 'farger' ? (this.guide?.legend(this.drawTool !== null) ?? []) : [],
+      tutorial: this.tutorialMenu(),
     };
+  }
+
+  private tutorialMenu(): { active: boolean; targets: readonly string[] } {
+    const t = this.guide?.tutorial;
+    if (!t || t.track !== 'vr') return { active: false, targets: [] };
+    return { active: true, targets: t.state.value?.done ? [] : (t.step?.menuTargets ?? []) };
   }
 
   /** Utfører en menyknapp (id fra menuLayout). */
@@ -620,7 +662,19 @@ export class XRManager {
     switch (kind) {
       case 'tab':
         this.menuTab = arg as MenuTab;
+        if (arg === 'farger') this.tutorialEvent('vr-legend');
         break;
+      case 'tutorial': {
+        const t = this.guide?.tutorial;
+        if (!t) break;
+        if (arg === 'start') {
+          // Første steg er å teleportere: menyen lukkes.
+          t.start('vr');
+          this.setMenuOpen(false);
+        } else if (arg === 'next') t.next();
+        else if (arg === 'stop') t.stop();
+        break;
+      }
       case 'toggle':
         if (arg === 'ceilings') v.ceilings.set(!v.ceilings.value);
         else if (arg === 'highlight') v.measureHighlight.set(!v.measureHighlight.value);
@@ -658,10 +712,12 @@ export class XRManager {
         break;
       case 'room':
         this.goToRoom(arg);
+        this.tutorialEvent('vr-room');
         this.setMenuOpen(false);
         break;
       case 'start':
         this.goToStart();
+        this.tutorialEvent('vr-room');
         this.setMenuOpen(false);
         break;
       case 'draw':
@@ -794,8 +850,8 @@ export class XRManager {
   }
 
   /** Knappene i menyen slik den ser ut nå (for tester). */
-  menuItemsNow(): { id: string; active: boolean }[] {
-    return buildMenu(this.menuState()).items.map((i) => ({ id: i.id, active: i.active }));
+  menuItemsNow(): { id: string; active: boolean; hint: boolean }[] {
+    return buildMenu(this.menuState()).items.map((i) => ({ id: i.id, active: i.active, hint: i.hint === true }));
   }
 
   /** Midtpunktet av en menyknapp i verden (for tester). */
@@ -821,15 +877,15 @@ export class XRManager {
     }
     if (this.smoothTurning) {
       this.smoothTurning = false;
-      this.turns++;
+      this.turned();
     }
     if (this.turnArmed && sideways && Math.abs(rx) > TURN_START && mode !== 'smooth') {
       snapTurn(this.rig, this.head, (-Math.sign(rx) * mode * Math.PI) / 180);
-      this.turns++;
+      this.turned();
       this.turnArmed = false;
     } else if (this.turnArmed && !sideways && ry > TURN_START) {
       snapTurn(this.rig, this.head, Math.PI);
-      this.turns++;
+      this.turned();
       this.turnArmed = false;
     } else if (Math.abs(rx) < TURN_REARM && Math.abs(ry) < TURN_REARM) {
       this.turnArmed = true;
@@ -905,6 +961,14 @@ export class XRManager {
         o.tool === 'select' ? 'Avtrekker: velg · A: slett' : o.tool === 'fixture' ? 'Avtrekker: sett inn' : 'Avtrekker: punkt · A: ferdig',
         'B: angre · X: meny',
       ]);
+      return;
+    }
+    const tut = this.guide?.tutorial;
+    const step = tut?.track === 'vr' ? tut.step : null;
+    if (tut && step && this.mode === 'walk') {
+      const pos = tut.position!;
+      const done = tut.state.value?.done ?? false;
+      this.wrist.setLines(done ? ['Bra!'] : [...(step.wrist ?? [step.text])], `${done ? '✓ ' : ''}${step.title} · ${pos.index + 1}/${pos.count}`);
       return;
     }
     if (this.learned && !this.view.wristHelp.value) {

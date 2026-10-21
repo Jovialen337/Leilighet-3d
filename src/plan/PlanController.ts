@@ -26,6 +26,7 @@ import {
   type DrawTool,
   type Snap,
 } from './draw';
+import { CIRCUIT_COLORS } from '../ui/tokens';
 import type { PlanCollection, PlanEdits, PlanObject, PlanOp } from './PlanEdits';
 
 export interface Selection {
@@ -34,7 +35,7 @@ export interface Selection {
 }
 
 /** Farger for nye kurser (går i ring). */
-const CIRCUIT_COLORS = ['#d35400', '#2980b9', '#27ae60', '#8e44ad', '#c0392b', '#16a085', '#f39c12', '#7f8c8d'];
+// Farger til nye kurser: godt unna varmt- og kaldtvann (se tokens.ts).
 
 export class PlanController {
   readonly options = new Observable<DrawOptions>({ ...DEFAULT_OPTIONS });

@@ -20,6 +20,7 @@ import {
 import { isMeasuredValue, normalize } from './normalize';
 import { ApartmentModel } from '../model/ApartmentModel';
 import { isSelfIntersecting, p2, polygonArea, signedArea } from '../geometry/math2d';
+import { RESERVED_COLORS, deltaE } from '../ui/tokens';
 import { MIN_CEILING_TRIANGLE_AREA, maxTriangleArea } from '../geometry/plane';
 
 export type Severity = 'error' | 'warning';
@@ -787,6 +788,17 @@ function checkReferences(c: Checker, m: ApartmentModel): void {
     const subject = subjectFor('fixtures', f as unknown as Obj, i);
     wallRef(`fixtures[${i}].mount.wall`, subject, f.mount.wall);
     roomRef(`fixtures[${i}].mount.room`, subject, 'room', f.mount.room);
+  });
+  // Kursfarger som ligner en farge som betyr noe annet (vann, målestatus, VR): én betydning per farge.
+  (d.circuits ?? []).forEach((k, i) => {
+    if (!k.color || !/^#[0-9a-fA-F]{6}$/.test(k.color)) return;
+    const like = Object.entries(RESERVED_COLORS()).find(([, col]) => deltaE(k.color!, col) < 15)?.[0];
+    if (like)
+      c.warn(
+        `circuits[${i}].color`,
+        subjectFor('circuits', k as unknown as Obj, i),
+        `Kursfargen ligner ${like}, så den blir vanskelig å skille. Velg en annen farge (fiolett, lilla eller rosa).`,
+      );
   });
   const entrances = d.openings.filter((o) => o.type === 'door' && o.entrance);
   if (entrances.length === 0)

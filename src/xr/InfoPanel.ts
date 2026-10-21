@@ -4,6 +4,7 @@
  * lerret og tegnes bare på nytt når innholdet endres.
  */
 import * as THREE from 'three';
+import { COLOR, FONT, rgba } from '../ui/tokens';
 
 const W = 1024;
 const H = 640;
@@ -24,10 +25,10 @@ export interface PanelContent {
 }
 
 const TONE: Record<Tone, string> = {
-  ok: '#7dffb0',
-  warn: '#ffd166',
-  error: '#ff7a7a',
-  info: '#9fd8ff',
+  ok: COLOR.success,
+  warn: COLOR.warning,
+  error: COLOR.danger,
+  info: COLOR.accent,
 };
 
 export class InfoPanel {
@@ -63,38 +64,38 @@ export class InfoPanel {
   private draw(p: PanelContent): void {
     const c = this.ctx;
     c.clearRect(0, 0, W, H);
-    c.fillStyle = 'rgba(16, 22, 30, 0.9)';
+    c.fillStyle = rgba(COLOR.surface, 0.94);
     c.beginPath();
     c.roundRect(4, 4, W - 8, H - 8, 36);
     c.fill();
     c.textBaseline = 'alphabetic';
 
     let y = PAD + 30;
-    c.font = '500 30px system-ui, sans-serif';
-    c.fillStyle = '#9aa7b2';
+    c.font = `500 30px ${FONT}`;
+    c.fillStyle = COLOR.text2;
     c.fillText(this.fit(p.header, W - 2 * PAD - 220), PAD, y);
     if (p.badge) {
-      c.font = '700 30px system-ui, sans-serif';
+      c.font = `700 30px ${FONT}`;
       const bw = c.measureText(p.badge).width + 36;
-      c.fillStyle = '#2f80ed';
+      c.fillStyle = COLOR.accent;
       c.beginPath();
       c.roundRect(W - PAD - bw, y - 32, bw, 44, 22);
       c.fill();
-      c.fillStyle = '#ffffff';
+      c.fillStyle = COLOR.onAccent;
       c.fillText(p.badge, W - PAD - bw + 18, y);
     }
 
     y += 66;
-    c.font = '700 52px system-ui, sans-serif';
-    c.fillStyle = '#ffffff';
+    c.font = `700 52px ${FONT}`;
+    c.fillStyle = COLOR.text;
     for (const line of this.wrap(p.title, W - 2 * PAD).slice(0, 2)) {
       c.fillText(line, PAD, y);
       y += 60;
     }
 
     y += 8;
-    c.font = '400 36px system-ui, sans-serif';
-    c.fillStyle = '#e6edf3';
+    c.font = `400 36px ${FONT}`;
+    c.fillStyle = COLOR.text;
     for (const line of this.wrap(p.body, W - 2 * PAD).slice(0, 5)) {
       c.fillText(line, PAD, y);
       y += 44;
@@ -102,7 +103,7 @@ export class InfoPanel {
 
     if (p.status) {
       y += 10;
-      c.font = '600 34px system-ui, sans-serif';
+      c.font = `600 34px ${FONT}`;
       c.fillStyle = TONE[p.status.tone];
       for (const line of this.wrap(p.status.text, W - 2 * PAD).slice(0, 3)) {
         c.fillText(line, PAD, y);
@@ -111,8 +112,8 @@ export class InfoPanel {
     }
 
     // Knapper nederst.
-    c.font = '500 27px system-ui, sans-serif';
-    c.fillStyle = '#9aa7b2';
+    c.font = `500 27px ${FONT}`;
+    c.fillStyle = COLOR.text2;
     let fy = H - PAD - 14 - (p.footer.length - 1) * 36;
     for (const line of p.footer) {
       c.fillText(this.fit(line, W - 2 * PAD), PAD, fy);
@@ -120,9 +121,9 @@ export class InfoPanel {
     }
     if (p.progress !== undefined) {
       const bw = W - 2 * PAD;
-      c.fillStyle = 'rgba(255,255,255,0.15)';
+      c.fillStyle = rgba(COLOR.text, 0.15);
       c.fillRect(PAD, H - 26, bw, 8);
-      c.fillStyle = '#39d98a';
+      c.fillStyle = COLOR.success;
       c.fillRect(PAD, H - 26, bw * Math.max(0, Math.min(1, p.progress)), 8);
     }
     this.texture.needsUpdate = true;

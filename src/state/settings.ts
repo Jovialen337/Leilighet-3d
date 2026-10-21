@@ -32,6 +32,7 @@ export class SettingsBinding {
     s.bind('bildefrekvens', view.xrRate, oneOf(XR_RATES));
     s.bind('snu', view.turn, oneOf(TURN_MODES));
     s.bind('hjelp', view.wristHelp, isBool);
+    s.bind('startmeny', view.startMenu, isBool);
     s.bind('snitthoyde', view.sectionHeight, isSection);
     s.bind('dukkehus', view.dollhouse, isBool);
     s.bind('visning', view.cameraMode, oneOf(['orbit', 'top'] as const));
@@ -58,6 +59,7 @@ export class SettingsBinding {
     v.xrRate.set(90);
     v.turn.set(30);
     v.wristHelp.set(false);
+    v.startMenu.set(true);
     v.sectionHeight.set(null);
     v.dollhouse.set(false);
     v.cameraMode.set('orbit');

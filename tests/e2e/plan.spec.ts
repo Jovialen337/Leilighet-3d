@@ -165,7 +165,7 @@ test('PC: grafikkvalitet – himmel, myke skygger og skarphet, og valget huskes'
   await page.route('**/apartment.json', async (route) =>
     route.fulfill({ json: JSON.parse((await import('node:fs')).readFileSync(new URL('../fixtures/placeholder.json', import.meta.url), 'utf8')) }),
   );
-  await page.goto('./');
+  await page.goto('./?direkte');
   await waitForModel(page);
   const state = () =>
     page.evaluate(() => {
@@ -408,7 +408,7 @@ test('VR: kurs for nye kabler velges i Tegn og står på håndleddet; «Høy» s
 test('PC: skarphet ved skjermskala 1 (Rask/Standard/Høy)', async ({ browser }) => {
   const ctx = await browser.newContext({ deviceScaleFactor: 1, viewport: { width: 1280, height: 800 } });
   const page = await ctx.newPage();
-  await page.goto('./');
+  await page.goto('./?direkte');
   await waitForModel(page);
   const ratio = () => page.evaluate(() => (window as any).leilighet.renderer.getPixelRatio());
   expect(await ratio()).toBe(1);

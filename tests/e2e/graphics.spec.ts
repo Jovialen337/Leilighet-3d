@@ -168,7 +168,7 @@ test('VR-menyen: ingen tekst er forkortet på noen side', async ({ page }) => {
   await waitForModel(page);
   const cut = (setup: string): Promise<string[]> =>
     app(page, `(() => { ${setup}; const x = a.xr; x.menu.setState(x.menuState()); return x.menu.truncated; })()`);
-  for (const tab of ['visning', 'effekter', 'lag', 'lagliste', 'tegn', 'ga', 'komfort'])
+  for (const tab of ['visning', 'effekter', 'lag', 'lagliste', 'tegn', 'ga', 'komfort', 'hjelp', 'farger'])
     expect(await cut(`a.xr.menuTab = '${tab}'`), tab).toEqual([]);
   // Lengste kurs i kursfilteret og for nye kabler, og «Egendefinert».
   const longest = "a.store.model.data.circuits.reduce((p, c) => (c.name.length > p.name.length ? c : p)).id";
