@@ -844,3 +844,75 @@ Weighted total **7.25**. Another round is worth it (round 2 of 4).
    - «Dagslys og skygger»;
    - «Lampelys (kveld og natt)».
 
+### Gatekeeper (round 4 at 40d2985): **FAIL**
+
+**Fixed:** the corner slits are gone.
+- 607,346 rays on the real file and 626,209 on the placeholder show no hole.
+- The probe flags all 7 corners on round 3.
+- Clipping holds up under 9 mutations (windows and passages across a cut line, short walls, a taller room).
+
+**Blocker:** the butt joints brought back dotted seams. That includes the bathroom corner that round 2 had to fix.
+- Measured as the share of image rows with a thin line along the seam:
+
+  | Seam | r2 | r3 | r4 |
+  |---|---|---|---|
+  | Bathroom | 75 % | 0 % | 75 % |
+  | Grow room | 76 % | 0 % | 76 % |
+  | Hallway | 29 % | 0 % | 45 % |
+
+- The unit test named for the bathroom seam stayed green, because it does not look at edges on a face border.
+
+**Passed:**
+- lamp re-mix: 0 difference from a fresh bake in every case, and 15 of 16 meshes reused;
+- 2D light;
+- «Egendefinert» from «Høy»;
+- budget: worst 34 draw calls per eye, textures 11.67 MB;
+- no new per-frame allocations.
+
+### Judge (round 4, scored at 40d2985): **8.0 – not accepted**
+
+| # | Item | Score | Verdict |
+|---|---|---|---|
+| 1 | Baked daylight and ambient occlusion | 8 | ✅ Slits closed; a faint hairline at the new butt joints |
+| 2 | Sun patches, rays, lamp light | 8 | ✅ Moving a lamp: 35–39 ms, or 97–110 ms at 4× (round 3: 64 / 148–178) |
+| 3 | Sky, ground, glass, floors | 8 | ✅ |
+| 4 | «Lys» (neutral 2D) | 7 | 🟡 Right, but the new 2D test took 31–48 s against a 45 s timeout |
+| 5 | VR entry, wrist panel, controllers | 8 | ✅ |
+| 6 | Profile, «Egendefinert», budget, tests, docs | 7 | 🟡 «Lampelys (kveld og natt)» is cut off in VR; PLAN.md had the old labels |
+
+**Its other measurements:**
+- the 2D floor colour is pixel-identical across all four «Lys» choices;
+- switching between 2D and 3D in «Kveld» takes 4 ms;
+- worst draw calls per eye: 32;
+- «Kveld» is 44 % and «Natt» 14 % of «Dag».
+
+**Its advice:** make the two fixes and have the gatekeeper confirm them; this was the last round.
+
+### After round 4 – the fixes the gatekeeper and judge asked for
+
+1. **Seams at the butt joints:**
+   - **Cause:** two hidden faces had an edge exactly on the visible seam: the cut wall's end face, and the part of the owner's inner face that runs behind the cut wall. That edge flickered through as dashes, the same way the round-2 seam did.
+   - **Fix:**
+     - A cut end face is no longer drawn.
+     - Below the cut wall's top, the owner's inner face now starts where the cut wall begins. Above it, the face goes all the way out, because there it faces open air.
+     - The joint is enclosed by solid walls, so nothing can be seen into.
+   - **T-junctions:** where two walls meet in the same plane, the vertical edges of both now share the same points. The points are linked across each wall's thickness, and kept 1 µm inside the face so the triangulation keeps them.
+   - **Measured with the gatekeeper's method on the same views:**
+
+     | Seam | r3 | r4 | Now |
+     |---|---|---|---|
+     | Bathroom | 0 % | 74 % | 0 % |
+     | Grow room | 0 % | 75 % | 0 % |
+     | Hallway | 1 % | 31 % | 1 % |
+
+   - **New unit test:** no T-junctions where two walls meet in the same plane.
+     - The placeholder had 9 such junctions since round 1; it now has 0.
+     - The real file now lists only 4 known pairs, and none of them is a joint. Each is a pair of walls whose faces lie on top of each other (old facades, and the stue/planterom partition).
+     - The corner-ray test still finds no holes.
+2. **The 2D test:** one screenshot per «Lys» and a 90 s timeout. It now takes 25 s.
+3. **VR labels:**
+   - «Lampelys kveld/natt».
+   - The four buttons in the «Lag» tab (Eksisterende / Planlagt / Røntgen / kurs) now use two rows.
+   - A browser test checks that no text is shortened on any page of the VR menu, including the longest circuit names and «Egendefinert». It fails with the old labels.
+4. **Docs and code comments:** PLAN.md has the new labels and the 2D rule, and the comments are back above their functions.
+

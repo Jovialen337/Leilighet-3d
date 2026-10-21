@@ -190,9 +190,13 @@ export function buildMenu(s: MenuState): { items: MenuItem[]; labels: MenuLabel[
           ? [{ id: 'circuit:next', label: circuitName(s.filterCircuit) ?? 'Alle kurser', on: s.filterCircuit !== null, kind: 'action' as const }]
           : []),
       ];
-      const tw = (full - (t3.length - 1) * GAP) / t3.length;
-      t3.forEach((t, i) => items.push({ id: t.id, kind: t.kind, label: t.label, active: t.on, x: PAD + i * (tw + GAP), y, w: tw, h: ROW_H }));
-      y += ROW_H + GAP + 8;
+      // Fire knapper får ikke plass til tekstene på én rad: da to rader med to.
+      const perRow = t3.length > 3 ? 2 : t3.length;
+      const tw = (full - (perRow - 1) * GAP) / perRow;
+      t3.forEach((t, i) =>
+        items.push({ id: t.id, kind: t.kind, label: t.label, active: t.on, x: PAD + (i % perRow) * (tw + GAP), y: y + Math.floor(i / perRow) * (ROW_H + GAP), w: tw, h: ROW_H }),
+      );
+      y += Math.ceil(t3.length / perRow) * (ROW_H + GAP) + 8;
       labels.push({ text: 'Laggrupper', x: PAD, y: y + 34 });
       y += 52;
       grid(

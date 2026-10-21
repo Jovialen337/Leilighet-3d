@@ -28,7 +28,7 @@ export const EFFECT_TEXT: Record<EffectId, string> = {
   baked: 'Dagslys og skygger',
   sun: 'Solflekker',
   shafts: 'Lysstråler',
-  lamps: 'Lampelys (kveld og natt)',
+  lamps: 'Lampelys kveld/natt',
   sky: 'Himmel og utsikt',
   detail: 'Gulvmønster',
   sharp: 'Skarpere bilde',
@@ -56,10 +56,6 @@ export function matchingPreset(set: EffectSet): Preset | null {
 }
 
 /**
- * Slår én effekt av eller på: utgangspunktet er effektene som gjelder nå, og
- * resultatet blir «Egendefinert» – eller et forhåndsvalg hvis settet er likt det.
- */
-/**
  * Settet «Egendefinert» starter med når man velger det fra et forhåndsvalg:
  * effektene i det forhåndsvalget (så «Høy» → «Egendefinert» ikke slår av
  * stråler og skarphet). Et tidligere valgt sett beholdes.
@@ -69,6 +65,10 @@ export function customStart(from: Quality, custom: EffectChoices): EffectChoices
   return presetEffects(from);
 }
 
+/**
+ * Slår én effekt av eller på: utgangspunktet er effektene som gjelder nå, og
+ * resultatet blir «Egendefinert» – eller et forhåndsvalg hvis settet er likt det.
+ */
 export function toggleEffect(q: Quality, custom: EffectChoices, id: EffectId): { quality: Quality; custom: EffectSet } {
   const next = { ...wantedEffects(q, custom) };
   next[id] = !next[id];

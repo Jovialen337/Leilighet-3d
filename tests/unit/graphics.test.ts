@@ -740,9 +740,9 @@ describe('ingen flater oppå hverandre (de ville flimret med bakt lys)', () => {
     expect(hiddenEdgesOnSurfaces(model)).toEqual([]);
     // Den publiserte fila: badet er fikset, og hjørnet der gang og planterom møtes eies nå av én vegg.
     // Kjent igjen (senere arbeid, PLAN.md): skilleveggen stue/planterom starter midt inne i
-    // planterom-veggen, så sideflatene har en kant i hjørnet der de møtes.
+    // planterom-veggen, så flatene har en kant der de møtes.
     expect(hiddenEdgesOnSurfaces(modelOf(JSON.parse(readFileSync(PUBLISHED_PATH, 'utf8')))).sort()).toEqual([
-      'v-stue-plante i flaten til v-planterom-bunn',
+      'v-planterom-bunn i flaten til v-stue-plante',
     ]);
   });
 
@@ -812,6 +812,64 @@ describe('ingen flater oppå hverandre (de ville flimret med bakt lys)', () => {
         }
     return [...out];
   }
+
+  /**
+   * T-kryss: et hjørnepunkt i én veggs flate som ligger midt på en kant i en
+   * annen veggs flate i samme plan, samme vei. Der får kantene ikke de samme
+   * punktene, og skjermkortet lar en prikkete sprekk stå igjen langs kanten.
+   */
+  function tJunctions(m: ReturnType<typeof modelOf>): string[] {
+    type Tri = { id: string; pts: [number, number][] };
+    const planes = new Map<string, Tri[]>();
+    for (const p of buildParts(m)) {
+      if (p.kind !== 'wall') continue;
+      const a = p.geometry.getAttribute('position');
+      const n = p.geometry.getAttribute('normal');
+      for (let i = 0; i < a.count; i += 3) {
+        const nn = [n.getX(i), n.getY(i), n.getZ(i)];
+        const axis = nn.findIndex((c) => Math.abs(c) > 0.999);
+        if (axis < 0 || axis === 1) continue;
+        const pts = [0, 1, 2].map((k) => [a.getX(i + k) * 1000, a.getY(i + k) * 1000, a.getZ(i + k) * 1000]);
+        const key = `${axis}${nn[axis]! > 0 ? '+' : '-'}${Math.round(pts[0]![axis]!)}`;
+        const list = planes.get(key) ?? [];
+        list.push({ id: p.id, pts: pts.map((q) => [q[axis === 0 ? 2 : 0]!, q[1]!] as [number, number]) });
+        planes.set(key, list);
+      }
+    }
+    const out = new Set<string>();
+    for (const tris of planes.values())
+      for (const A of tris)
+        for (const B of tris) {
+          if (A.id === B.id) continue;
+          for (const p of A.pts)
+            for (let e = 0; e < 3; e++) {
+              const q0 = B.pts[e]!;
+              const q1 = B.pts[(e + 1) % 3]!;
+              const dx = q1[0] - q0[0];
+              const dy = q1[1] - q0[1];
+              const len = Math.hypot(dx, dy);
+              if (len < 1) continue;
+              const t = ((p[0] - q0[0]) * dx + (p[1] - q0[1]) * dy) / (len * len);
+              const d = Math.abs((p[0] - q0[0]) * dy - (p[1] - q0[1]) * dx) / len;
+              if (d > 0.3 || t * len < 0.5 || (1 - t) * len < 0.5) continue;
+              out.add([A.id, B.id].sort().join(' / '));
+            }
+        }
+    return [...out].sort();
+  }
+
+  it('ingen T-kryss der to vegger møtes i samme flate (ingen prikkete sprekk i hjørnene)', () => {
+    expect(tJunctions(model)).toEqual([]);
+    // Kjent i den publiserte fila (fra før, senere arbeid i PLAN.md): ikke skjøter, men vegger med
+    // flater oppå hverandre – fasaden der en vegg med høyere gulv ikke regnes som dekket, og
+    // skilleveggen stue/planterom som starter inne i planterom-veggen.
+    expect(tJunctions(modelOf(JSON.parse(readFileSync(PUBLISHED_PATH, 'utf8'))))).toEqual([
+      'v-gang-glass / v-inngang',
+      'v-inngang / v-kjokken-ende',
+      'v-planterom-bunn / v-planterom-hoyre',
+      'v-planterom-bunn / v-stue-plante',
+    ]);
+  });
 
   it('ingen hull i hjørnene: en stråle inn i en vegg treffer alltid en forside', { timeout: 30_000 }, () => {
     expect(cornerHoles(model)).toEqual([]);

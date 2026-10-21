@@ -21,6 +21,8 @@ export class WristMenu {
   private readonly ctx: CanvasRenderingContext2D;
   private readonly texture: THREE.CanvasTexture;
   private lastKey = '';
+  /** Tekster som ble forkortet med «…» sist menyen ble tegnet (for tester). */
+  truncated: string[] = [];
   private readonly inv = new THREE.Matrix4();
   private readonly o = new THREE.Vector3();
   private readonly d = new THREE.Vector3();
@@ -129,6 +131,7 @@ export class WristMenu {
     const key = JSON.stringify([this.items, this.labels, this.hovered?.id ?? null]);
     if (key === this.lastKey) return;
     this.lastKey = key;
+    this.truncated = [];
     const c = this.ctx;
     c.clearRect(0, 0, MENU_W, MENU_H);
     c.fillStyle = 'rgba(16, 22, 30, 0.92)';
@@ -202,6 +205,7 @@ export class WristMenu {
     }
     let t = text;
     while (t.length > 1 && c.measureText(`${t}…`).width > width) t = t.slice(0, -1);
+    this.truncated.push(text);
     return `${t}…`;
   }
 }

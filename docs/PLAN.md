@@ -456,16 +456,16 @@ One pure function, `graphicsProfile` (`src/scene/graphicsProfile.ts`), decides w
 
 | | Rask | Standard (default) | Høy | Egendefinert |
 |---|---|---|---|---|
-| Baked daylight and contact shadows («Dagslys og myke skygger») | – | ✓ | ✓ | your choice |
+| Baked daylight and contact shadows («Dagslys og skygger») | – | ✓ | ✓ | your choice |
 | Sun patches («Solflekker») | – | ✓ | ✓ | your choice |
-| Lamps in the evening, glow and baked light («Lampelys (kveld)») | – | ✓ | ✓ | your choice |
+| Lamps in the evening, glow and baked light («Lampelys kveld/natt») | – | ✓ | ✓ | your choice |
 | Sky and outside («Himmel og utsikt») | – | ✓ | ✓ | your choice |
 | Wood floors and tiles («Gulvmønster») | – | ✓ | ✓ | your choice |
 | Light rays («Lysstråler») | – | – | ✓ | your choice |
 | «Skarpere bilde»: VR resolution / foveation | 1.0 / 1.0 | 1.0 / 1.0 | 1.3 (next VR session) / 0.25 (at once) | your choice |
 
 - In **passthrough** (measuring and «Lag ny modell») there is never sky or effects.
-- In the **2D plan** there is no sky, sun or lamps, but the baked light stays.
+- In the **2D plan** there is no sky, sun or lamps, but the baked light stays. It is always lit like «Dag», whatever «Lys» says: the plan is a drawing.
 - **«Egendefinert»: each effect on or off by itself**, including the sharper image.
   - Changing one effect starts from what is on now, and the choice becomes «Egendefinert», unless the set is exactly one of the presets.
   - The set is saved per device and comes back when you choose «Egendefinert» again; a preset does not erase it.
@@ -488,7 +488,8 @@ From research round 3, not built yet (the judge asked for a small round 3):
   - seated mode, which lifts the view to standing height;
   - a vignette during smooth turning, and a blink when teleporting;
   - «Gå rundt» on the laptop at eye height.
-- **Wall junctions:** the stue/planterom partition starts inside the grow-room wall, so a thin line can show in that corner. This needs real merging of the walls (a test lists the known case). Corners where both walls run through are owned by one wall (round 4).
+- **Wall junctions:** the stue/planterom partition starts inside the grow-room wall, and two facades have walls whose faces lie on top of each other (a wall with a higher floor is not counted as covering). Tests list the known cases. This needs real merging of the walls. Corners where both walls run through are owned by one wall, and joints in the same plane share their points (round 4).
+- **Holes across a cut line:** a window or passage drawn across the line where a wall is cut (only possible by editing the file by hand) shows a strip of the cut face inside the opening.
 - A `settings.north` field so «Lys» follows the real compass.
 - If the Quest shows headroom at 90 fps: foveation 0.5 on «Standard». Please report the ms reading.
 

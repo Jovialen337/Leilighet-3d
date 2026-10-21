@@ -73,7 +73,7 @@ describe('VR-menyen', () => {
       ['Dagslys og skygger', true],
       ['Solflekker', true],
       ['Lysstråler', false],
-      ['Lampelys (kveld og natt)', true],
+      ['Lampelys kveld/natt', true],
       ['Himmel og utsikt', true],
       ['Gulvmønster', true],
       ['Skarpere bilde', false],

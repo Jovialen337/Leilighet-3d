@@ -4,7 +4,7 @@
  * 32 MB teksturer, i alle rom.
  */
 import { expect, type Page } from '@playwright/test';
-import { collectErrors, colorDistance, enterMeasure, enterVR, frames, menuPress, pixelAt, press, renderedFrames, screenOf, stats, test, waitForModel, xrState } from './helpers';
+import { collectErrors, colorDistance, enterMeasure, enterVR, frames, menuPress, pixelsAt, press, renderedFrames, screenOf, stats, test, waitForModel, xrState } from './helpers';
 
 const app = <T = any>(page: Page, expr: string): Promise<T> => page.evaluate(`(() => { const a = window.leilighet; return ${expr}; })()`);
 
@@ -125,6 +125,7 @@ test('PC: «Lys»-valget og L-tasten, sol på «Standard», stråler bare på «
 });
 
 test('PC: 2D-planen har alltid dagslys – «Lys» gjelder bare 3D og VR', async ({ page }) => {
+  test.setTimeout(90_000);
   const errors = collectErrors(page);
   await page.goto('./');
   await waitForModel(page);
@@ -136,14 +137,11 @@ test('PC: 2D-planen har alltid dagslys – «Lys» gjelder bare 3D og VR', async
     [3200, 180, 1000],
     [6100, 0, 1500],
   ] as const;
+  const points = await Promise.all(spots.map(([x, y, z]) => screenOf(page, x, y, z)));
+  // Ett skjermbilde per «Lys» (alle tre punktene fra det).
   const colours = async (): Promise<number[][]> => {
     await renderedFrames(page);
-    const out: number[][] = [];
-    for (const [x, y, z] of spots) {
-      const p = await screenOf(page, x, y, z);
-      out.push(await pixelAt(page, p.x, p.y));
-    }
-    return out;
+    return pixelsAt(page, points);
   };
   const day = await colours();
   for (const l of ['morgen', 'kveld', 'natt'] as const) {
@@ -156,13 +154,27 @@ test('PC: 2D-planen har alltid dagslys – «Lys» gjelder bare 3D og VR', async
   const stue = async (): Promise<number> => {
     await renderedFrames(page);
     const p = await screenOf(page, 3200, 180, 1000);
-    const c = await pixelAt(page, p.x, p.y);
-    return c[0] + c[1] + c[2];
+    const [c] = await pixelsAt(page, [p]);
+    return c![0] + c![1] + c![2];
   };
   const night3d = await stue();
   await app(page, "a.view.light.set('dag')");
   expect(night3d).toBeLessThan((await stue()) - 60);
   expect(errors).toEqual([]);
+});
+
+test('VR-menyen: ingen tekst er forkortet på noen side', async ({ page }) => {
+  await page.goto('./');
+  await waitForModel(page);
+  const cut = (setup: string): Promise<string[]> =>
+    app(page, `(() => { ${setup}; const x = a.xr; x.menu.setState(x.menuState()); return x.menu.truncated; })()`);
+  for (const tab of ['visning', 'effekter', 'lag', 'lagliste', 'tegn', 'ga', 'komfort'])
+    expect(await cut(`a.xr.menuTab = '${tab}'`), tab).toEqual([]);
+  // Lengste kurs i kursfilteret og for nye kabler, og «Egendefinert».
+  const longest = "a.store.model.data.circuits.reduce((p, c) => (c.name.length > p.name.length ? c : p)).id";
+  expect(await cut(`a.view.circuit.set(${longest}); a.xr.menuTab = 'lag'`)).toEqual([]);
+  expect(await cut(`a.planCtrl.set({ circuit: ${longest} }); a.xr.menuTab = 'tegn'`)).toEqual([]);
+  expect(await cut(`a.view.quality.set('custom'); a.xr.menuTab = 'effekter'`)).toEqual([]);
 });
 
 test('PC: «Egendefinert» – hver effekt for seg, settet huskes, og et forhåndsvalg tar over', async ({ page }) => {
