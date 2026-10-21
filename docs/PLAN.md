@@ -490,7 +490,7 @@ From research round 3, not built yet (the judge asked for a small round 3):
   - a vignette during smooth turning, and a blink when teleporting;
   - «Gå rundt» on the laptop at eye height.
 - **Wall junctions:** the stue/planterom partition starts inside the grow-room wall, and two facades have walls whose faces lie on top of each other (a wall with a higher floor is not counted as covering). Tests list the known cases. This needs real merging of the walls. Corners where both walls run through are owned by one wall, and joints in the same plane share their points (round 4).
-- **Holes across a cut line:** a window or passage drawn across the line where a wall is cut (only possible by editing the file by hand) shows a strip of the cut face inside the opening.
+- **Openings at a cut corner:** an opening drawn across or right at the line where a wall is cut can give overlapping or walled-over faces. Across the line is only possible by editing the file by hand; right at a room corner may be possible from the builder. Fix: turn such holes into notches, and add unit cases (the gatekeeper's M1–M14).
 - A `settings.north` field so «Lys» follows the real compass.
 - If the Quest shows headroom at 90 fps: foveation 0.5 on «Standard». Please report the ms reading.
 

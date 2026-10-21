@@ -916,6 +916,30 @@ Weighted total **7.25**. Another round is worth it (round 2 of 4).
    - A browser test checks that no text is shortened on any page of the VR menu, including the longest circuit names and «Egendefinert». It fails with the old labels.
 4. **Docs and code comments:** PLAN.md has the new labels and the 2D rule, and the comments are back above their functions.
 
+### Confirmation at eed8604: gatekeeper **PASS**, judge **8.0 – accepted**
+
+Both checks were kept short, at the user's request.
+
+**Gatekeeper:**
+- **Corner rays:** 0 bad rays in the real file (607,346) and in the placeholder (626,209).
+- **Seams** (same views as round 4):
+
+  | Seam | Round 4 | eed8604 |
+  |---|---|---|
+  | Bathroom | 75–84 % | 0 % |
+  | Grow room | 76 % | 0 % |
+  | Hallway | 45 % | 0 % |
+
+- At all five butt joints, both walls now have the same edge heights.
+- **Remark:** an opening placed right at a cut corner can give overlapping or walled-over faces. The real file has no such opening (later work in PLAN.md).
+
+**Judge:** every item is ✅ and each dimension is 8, so the total is 8.0.
+- The bathroom seam is cleaner than in round 3.
+- No VR text is cut off on any page.
+- The 2D test passed 3 out of 3 runs.
+
+**PR #10 merged** (82717fa).
+
 ## Phase 2e – start menu, design and tutorial – 2026-10-21
 
 ### How it was tested
