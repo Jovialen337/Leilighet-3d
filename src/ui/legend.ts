@@ -58,7 +58,7 @@ export function legendFor(c: LegendContext): LegendGroup[] {
         ...c.circuits.filter((k) => k.color).map((k) => ({ color: k.color!, shape: 'line' as const, label: `Kurs: ${k.name}` })),
         { color: COLOR.elExisting, shape: 'line', label: 'Kabel uten kurs – finnes' },
         { color: COLOR.elPlanned, shape: 'dash', label: 'Stiplet: planlagt kabel' },
-        { color: COLOR.elPlanned, shape: 'outline', label: 'Bare omriss: planlagt punkt (stikkontakt, bryter …)' },
+        { color: COLOR.elPlanned, shape: 'outline', label: 'Bare omriss: planlagt punkt' },
       ],
     });
   if (all || c.water)

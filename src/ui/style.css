@@ -91,6 +91,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   padding: 10px 14px;
   border-bottom: 1px solid var(--line);
 }

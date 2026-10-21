@@ -194,7 +194,8 @@ export class WristMenu {
         c.fillText(this.fit(it.label, it.w - sw - 56, size), it.x + 22, cy + 1);
       } else {
         c.textAlign = 'center';
-        c.fillText(this.fit(it.label, it.w - 24, it.kind === 'tab' ? 0 : size), it.x + it.w / 2, cy + 1);
+        // Fanene krymper til 24 px før de forkortes (seks faner på lerretet).
+        c.fillText(it.kind === 'tab' ? this.fit(it.label, it.w - 20, 32, 700, 24) : this.fit(it.label, it.w - 24, size), it.x + it.w / 2, cy + 1);
       }
     }
     this.texture.needsUpdate = true;
