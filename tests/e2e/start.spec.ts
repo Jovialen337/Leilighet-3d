@@ -77,6 +77,23 @@ test.describe('startmenyen', () => {
   });
 });
 
+test('«Neste steg» øverst i panelet: hva man bør gjøre nå, med en knapp for det', async ({ page }) => {
+  await page.goto('./');
+  await waitForModel(page);
+  const next = page.getByTestId('next-step');
+  await expect(next).toContainText('plassholdere (oransje)');
+  // Uten gjennomsyn (laptopen): knappen viser hva som er målt.
+  await next.getByTestId('next-step-action').click();
+  expect(await app(page, 'a.view.measureHighlight.value')).toBe(true);
+  // En tegnet endring som bare finnes i nettleseren går foran: last ned.
+  await app(page, "a.planCtrl.set({ tool: 'fixture', fixtureType: 'outlet' })");
+  // En stikkontakt på inngangsveggen i stua (samme punkt som i plan.spec).
+  await app(page, 'a.planCtrl.click({ x: 4000, z: 30 }, 200, 300)');
+  expect(await app(page, 'a.plan.ops.length')).toBe(1);
+  await expect(next).toContainText('bare finnes i denne nettleseren');
+  await expect(next.getByTestId('next-step-action')).toHaveText('Last ned apartment.json');
+});
+
 test('«Farger» forklarer fargene som er i bruk; «Vis alle» viser resten', async ({ page }) => {
   await page.goto('./');
   await waitForModel(page);

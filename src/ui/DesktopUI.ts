@@ -20,6 +20,7 @@ import { ACTION_TEXT, SHORTCUTS, isTypingTarget, shortcutFor } from './shortcuts
 import { QUALITIES, TURN_MODES, XR_RATES, type Quality, type TurnMode, type XRRate } from '../state/ViewState';
 import { LIGHT_IDS, LIGHT_TEXT, type LightId } from '../scene/lighting';
 import type { LegendGroup } from './legend';
+import type { NextAction, NextStep } from './nextStep';
 import { legendView } from './LegendView';
 import { EFFECT_IDS, EFFECT_TEXT, wantedEffects } from '../scene/graphicsProfile';
 
@@ -41,6 +42,8 @@ export interface DesktopActions {
   legend?: (all: boolean) => LegendGroup[];
   /** En annen dialog (startmenyen) er åpen: hurtigtastene venter. */
   modal?: () => boolean;
+  /** Knappen i «Neste steg» øverst i panelet. */
+  doNext?: (action: NextAction) => void;
 }
 
 const QUALITY_TEXT: Record<Quality, string> = { low: 'Rask', medium: 'Standard', high: 'Høy', custom: 'Egendefinert' };
@@ -70,6 +73,9 @@ export class DesktopUI {
   readonly layerPanel: LayerPanel;
   private readonly status: HTMLElement;
   private readonly measureInfo: HTMLElement;
+  /** «Neste steg» øverst i panelet (samme som i startmenyen). */
+  private readonly nextBox: HTMLElement;
+  private nextKey = '';
   private readonly legend: HTMLElement;
   private readonly warnings: HTMLDetailsElement;
   private readonly overlay: HTMLElement;
@@ -167,6 +173,7 @@ export class DesktopUI {
       'Dra for å rotere, rull for å zoome, høyreklikk-dra for å panorere. Trykk H for hurtigtaster.',
     );
 
+    this.nextBox = h('div', { class: 'next-step', 'data-testid': 'next-step', hidden: '' });
     const toggle = h('button', { class: 'panel-toggle', 'aria-label': 'Vis/skjul meny', 'data-testid': 'panel-toggle' }, '☰');
     const startButton = h('button', { 'aria-label': 'Åpne startmenyen', title: 'Startmenyen', 'data-testid': 'open-start' }, '⌂ Start');
     startButton.hidden = !actions.openStart;
@@ -179,6 +186,7 @@ export class DesktopUI {
       { class: 'panel', 'data-testid': 'panel' },
       h('header', {}, h('h1', {}, 'Leilighet 3D'), h('div', { class: 'header-buttons' }, startButton, coloursButton), toggle),
       h('div', { class: 'panel-body' },
+        this.nextBox,
         this.vrButton,
         this.vrHint,
         this.measureBox.root,
@@ -439,6 +447,26 @@ export class DesktopUI {
         return b;
       }),
     );
+  }
+
+  /** «Neste steg»: hva man bør gjøre nå, med en knapp for det (tegnes bare når noe er endret). */
+  updateNext(step: NextStep | null): void {
+    const key = step ? `${step.text}|${step.action ?? ''}|${step.label ?? ''}` : '';
+    if (key === this.nextKey) return;
+    this.nextKey = key;
+    this.nextBox.hidden = !step;
+    if (!step) {
+      this.nextBox.replaceChildren();
+      return;
+    }
+    const children: (Node | string)[] = [h('span', { class: 'next-step-kicker' }, 'Neste steg'), h('p', {}, step.text)];
+    if (step.action && step.label && this.actions.doNext) {
+      const b = h('button', { class: 'small', 'data-testid': 'next-step-action' }, step.label);
+      const action = step.action;
+      b.addEventListener('click', () => this.actions.doNext?.(action));
+      children.push(b);
+    }
+    this.nextBox.replaceChildren(...children);
   }
 
   /** Oppdaterer oppmålingsboksen (kalles når målinger eller tegninger endres). */

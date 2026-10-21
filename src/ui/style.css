@@ -1540,6 +1540,33 @@ button.small[aria-pressed='true'] {
   }
 }
 
+/* «Neste steg» øverst i panelet. */
+.next-step {
+  margin-bottom: var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-s);
+  background: var(--surface-2);
+}
+
+.next-step-kicker {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.next-step p {
+  margin: 2px 0 var(--s-2);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.next-step p:last-child {
+  margin-bottom: 0;
+}
+
 /* Panelet og knappene i hjørnet skjules bak startmenyen. */
 body.start-open .panel {
   visibility: hidden;

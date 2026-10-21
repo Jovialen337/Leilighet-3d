@@ -193,6 +193,7 @@ export class App {
         return this.legend(all);
       },
       modal: () => this.startMenu.isOpen,
+      doNext: (a) => this.doNext(a),
       measure: {
         start: () => void this.xr.enterMeasure(),
         stop: () => void this.xr.exit(),
@@ -251,6 +252,7 @@ export class App {
     // Ny modell vises: el og vann tegnes på fila, ikke på den (gjelder også i VR).
     this.xr.canDraw = () => !this.builder.ownsView;
     this.builder.open.subscribe((on) => {
+      this.refreshNext();
       this.ui.setBuilding(on);
       this.labels.setBuilding(on);
       this.resize();
@@ -273,7 +275,10 @@ export class App {
     if (params.has('fps')) this.view.fps.set(true);
     // Startmenyen først (modellen lastes bak den). ?direkte hopper over, ?start viser den alltid.
     if (params.has('start') || (this.view.startMenu.value && !params.has('direkte'))) this.startMenu.open(() => this.markWelcomed());
-    void this.xr.checkSupport().then(() => this.startMenu.refresh());
+    void this.xr.checkSupport().then(() => {
+      this.startMenu.refresh();
+      this.refreshNext();
+    });
     this.renderer.setAnimationLoop((time, frame) => this.frame(time, frame));
     await this.load();
     // Var «Lag ny modell» åpen sist, fortsetter man der.
@@ -377,6 +382,7 @@ export class App {
     if (!result.ok) {
       console.error('Feil i apartment.json', result.errors);
       this.ui.showErrors(result.errors, result.warnings);
+      this.refreshNext();
       // Byggeren kan lage en ny, gyldig fil selv om den gamle har feil.
       if (this.builder.open.value) {
         this.ui.hideOverlay();
@@ -428,6 +434,12 @@ export class App {
       planStale: this.planHidden.length,
       planOlder: this.plan.olderFile,
     });
+    this.refreshNext();
+  }
+
+  /** «Neste steg» i panelet (og startmenyen, om den er åpen) etter en endring. */
+  private refreshNext(): void {
+    this.ui.updateNext(nextStep(this.nextStepState()));
   }
 
   private onPlanChanged(): void {
