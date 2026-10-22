@@ -18,7 +18,6 @@ const PATHS = {
   cube: 'M12 3l8 4.5v9L12 21l-8-4.5v-9z M12 12l8-4.5 M12 12v9 M12 12L4 7.5',
   plan: 'M4 4h16v16H4z M4 12h9 M13 4v16',
   new: 'M12 5v14 M5 12h14',
-  copy: 'M8 8h12v12H8z M4 16V4h12',
   file: 'M6 3h8l4 4v14H6z M14 3v4h4',
   headset: 'M3 9h18v7h-5l-2-3h-4l-2 3H3z',
   history: 'M3 12a9 9 0 1 0 3-6.7 M3 4v5h5 M12 8v4l3 2',

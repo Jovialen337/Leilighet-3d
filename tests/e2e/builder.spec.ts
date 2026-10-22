@@ -102,6 +102,10 @@ test('tegn med mus: rektangel, rom inntil, dør og vindu – sjekk og last ned',
   await expect(page.getByTestId('builder-summary')).toContainText('2 rom');
   await expect(page.getByTestId('builder-issues')).toContainText('Modellen er gyldig');
   await expect(page.getByTestId('builder-status')).toHaveText('Klar til å lagres');
+  // «Vis hele» legger tegningen under verktøylinja.
+  await page.getByTestId('builder-fit').click();
+  const barBottom = await page.getByTestId('builder-toolbar').locator('.tb-bar').evaluate((e) => e.getBoundingClientRect().bottom);
+  expect(await page.evaluate(() => (window as any).leilighet.desktop.screenOf(0, 0, 0).y)).toBeGreaterThan(barBottom);
   // Forhåndsvisningen er den nye modellen (2 rom), ikke fila.
   expect(await page.evaluate(() => (window as any).leilighet.store.model.rooms.size)).toBe(2);
 

@@ -223,6 +223,7 @@ export class BuilderController {
       /* lagring utilgjengelig */
     }
     this.open.set(on);
+    this.panel.root.hidden = !on;
     if (on) {
       this.prevMode = view.cameraMode.value;
       desktop.gridMargin = 6;
@@ -231,6 +232,10 @@ export class BuilderController {
       this.fitPending = true;
       this.entryNotice.hidden = true;
       view.cameraMode.set('top');
+      // Verktøylinja ligger over planen, etter sidepanelet (så den kan flyttes forbi panelet i CSS).
+      // Den må synes før tegningen tilpasses, så tegningen havner under den.
+      this.host.canvas.parentElement?.append(this.panel.toolbar);
+      this.panel.update();
       this.refresh(true);
     } else {
       this.editor.cancel();
@@ -243,9 +248,6 @@ export class BuilderController {
       desktop.insetTop = 0;
       this.host.restore();
     }
-    this.panel.root.hidden = !on;
-    // Verktøylinja ligger over planen, etter sidepanelet (så den kan flyttes forbi panelet i CSS).
-    if (on) this.host.canvas.parentElement?.append(this.panel.toolbar);
     this.updateOverlay();
     this.updateEntry();
     this.panel.update();

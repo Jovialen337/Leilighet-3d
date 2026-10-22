@@ -1045,6 +1045,17 @@ Both checks were kept short, at the user's request.
   - the «fix the errors first» hint is hidden for an empty drawing.
 - **tsc and the unit tests (318):** they pass.
 
+### Gatekeeper (phase 2f, short check at bffddbb): **PASS**
+
+There were no blocking issues. These non-blocking remarks were fixed:
+- when the builder opens, the drawing is fitted after the toolbar shows, so it lands below the bar;
+- the 3D/2D button's accessible name follows its text;
+- the new animations are off with «reduced motion»;
+- an unused icon was removed;
+- an e2e check now confirms that «Vis hele» puts the drawing below the bar.
+
+Left as is: the inset is only recalculated when the drawing is fitted, not on every window resize.
+
 ### Test on the Quest (phase 2f)
 
 - [ ] **Toolbar:** the bar is easy to hit with the laser and readable. Tool, undo and «Vis hele» work.

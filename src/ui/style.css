@@ -1895,7 +1895,9 @@ button.small[aria-pressed='true'] {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tutorial-target {
+  .tutorial-target,
+  .tb-bar,
+  .builder-message.fresh {
     animation: none;
   }
 }

@@ -107,6 +107,11 @@ function setLabel(b: HTMLElement, text: string, sub?: string): void {
   else b.textContent = text;
   const s = b.querySelector('.bc-sub');
   if (s && sub !== undefined) s.textContent = sub;
+  // Knapper i verktøylinja: navnet skjermlesere og verktøytips bruker, følger teksten.
+  if (b.classList.contains('tb-btn')) {
+    b.setAttribute('aria-label', text);
+    b.title = text;
+  }
 }
 
 const MATERIAL_TEXT: Record<WallMaterial, string> = { brick: 'Mur', concrete: 'Betong', drywall: 'Gips/lettvegg', wood: 'Tre', other: 'Annet' };
