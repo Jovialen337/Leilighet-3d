@@ -1071,6 +1071,17 @@ Two items were «Nesten – tenk nytt»: icon-only «Vis hele»/3D at Quest size
 - **Start page:** the intro and the footnote are one line each.
 - **Checks:** builder.spec and start.spec (41 tests) and 318 unit tests pass.
 
+### Judge re-check (phase 2f, at 23d5821): **8.0 – accepted**
+
+- **Items:** both now pass ✅.
+- **Dimensions:**
+  - visual 8, performance 8, options 8, intuitive use 8, code quality 8, robustness 8;
+  - nothing is below 7.
+- **What is left is minor:**
+  - `toolButton` could take an options object;
+  - an e2e could check that «Hele» is visible;
+  - the manual check on the Quest below.
+
 ### Test on the Quest (phase 2f)
 
 - [ ] **Toolbar:** the bar is easy to hit with the laser and readable. Tool, undo and «Vis hele» work.
