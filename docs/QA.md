@@ -1056,6 +1056,21 @@ There were no blocking issues. These non-blocking remarks were fixed:
 
 Left as is: the inset is only recalculated when the drawing is fitted, not on every window resize.
 
+### Judge (phase 2f, at 7421c05): **7.75 – not accepted**
+
+Two items were «Nesten – tenk nytt»: icon-only «Vis hele»/3D at Quest size, and no test for blocked saving. What changed:
+- **Labels at Quest size:** in tight space «Vis hele» shows «Hele» and the view button «3D»/«2D». Only «Angre», «Gjør om» and «Slett» are icon-only.
+- **New e2e at 1000 × 625:**
+  - the bar is a single row of 12 buttons, each at least 40 × 40 px;
+  - the short labels show and follow the state;
+  - the accessible name follows the text.
+- **New e2e with touch:** the key badges are hidden.
+- **Errors and warnings (e2e):**
+  - with errors, the status reads «N feil må rettes …», the steps are dimmed with the reason shown, and download is off;
+  - after the fix, with only a warning, the status reads «Klar til å lagres · 1 advarsel» and the steps are active.
+- **Start page:** the intro and the footnote are one line each.
+- **Checks:** builder.spec and start.spec (41 tests) and 318 unit tests pass.
+
 ### Test on the Quest (phase 2f)
 
 - [ ] **Toolbar:** the bar is easy to hit with the laser and readable. Tool, undo and «Vis hele» work.

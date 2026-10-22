@@ -1122,6 +1122,10 @@ button.big {
   height: 20px;
 }
 
+.tb-short {
+  display: none;
+}
+
 .tb-btn kbd {
   position: absolute;
   top: 3px;
@@ -1479,13 +1483,16 @@ button.small[aria-pressed='true'] {
     font-size: 10px;
   }
   .tb-btn.util {
-    min-width: 36px;
+    min-width: 40px;
   }
   .tb-sep {
     margin-inline: 2px;
   }
   .tb-btn.util .tb-label {
     display: none;
+  }
+  .tb-btn .tb-short {
+    display: block;
   }
 }
 

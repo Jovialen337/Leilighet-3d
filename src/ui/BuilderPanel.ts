@@ -78,9 +78,13 @@ const TOOLS: { tool: BuilderTool; key: string; icon: IconName; short: string }[]
   { tool: 'passage', key: 'O', icon: 'passage', short: 'Åpning' },
 ];
 
-/** Knapp i verktøylinja: ikon, kort tekst under, og hurtigtasten (skjult uten tastatur). */
-function toolButton(label: string, testid: string, name: IconName, onClick: () => void, key?: string, title = label): HTMLButtonElement {
+/**
+ * Knapp i verktøylinja: ikon, kort tekst under, og hurtigtasten (skjult uten tastatur).
+ * `short`: enda kortere tekst som vises i stedet når det er trangt.
+ */
+function toolButton(label: string, testid: string, name: IconName, onClick: () => void, key?: string, title = label, short?: string): HTMLButtonElement {
   const b = h('button', { class: 'tb-btn', 'data-testid': testid, type: 'button' }, icon(name), h('span', { class: 'tb-label' }, label));
+  if (short) b.append(h('span', { class: 'tb-short', 'aria-hidden': 'true' }, short));
   if (key) b.append(h('kbd', {}, key));
   b.title = key ? `${title} (${key})` : title;
   b.setAttribute('aria-label', title);
@@ -100,12 +104,15 @@ function startCard(title: string, sub: string, testid: string, name: IconName, o
   return b;
 }
 
-/** Endrer tittelen på et kort (eller teksten på en knapp i verktøylinja) uten å ta bort ikonet; `sub` endrer linja under. */
+/**
+ * Endrer tittelen på et kort (eller teksten på en knapp i verktøylinja) uten å ta bort ikonet;
+ * `sub` endrer linja under (kort) eller den korte teksten (verktøylinja).
+ */
 function setLabel(b: HTMLElement, text: string, sub?: string): void {
   const t = b.querySelector('.bc-title, .tb-label');
   if (t) t.textContent = text;
   else b.textContent = text;
-  const s = b.querySelector('.bc-sub');
+  const s = b.querySelector('.bc-sub, .tb-short');
   if (s && sub !== undefined) s.textContent = sub;
   // Knapper i verktøylinja: navnet skjermlesere og verktøytips bruker, følger teksten.
   if (b.classList.contains('tb-btn')) {
@@ -267,7 +274,7 @@ export class BuilderPanel {
       h(
         'p',
         { class: 'hint' },
-        'Tegn leiligheten selv – rom, dører og vinduer – eller mål den opp med Quest 3 ved å berøre veggene. Veggene lages automatisk der rommene møtes.',
+        'Tegn rommene selv eller mål dem opp med Quest 3 – veggene lages der rommene møtes.',
       ),
       h(
         'div',
@@ -278,7 +285,7 @@ export class BuilderPanel {
         startCard('Åpne tegning fra fil …', 'En tegning du har lagret tidligere', 'builder-open', 'file', openFile),
         this.previousBtn,
       ),
-      h('p', { class: 'hint small-print' }, '«Start fra nåværende modell» tar med installasjoner, møbler, kabler og rør. Da kan du legge til og fjerne hjørner, rom, dører og vinduer – det oppmålingen ikke kan.'),
+      h('p', { class: 'hint small-print' }, '«Start fra nåværende modell» tar med installasjoner, møbler, kabler og rør.'),
     );
 
     // Arbeidsflaten.
@@ -300,9 +307,9 @@ export class BuilderPanel {
     this.deleteBtn.classList.add('danger');
     this.deleteBtn.title = 'Slett valgt (Delete)';
     this.freeBtn = button('Fri (uten festing)', 'builder-free', () => editor.free.set(!editor.free.value));
-    const fit = toolButton('Vis hele', 'builder-fit', 'fit', () => actions.fit());
-    this.viewBtn = toolButton('Se i 3D', 'builder-view', 'cube', () => actions.toggle3d());
-    // Når det er trangt, viser disse bare ikonet (verktøyene beholder teksten).
+    const fit = toolButton('Vis hele', 'builder-fit', 'fit', () => actions.fit(), undefined, 'Vis hele', 'Hele');
+    this.viewBtn = toolButton('Se i 3D', 'builder-view', 'cube', () => actions.toggle3d(), undefined, 'Se i 3D', '3D');
+    // Når det er trangt, viser angre, gjør om og slett bare ikonet, og visningsknappene en kort tekst.
     for (const b of [this.undoBtn, this.redoBtn, this.deleteBtn, fit, this.viewBtn]) b.classList.add('util');
     const straightAll = button('Rett opp alt', 'builder-straighten-all', () => editor.straighten(true));
     this.message = h('p', { class: 'builder-message', 'data-testid': 'builder-message', 'aria-live': 'polite' });
@@ -514,7 +521,7 @@ export class BuilderPanel {
     if (!doc) return;
     this.notice.hidden = true;
     const in3d = this.actions.is3d();
-    setLabel(this.viewBtn, in3d ? 'Tegn (2D)' : 'Se i 3D');
+    setLabel(this.viewBtn, in3d ? 'Tegn (2D)' : 'Se i 3D', in3d ? '2D' : '3D');
     this.viewBtn.setAttribute('aria-pressed', String(in3d));
     if (document.activeElement !== this.name) this.name.value = doc.name;
     for (const [t, b] of this.toolButtons) b.setAttribute('aria-pressed', String(ed.tool.value === t));
