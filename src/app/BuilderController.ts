@@ -240,9 +240,12 @@ export class BuilderController {
       this.previewDoc = null;
       this.showing = null;
       if (this.prevMode) view.cameraMode.set(this.prevMode);
+      desktop.insetTop = 0;
       this.host.restore();
     }
     this.panel.root.hidden = !on;
+    // Verktøylinja ligger over planen, etter sidepanelet (så den kan flyttes forbi panelet i CSS).
+    if (on) this.host.canvas.parentElement?.append(this.panel.toolbar);
     this.updateOverlay();
     this.updateEntry();
     this.panel.update();
@@ -408,6 +411,11 @@ export class BuilderController {
 
   /** «Vis hele»: hele tegningen i planen (rett vei: x mot høyre, z nedover). */
   fit(): void {
+    // Verktøylinja ligger øverst over planen: tegningen skal synes under den.
+    const bar = this.panel.toolbar.querySelector('.tb-bar');
+    const top = this.host.canvas.getBoundingClientRect().top;
+    const r = !this.panel.toolbar.hidden && bar ? bar.getBoundingClientRect() : null;
+    this.host.desktop.insetTop = r && r.height && r.top - top < this.host.canvas.clientHeight / 2 ? r.bottom - top + 8 : 0;
     this.host.desktop.fitBox(this.extent(), 0);
   }
 

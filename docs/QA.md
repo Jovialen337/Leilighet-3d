@@ -1025,3 +1025,29 @@ Both checks were kept short, at the user's request.
 - **«Farger»:** the legend opens at the top, also with «Vis alle fargene».
 - **Gatekeeper's remark:** on the Quest, «Kom i gang» starts the tutorial in VR.
 
+## Phase 2f – «Lag ny modell»: usability, style and feel – 2026-10-22
+
+### How it was tested
+
+- **Screenshots:** laptop (1440 × 900) and Quest browser size (1000 × 625), with these states:
+  - the start page;
+  - an empty drawing;
+  - two rooms with doors and a window;
+  - a selected room;
+  - «Start fra nåværende modell».
+- **Layout checks:**
+  - the bar stays on one row at Quest size;
+  - the drawing is fitted below the bar;
+  - no errors on the page.
+- **e2e (`builder.spec`, `start.spec`, 39 tests):** they pass. New checks:
+  - the bar is visible while drawing and hidden after «Lukk»;
+  - the status starts as «Tegn første rom …» (not an error) and reads «Klar til å lagres» for a valid model;
+  - the «fix the errors first» hint is hidden for an empty drawing.
+- **tsc and the unit tests (318):** they pass.
+
+### Test on the Quest (phase 2f)
+
+- [ ] **Toolbar:** the bar is easy to hit with the laser and readable. Tool, undo and «Vis hele» work.
+- [ ] **Message:** the hint under the bar shows what to do next.
+- [ ] **Start page:** the cards are clear, and «Mål opp i gjennomsyn» is highlighted.
+

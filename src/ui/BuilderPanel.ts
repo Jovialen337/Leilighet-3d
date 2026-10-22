@@ -20,6 +20,7 @@ import type { BackdropState } from './BuilderBackdrop';
 import { polygonArea } from '../geometry/math2d';
 import type { WallMaterial } from '../schema/types';
 import { h } from './dom';
+import { icon, type IconName } from './icons';
 
 export interface BuilderActions {
   startBlank(): void;
@@ -66,15 +67,47 @@ export interface BackdropActions {
   subscribe(fn: () => void): void;
 }
 
-const TOOLS: { tool: BuilderTool; key: string }[] = [
-  { tool: 'select', key: 'S' },
-  { tool: 'rect', key: 'R' },
-  { tool: 'poly', key: 'M' },
-  { tool: 'beside', key: 'I' },
-  { tool: 'door', key: 'D' },
-  { tool: 'window', key: 'V' },
-  { tool: 'passage', key: 'O' },
+/** Verktøyene i verktøylinja: kort tekst under ikonet (hele navnet står i verktøytipset). */
+const TOOLS: { tool: BuilderTool; key: string; icon: IconName; short: string }[] = [
+  { tool: 'select', key: 'S', icon: 'select', short: 'Velg' },
+  { tool: 'rect', key: 'R', icon: 'rect', short: 'Rektangel' },
+  { tool: 'poly', key: 'M', icon: 'poly', short: 'Mangekant' },
+  { tool: 'beside', key: 'I', icon: 'beside', short: 'Inntil' },
+  { tool: 'door', key: 'D', icon: 'door', short: 'Dør' },
+  { tool: 'window', key: 'V', icon: 'window', short: 'Vindu' },
+  { tool: 'passage', key: 'O', icon: 'passage', short: 'Åpning' },
 ];
+
+/** Knapp i verktøylinja: ikon, kort tekst under, og hurtigtasten (skjult uten tastatur). */
+function toolButton(label: string, testid: string, name: IconName, onClick: () => void, key?: string, title = label): HTMLButtonElement {
+  const b = h('button', { class: 'tb-btn', 'data-testid': testid, type: 'button' }, icon(name), h('span', { class: 'tb-label' }, label));
+  if (key) b.append(h('kbd', {}, key));
+  b.title = key ? `${title} (${key})` : title;
+  b.setAttribute('aria-label', title);
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+/** Stort kort på startsiden: ikon, tittel og én linje om hva det gjør. */
+function startCard(title: string, sub: string, testid: string, name: IconName, onClick: () => void, primary = false): HTMLButtonElement {
+  const b = h(
+    'button',
+    { class: `builder-card${primary ? ' primary' : ''}`, 'data-testid': testid, type: 'button' },
+    icon(name),
+    h('span', { class: 'bc-text' }, h('span', { class: 'bc-title' }, title), h('span', { class: 'bc-sub' }, sub)),
+  );
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+/** Endrer tittelen på et kort (eller teksten på en knapp i verktøylinja) uten å ta bort ikonet; `sub` endrer linja under. */
+function setLabel(b: HTMLElement, text: string, sub?: string): void {
+  const t = b.querySelector('.bc-title, .tb-label');
+  if (t) t.textContent = text;
+  else b.textContent = text;
+  const s = b.querySelector('.bc-sub');
+  if (s && sub !== undefined) s.textContent = sub;
+}
 
 const MATERIAL_TEXT: Record<WallMaterial, string> = { brick: 'Mur', concrete: 'Betong', drywall: 'Gips/lettvegg', wood: 'Tre', other: 'Annet' };
 
@@ -162,7 +195,11 @@ export class BuilderPanel {
   private readonly start: HTMLElement;
   private readonly work: HTMLElement;
   private readonly name: HTMLInputElement;
+  /** Verktøylinja over planen (verktøy, angre, vis hele, 3D) med beskjeden over. */
+  readonly toolbar: HTMLElement;
   private readonly toolButtons = new Map<BuilderTool, HTMLButtonElement>();
+  private readonly status: HTMLElement;
+  private readonly saveHint: HTMLElement;
   private readonly undoBtn: HTMLButtonElement;
   private readonly redoBtn: HTMLButtonElement;
   private readonly deleteBtn: HTMLButtonElement;
@@ -182,6 +219,7 @@ export class BuilderPanel {
   private readonly backdropBox: HTMLElement;
   private readonly notice: HTMLElement;
   private readonly previousBtn: HTMLButtonElement;
+  private readonly newCard: HTMLButtonElement;
   private readonly viewBtn: HTMLButtonElement;
   private contextKey = '';
   private contextDoc: BuilderDoc | null = null;
@@ -212,9 +250,10 @@ export class BuilderPanel {
       if (editor.doc?.rooms.length && !confirm('Åpne en annen tegning? Den du har nå, kan hentes igjen med «Hent forrige tegning».')) return;
       file.click();
     };
-    this.previousBtn = button('Hent forrige tegning', 'builder-previous', () => actions.restorePrevious(), 'small big');
+    this.previousBtn = startCard('Hent forrige tegning', 'Den du jobbet med før', 'builder-previous', 'history', () => actions.restorePrevious());
 
-    this.captureBtn = button('Mål opp i gjennomsyn (Quest)', 'builder-capture', () => actions.capture(), 'small big');
+    this.newCard = startCard('Ny tom modell', 'Tegn rommene fra bunnen av', 'builder-new', 'new', () => actions.startBlank(), true);
+    this.captureBtn = startCard('Mål opp i gjennomsyn', 'Berør veggene med kontrolleren på Quest 3', 'builder-capture', 'headset', () => actions.capture());
     this.notice = h('p', { class: 'draft-ok', 'data-testid': 'builder-notice', hidden: '' });
     this.start = h(
       'div',
@@ -228,10 +267,10 @@ export class BuilderPanel {
       h(
         'div',
         { class: 'builder-big' },
-        button('Ny tom modell', 'builder-new', () => actions.startBlank(), 'small primary-small big'),
-        button('Start fra nåværende modell', 'builder-from-current', () => actions.startFromCurrent(), 'small big'),
+        this.newCard,
+        startCard('Start fra nåværende modell', 'Endre rom, dører og vinduer i den du har', 'builder-from-current', 'plan', () => actions.startFromCurrent()),
         this.captureBtn,
-        button('Åpne tegning fra fil …', 'builder-open', openFile, 'small big'),
+        startCard('Åpne tegning fra fil …', 'En tegning du har lagret tidligere', 'builder-open', 'file', openFile),
         this.previousBtn,
       ),
       h('p', { class: 'hint small-print' }, '«Start fra nåværende modell» tar med installasjoner, møbler, kabler og rør. Da kan du legge til og fjerne hjørner, rom, dører og vinduer – det oppmålingen ikke kan.'),
@@ -244,22 +283,39 @@ export class BuilderPanel {
       const v = this.name.value.trim();
       if (v) editor.session.apply((d) => void (d.name = v));
     });
-    const tools = h('div', { class: 'builder-tools', role: 'toolbar' });
+    const tools = h('div', { class: 'tb-group', role: 'group', 'aria-label': 'Verktøy' });
     for (const t of TOOLS) {
-      const b = button(`${TOOL_TEXT[t.tool]}`, `builder-tool-${t.tool}`, () => editor.tool.set(t.tool));
-      b.title = `${TOOL_TEXT[t.tool]} (${t.key})`;
-      b.append(h('kbd', {}, t.key));
+      const b = toolButton(t.short, `builder-tool-${t.tool}`, t.icon, () => editor.tool.set(t.tool), t.key, TOOL_TEXT[t.tool]);
       this.toolButtons.set(t.tool, b);
       tools.append(b);
     }
-    this.undoBtn = button('Angre', 'builder-undo', () => editor.undo());
-    this.redoBtn = button('Gjør om', 'builder-redo', () => editor.redo());
-    this.deleteBtn = button('Slett valgt', 'builder-delete', () => editor.deleteSelected(), 'small danger-small');
+    this.undoBtn = toolButton('Angre', 'builder-undo', 'undo', () => editor.undo());
+    this.redoBtn = toolButton('Gjør om', 'builder-redo', 'redo', () => editor.redo());
+    this.deleteBtn = toolButton('Slett', 'builder-delete', 'trash', () => editor.deleteSelected());
+    this.deleteBtn.classList.add('danger');
+    this.deleteBtn.title = 'Slett valgt (Delete)';
     this.freeBtn = button('Fri (uten festing)', 'builder-free', () => editor.free.set(!editor.free.value));
-    const fit = button('Vis hele', 'builder-fit', () => actions.fit());
-    this.viewBtn = button('Se i 3D', 'builder-view', () => actions.toggle3d());
+    const fit = toolButton('Vis hele', 'builder-fit', 'fit', () => actions.fit());
+    this.viewBtn = toolButton('Se i 3D', 'builder-view', 'cube', () => actions.toggle3d());
+    // Når det er trangt, viser disse bare ikonet (verktøyene beholder teksten).
+    for (const b of [this.undoBtn, this.redoBtn, this.deleteBtn, fit, this.viewBtn]) b.classList.add('util');
     const straightAll = button('Rett opp alt', 'builder-straighten-all', () => editor.straighten(true));
-    this.message = h('p', { class: 'hint builder-message', 'data-testid': 'builder-message', 'aria-live': 'polite' });
+    this.message = h('p', { class: 'builder-message', 'data-testid': 'builder-message', 'aria-live': 'polite' });
+    this.toolbar = h(
+      'div',
+      { class: 'builder-toolbar', 'data-testid': 'builder-toolbar', hidden: '' },
+      this.message,
+      h(
+        'div',
+        { class: 'tb-bar', role: 'toolbar', 'aria-label': 'Lag ny modell' },
+        tools,
+        h('span', { class: 'tb-sep', 'aria-hidden': 'true' }),
+        h('div', { class: 'tb-group', role: 'group', 'aria-label': 'Rediger' }, this.undoBtn, this.redoBtn, this.deleteBtn),
+        h('span', { class: 'tb-sep', 'aria-hidden': 'true' }),
+        h('div', { class: 'tb-group', role: 'group', 'aria-label': 'Visning' }, fit, this.viewBtn),
+      ),
+    );
+    this.status = h('p', { class: 'builder-status', 'data-testid': 'builder-status' });
     this.context = h('div', { class: 'builder-context', 'data-testid': 'builder-context' });
     this.summary = h('p', { class: 'builder-summary', 'data-testid': 'builder-summary' });
     this.issues = h('ul', { class: 'builder-issues', 'data-testid': 'builder-issues' });
@@ -274,14 +330,17 @@ export class BuilderPanel {
     this.upload = h('a', { class: 'button small', 'data-testid': 'builder-upload', target: '_blank', rel: 'noopener' }, 'Last opp til GitHub');
     this.vrBtn = button('Gå gjennom i VR', 'builder-vr', () => actions.walkVR());
     this.captureMore = button('Mål opp i gjennomsyn', 'builder-capture-more', () => actions.capture());
+    this.saveHint = h('p', { class: 'hint save-blocked', 'data-testid': 'builder-save-blocked', hidden: '' }, 'Rett feilene i sjekken over først.');
     this.output = h(
       'div',
       { class: 'builder-output' },
-      h('div', { class: 'row' }, this.downloadBtn, this.copyBtn, this.upload),
+      this.saveHint,
       h(
-        'p',
-        { class: 'hint' },
-        'Slik lagrer du: last ned fila, trykk «Last opp til GitHub», velg fila og trykk «Commit changes». Siden oppdateres etter et par minutter, og da er den nye modellen med.',
+        'ol',
+        { class: 'builder-steps' },
+        h('li', {}, h('span', { class: 'step-title' }, 'Last ned fila'), h('div', { class: 'row' }, this.downloadBtn, this.copyBtn)),
+        h('li', {}, h('span', { class: 'step-title' }, 'Last den opp til GitHub'), h('div', { class: 'row' }, this.upload), h('small', { class: 'hint' }, 'Velg fila og trykk «Commit changes».')),
+        h('li', {}, h('span', { class: 'step-title' }, 'Vent et par minutter'), h('small', { class: 'hint' }, 'Siden oppdateres, og den nye modellen er med.')),
       ),
       h('div', { class: 'row' }, this.vrBtn, this.captureMore),
       h(
@@ -317,11 +376,10 @@ export class BuilderPanel {
       'div',
       { class: 'builder-work', 'data-testid': 'builder-work' },
       field('Navn', this.name),
-      tools,
-      h('div', { class: 'row' }, this.undoBtn, this.redoBtn, this.deleteBtn, this.freeBtn, fit, straightAll, this.viewBtn),
-      this.message,
       this.context,
+      h('div', { class: 'row builder-aids' }, this.freeBtn, straightAll),
       h('h2', { class: 'sub' }, 'Sjekk'),
+      this.status,
       this.summary,
       this.issues,
       h('h2', { class: 'sub' }, 'Lagre'),
@@ -341,7 +399,13 @@ export class BuilderPanel {
       file,
     );
 
-    editor.message.subscribe((m) => (this.message.textContent = m));
+    editor.message.subscribe((m) => {
+      this.message.textContent = m;
+      // En ny beskjed glir inn, så man ser at den er ny.
+      this.message.classList.remove('fresh');
+      void this.message.offsetWidth;
+      this.message.classList.add('fresh');
+    });
     // Utkastet (punktene i en mangekant) endres uten at tegningen endres.
     editor.version.subscribe(() => {
       if (editor.draft.length !== this.lastDraftLen) this.update();
@@ -427,18 +491,25 @@ export class BuilderPanel {
     const doc = ed.doc;
     this.start.hidden = !!doc;
     this.work.hidden = !doc;
+    this.toolbar.hidden = !doc || this.root.hidden;
     const ar = this.actions.arSupport();
     this.captureBtn.disabled = ar !== true;
-    this.captureBtn.textContent = ar === true ? 'Mål opp i gjennomsyn' : ar === null ? 'Mål opp i gjennomsyn (sjekker …)' : 'Mål opp i gjennomsyn (bare på Quest 3)';
-    this.captureBtn.classList.toggle('primary-small', ar === true);
+    setLabel(
+      this.captureBtn,
+      'Mål opp i gjennomsyn',
+      ar === true ? 'Berør veggene med kontrolleren' : ar === null ? 'Sjekker om nettleseren kan det …' : 'Bare i nettleseren på Quest 3',
+    );
+    // Det viktigste valget er framhevet: oppmåling på Quest 3, ellers tegning fra bunnen av.
+    this.captureBtn.classList.toggle('primary', ar === true);
+    this.newCard.classList.toggle('primary', ar !== true);
     const prev = doc ? null : this.actions.previous();
     this.previousBtn.hidden = !prev;
-    if (prev) this.previousBtn.textContent = `Hent forrige tegning («${prev.name}», ${prev.rooms} rom)`;
+    if (prev) setLabel(this.previousBtn, `Hent forrige tegning («${prev.name}», ${prev.rooms} rom)`);
     this.lastDraftLen = ed.draft.length;
     if (!doc) return;
     this.notice.hidden = true;
     const in3d = this.actions.is3d();
-    this.viewBtn.textContent = in3d ? 'Tegn (2D)' : 'Se i 3D';
+    setLabel(this.viewBtn, in3d ? 'Tegn (2D)' : 'Se i 3D');
     this.viewBtn.setAttribute('aria-pressed', String(in3d));
     if (document.activeElement !== this.name) this.name.value = doc.name;
     for (const [t, b] of this.toolButtons) b.setAttribute('aria-pressed', String(ed.tool.value === t));
@@ -998,10 +1069,24 @@ export class BuilderPanel {
     const area = doc.rooms.reduce((s, r) => s + (r.polygon.length >= 3 ? polygonArea(r.polygon) : 0), 0);
     const walls = res?.walls.walls.length ?? 0;
     this.summary.textContent = `${doc.rooms.length} rom · ${formatArea(area)} · ${walls} vegger · ${doc.openings.length} dører/vinduer/åpninger`;
+    // Statusen øverst: klar, advarsler, feil – eller (uten rom) bare hva man gjør først.
+    const warnings = issues.length - errors.length;
+    const empty = !doc.rooms.length;
+    const [tone, text] = empty
+      ? ['todo', 'Tegn første rom for å komme i gang']
+      : errors.length
+        ? ['error', `${errors.length} feil må rettes før du kan lagre`]
+        : warnings
+          ? ['warning', `Klar til å lagres · ${warnings} ${warnings === 1 ? 'advarsel' : 'advarsler'}`]
+          : ['ok', 'Klar til å lagres'];
+    this.status.className = `builder-status ${tone}`;
+    this.status.textContent = text;
     this.issues.replaceChildren();
     if (!issues.length && doc.rooms.length) this.issues.append(h('li', { class: 'ok' }, '✓ Modellen er gyldig og klar til å lagres.'));
     for (const i of issues) {
-      const li = h('li', { class: i.severity }, i.severity === 'error' ? '✗ ' : '⚠ ', i.message);
+      // Uten rom er «tegn minst ett rom» det neste steget, ikke en feil.
+      const todo = empty && i.severity === 'error';
+      const li = h('li', { class: todo ? 'todo' : i.severity }, todo ? '→ ' : i.severity === 'error' ? '✗ ' : '⚠ ', i.message);
       if (i.target) li.append(' ', button('Vis', `builder-issue-show-${i.target.id}`, () => this.actions.show(i.target!), 'link'));
       if (i.fix) li.append(' ', button(i.fix.label, `builder-fix-${i.fix.id}`, () => this.fix(i.fix!), 'link'));
       this.issues.append(li);
@@ -1009,6 +1094,8 @@ export class BuilderPanel {
     this.downloadBtn.disabled = errors.length > 0 || !res?.doc;
     this.copyBtn.disabled = this.downloadBtn.disabled;
     this.upload.classList.toggle('disabled', this.downloadBtn.disabled);
+    this.saveHint.hidden = !this.downloadBtn.disabled || empty;
+    this.output.classList.toggle('blocked', this.downloadBtn.disabled);
   }
 
   /** Rettelsene i sjekklista (ett trykk). */

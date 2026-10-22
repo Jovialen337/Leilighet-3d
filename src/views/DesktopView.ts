@@ -8,6 +8,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { ApartmentModel } from '../model/ApartmentModel';
 import type { CameraMode } from '../state/ViewState';
 import { MM } from '../scene/geom';
+import { COLOR } from '../ui/tokens';
 
 const PLAN_MARGIN = 1.2; // m rundt leiligheten i plan-visningen
 
@@ -33,6 +34,8 @@ export class DesktopView {
   private planHalfHeight = 5;
   /** Piksler til venstre som dekkes av panelet; innholdet sentreres i resten. */
   private insetLeft = 0;
+  /** Høyden (px) øverst i planen som er dekket (verktøylinja i «Lag ny modell»); `fitBox` holder området under den. */
+  insetTop = 0;
   private readonly changeListeners = new Set<() => void>();
   /** Myk kameraflytting («Gå til rom»). */
   private tween: {
@@ -132,15 +135,21 @@ export class DesktopView {
     this.orbit.update();
 
     const availW = Math.max(1, this.width - this.insetLeft);
-    this.planHalfHeight = Math.max(screenH / 2, screenW / 2 / Math.max(0.3, availW / this.height)) + PLAN_MARGIN;
+    const top = Math.min(this.insetTop, this.height / 2);
+    const availH = Math.max(1, this.height - top);
+    this.planHalfHeight = Math.max((screenH / 2) * (this.height / availH), screenW / 2 / Math.max(0.3, availW / this.height)) + PLAN_MARGIN;
     this.updateOrthoFrustum();
-    // Flytt kameraet så leiligheten havner midt i området til høyre for panelet.
-    const shift = this.insetLeft / 2 / ((this.height / (2 * this.planHalfHeight)) || 1);
-    this.ortho.position.set(cx - rx * shift, 60, cz - rz * shift);
-    this.ortho.lookAt(cx - rx * shift, 0, cz - rz * shift);
+    // Flytt kameraet så leiligheten havner midt i området til høyre for panelet (og under verktøylinja).
+    const perPx = (2 * this.planHalfHeight) / this.height;
+    const shift = (this.insetLeft / 2) * perPx;
+    const lift = (top / 2) * perPx;
+    const px = cx - rx * shift - dx * lift;
+    const pz = cz - rz * shift - dz * lift;
+    this.ortho.position.set(px, 60, pz);
+    this.ortho.lookAt(px, 0, pz);
     this.ortho.zoom = 1;
     this.ortho.updateProjectionMatrix();
-    this.plan.target.set(cx - rx * shift, 0, cz - rz * shift);
+    this.plan.target.set(px, 0, pz);
     this.plan.update();
     this.lastBox = { e, rotation };
     this.emitChange();
@@ -317,7 +326,8 @@ export class DesktopView {
       l.frustumCulled = false;
       return l;
     };
-    this.grid.add(mk(minor, '#1f3a4d', 0.22), mk(major, '#c0392b', 0.6));
+    // Aksene (x = 0 og z = 0) i en rolig blå: rødt betyr feil i resten av appen.
+    this.grid.add(mk(minor, '#1f3a4d', 0.22), mk(major, COLOR.accentInk, 0.55));
   }
 
   dispose(): void {

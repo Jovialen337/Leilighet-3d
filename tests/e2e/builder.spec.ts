@@ -59,6 +59,11 @@ test('tegn med mus: rektangel, rom inntil, dør og vindu – sjekk og last ned',
   await expect(page.getByTestId('builder-tool-rect')).toHaveAttribute('aria-pressed', 'true');
   expect(await page.evaluate(() => (window as any).leilighet.view.cameraMode.value)).toBe('top');
   await expect(page.getByTestId('builder-overlay')).toBeVisible();
+  // Verktøylinja ligger over planen; uten rom er sjekken et «kom i gang», ikke en feil.
+  await expect(page.getByTestId('builder-toolbar')).toBeVisible();
+  await expect(page.getByTestId('builder-status')).toHaveText('Tegn første rom for å komme i gang');
+  await expect(page.getByTestId('builder-status')).toHaveClass(/todo/);
+  await expect(page.getByTestId('builder-save-blocked')).toBeHidden();
 
   await clickPlan(page, 0, 0);
   await clickPlan(page, 4000, 3000);
@@ -96,6 +101,7 @@ test('tegn med mus: rektangel, rom inntil, dør og vindu – sjekk og last ned',
 
   await expect(page.getByTestId('builder-summary')).toContainText('2 rom');
   await expect(page.getByTestId('builder-issues')).toContainText('Modellen er gyldig');
+  await expect(page.getByTestId('builder-status')).toHaveText('Klar til å lagres');
   // Forhåndsvisningen er den nye modellen (2 rom), ikke fila.
   expect(await page.evaluate(() => (window as any).leilighet.store.model.rooms.size)).toBe(2);
 
@@ -239,6 +245,7 @@ test('start fra nåværende modell tar med alt, og «Lukk» viser fila igjen', a
 
   await page.getByTestId('builder-close').click();
   await expect(page.getByTestId('builder')).toBeHidden();
+  await expect(page.getByTestId('builder-toolbar')).toBeHidden();
   await expect(page.getByTestId('builder-entry')).toHaveText('Fortsett på ny modell …');
   expect(await page.evaluate(() => (window as any).leilighet.store.doc.meta.name)).toBe(fixture.meta.name);
   expect(errors).toEqual([]);
