@@ -735,6 +735,177 @@ button.danger-small {
   margin-top: 10px;
 }
 
+.builder-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 11px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 120ms,
+    background-color 120ms,
+    transform 80ms;
+}
+
+.builder-card:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.builder-card:active:not(:disabled) {
+  transform: scale(0.985);
+}
+
+.builder-card:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.builder-card .icon {
+  width: 26px;
+  height: 26px;
+  color: var(--accent);
+}
+
+.builder-card.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.builder-card.primary .icon,
+.builder-card.primary .bc-sub {
+  color: inherit;
+}
+
+.bc-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.bc-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.bc-sub {
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.builder-start .small-print {
+  font-size: 12px;
+}
+
+.builder-aids {
+  margin-top: 8px;
+}
+
+/* Sjekken: én linje som sier om modellen kan lagres */
+.builder-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.builder-status::before {
+  content: '';
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.builder-status.todo {
+  color: var(--text-2);
+}
+
+.builder-status.error {
+  color: var(--danger);
+}
+
+.builder-status.warning {
+  color: var(--warn);
+}
+
+.builder-status.ok {
+  color: var(--success);
+}
+
+/* Lagre: tre nummererte steg */
+.builder-steps {
+  display: grid;
+  gap: 12px;
+  margin: 8px 0 12px;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+  transition: opacity 150ms;
+}
+
+.builder-steps > li {
+  position: relative;
+  padding-left: 34px;
+  counter-increment: step;
+}
+
+.builder-steps > li::before {
+  content: counter(step);
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.builder-steps .step-title {
+  display: block;
+  margin: 3px 0 6px;
+  font-weight: 600;
+}
+
+.builder-steps .row {
+  margin-top: 0;
+}
+
+.builder-steps small.hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.builder-output.blocked .builder-steps {
+  opacity: 0.5;
+}
+
+.save-blocked {
+  margin: 4px 0 0;
+  color: var(--danger);
+}
+
 button.big {
   width: 100%;
   padding: 11px 12px;
@@ -839,46 +1010,175 @@ button.big {
   font-size: 12px;
 }
 
-.builder-tools {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 6px;
-  margin-top: 8px;
-}
-
-.builder-tools button {
+/* Lag ny modell: verktøylinja over planen, med beskjeden under */
+.builder-toolbar {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  z-index: 6;
   display: flex;
+  /* Linja øverst og beskjeden under, så linja står stille når beskjeden endres. */
+  flex-direction: column-reverse;
   align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  text-align: left;
+  gap: 8px;
+  container-type: inline-size;
+  /* Bare knappene tar imot klikk; resten av flaten er planen. */
+  pointer-events: none;
 }
 
-.builder-tools button[aria-pressed='true'],
+@media (min-width: 641px) {
+  .panel.building:not(.collapsed) ~ .builder-toolbar {
+    left: 364px;
+  }
+}
+
+.tb-bar {
+  pointer-events: auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel-bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  animation: tb-in 200ms ease-out;
+}
+
+@keyframes tb-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+.tb-group {
+  display: flex;
+  gap: 2px;
+}
+
+.tb-sep {
+  width: 1px;
+  margin: 8px 3px;
+  background: var(--line);
+}
+
+.tb-btn {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 60px;
+  padding: 7px 6px 6px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.1;
+  cursor: pointer;
+  transition:
+    background-color 120ms,
+    color 120ms,
+    transform 80ms;
+}
+
+.tb-btn:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.tb-btn:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.tb-btn[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.tb-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.tb-btn.danger:not(:disabled) {
+  color: var(--danger);
+}
+
+.tb-btn.danger:hover:not(:disabled) {
+  background: rgba(240, 138, 126, 0.15);
+}
+
+.tb-btn .icon {
+  width: 20px;
+  height: 20px;
+}
+
+.tb-short {
+  display: none;
+}
+
+.tb-btn kbd {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  min-width: 0;
+  padding: 0 3px;
+  border: none;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 9px;
+  line-height: 13px;
+  opacity: 0.75;
+}
+
+.tb-btn[aria-pressed='true'] kbd {
+  background: rgba(13, 27, 33, 0.18);
+  color: var(--on-accent);
+}
+
+.icon {
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 button.small[aria-pressed='true'] {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--on-accent);
 }
 
-.builder-tools button[aria-pressed='true'] kbd {
-  background: transparent;
-  color: var(--on-accent);
-  border-color: rgba(13, 27, 33, 0.4);
-}
-
-.builder-tools kbd {
-  font-size: 11px;
-  min-width: 18px;
-  padding: 0 4px;
-}
-
 .builder-message {
-  min-height: 2.6em;
-  padding: 6px 8px;
-  border-radius: 8px;
-  background: rgba(140, 200, 220, 0.12);
+  max-width: min(560px, 100%);
+  margin: 0;
+  padding: 7px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-bg);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
   color: var(--text);
+  font-size: 13px;
+  text-align: center;
+}
+
+.builder-message:empty {
+  display: none;
+}
+
+.builder-message.fresh {
+  animation: tb-in 220ms ease-out;
 }
 
 .builder-context {
@@ -963,6 +1263,10 @@ button.small[aria-pressed='true'] {
 
 .builder-issues li.warning {
   color: var(--warn);
+}
+
+.builder-issues li.todo {
+  color: var(--text-2);
 }
 
 .builder-issues .link {
@@ -1155,8 +1459,49 @@ button.small[aria-pressed='true'] {
   .name-input {
     padding: 9px 10px;
   }
-  button.big {
+  button.big,
+  .builder-card {
     padding: 14px;
+  }
+  .tb-btn {
+    min-width: 66px;
+    padding: 10px 6px 8px;
+  }
+  .tb-btn kbd {
+    display: none;
+  }
+}
+
+/* Trangt (f.eks. Quest-nettleseren med panelet åpent): ikoner uten tekst for angre, vis hele osv. */
+@container (max-width: 860px) {
+  .tb-bar {
+    gap: 2px;
+  }
+  .tb-btn {
+    min-width: 44px;
+    padding-inline: 3px;
+    font-size: 10px;
+  }
+  .tb-btn.util {
+    min-width: 40px;
+  }
+  .tb-sep {
+    margin-inline: 2px;
+  }
+  .tb-btn.util .tb-label {
+    display: none;
+  }
+  .tb-btn .tb-short {
+    display: block;
+  }
+}
+
+/* Smal skjerm: verktøylinja nederst, over hele bredden */
+@media (max-width: 640px) {
+  .builder-toolbar {
+    top: auto;
+    bottom: 12px;
+    flex-direction: column;
   }
 }
 
@@ -1557,7 +1902,9 @@ button.small[aria-pressed='true'] {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tutorial-target {
+  .tutorial-target,
+  .tb-bar,
+  .builder-message.fresh {
     animation: none;
   }
 }

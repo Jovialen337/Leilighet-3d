@@ -566,6 +566,26 @@ The user's request (2026-10-20): a start menu that is the first thing you see on
   The steps stand on the left wrist, and a yellow ring in the menu points at the tab first, then the button. The menu lifts a little so the wrist stays readable.
 - **Starting it:** from the start menu or from «Hjelp» in the VR menu.
 
+## Phase 2f – «Lag ny modell»: usability, style and feel – 2026-10-22
+
+The user's request: upgrade the whole builder, with focus on usability, style and feel.
+
+- **Toolbar over the plan:**
+  - the tools, «Angre», «Gjør om», «Slett», «Vis hele» and «Se i 3D» sit in one floating bar at the top of the plan, next to the drawing instead of in the side panel;
+  - each button has a line icon and a short label, the shortcut key as a small badge (hidden on touch and laser pointers), and the full name in the tooltip;
+  - where space is tight (the Quest browser with the panel open), the edit and view buttons show only their icon, so the bar stays on one row.
+- **Message under the bar:** the hint about what to do next sits as a pill under the bar and slides in when it changes. The bar does not move when the message changes.
+- **«Vis hele»:** fits the drawing below the bar (`DesktopView.insetTop`), so nothing is hidden behind it.
+- **Start page:** large cards, each with an icon, a title and one line about what it does. The most important choice is highlighted: measuring in passthrough on the Quest 3, and otherwise a new blank model.
+- **«Sjekk»:** one status line says whether the model can be saved: «Tegn første rom for å komme i gang», «N feil må rettes før du kan lagre», «Klar til å lagres · N advarsler» or «Klar til å lagres». Without rooms nothing is red; the first thing to do is shown as a next step.
+- **«Lagre»:** three numbered steps:
+  1. download the file;
+  2. upload it to GitHub;
+  3. wait a couple of minutes.
+
+  They are dimmed, with a short reason, while errors block saving.
+- **2D grid:** the axis lines are calm blue, because red means error everywhere else.
+
 ## Ideas backlog (from the user, 2026-10-16)
 
 The user's ideas for later updates, kept here so they survive between sessions. Some extend features that already exist (noted). Each one follows the project rules:

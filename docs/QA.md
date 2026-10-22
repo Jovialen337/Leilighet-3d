@@ -1025,3 +1025,66 @@ Both checks were kept short, at the user's request.
 - **«Farger»:** the legend opens at the top, also with «Vis alle fargene».
 - **Gatekeeper's remark:** on the Quest, «Kom i gang» starts the tutorial in VR.
 
+## Phase 2f – «Lag ny modell»: usability, style and feel – 2026-10-22
+
+### How it was tested
+
+- **Screenshots:** laptop (1440 × 900) and Quest browser size (1000 × 625), with these states:
+  - the start page;
+  - an empty drawing;
+  - two rooms with doors and a window;
+  - a selected room;
+  - «Start fra nåværende modell».
+- **Layout checks:**
+  - the bar stays on one row at Quest size;
+  - the drawing is fitted below the bar;
+  - no errors on the page.
+- **e2e (`builder.spec`, `start.spec`, 39 tests):** they pass. New checks:
+  - the bar is visible while drawing and hidden after «Lukk»;
+  - the status starts as «Tegn første rom …» (not an error) and reads «Klar til å lagres» for a valid model;
+  - the «fix the errors first» hint is hidden for an empty drawing.
+- **tsc and the unit tests (318):** they pass.
+
+### Gatekeeper (phase 2f, short check at bffddbb): **PASS**
+
+There were no blocking issues. These non-blocking remarks were fixed:
+- when the builder opens, the drawing is fitted after the toolbar shows, so it lands below the bar;
+- the 3D/2D button's accessible name follows its text;
+- the new animations are off with «reduced motion»;
+- an unused icon was removed;
+- an e2e check now confirms that «Vis hele» puts the drawing below the bar.
+
+Left as is: the inset is only recalculated when the drawing is fitted, not on every window resize.
+
+### Judge (phase 2f, at 7421c05): **7.75 – not accepted**
+
+Two items were «Nesten – tenk nytt»: icon-only «Vis hele»/3D at Quest size, and no test for blocked saving. What changed:
+- **Labels at Quest size:** in tight space «Vis hele» shows «Hele» and the view button «3D»/«2D». Only «Angre», «Gjør om» and «Slett» are icon-only.
+- **New e2e at 1000 × 625:**
+  - the bar is a single row of 12 buttons, each at least 40 × 40 px;
+  - the short labels show and follow the state;
+  - the accessible name follows the text.
+- **New e2e with touch:** the key badges are hidden.
+- **Errors and warnings (e2e):**
+  - with errors, the status reads «N feil må rettes …», the steps are dimmed with the reason shown, and download is off;
+  - after the fix, with only a warning, the status reads «Klar til å lagres · 1 advarsel» and the steps are active.
+- **Start page:** the intro and the footnote are one line each.
+- **Checks:** builder.spec and start.spec (41 tests) and 318 unit tests pass.
+
+### Judge re-check (phase 2f, at 23d5821): **8.0 – accepted**
+
+- **Items:** both now pass ✅.
+- **Dimensions:**
+  - visual 8, performance 8, options 8, intuitive use 8, code quality 8, robustness 8;
+  - nothing is below 7.
+- **What is left is minor:**
+  - `toolButton` could take an options object;
+  - an e2e could check that «Hele» is visible;
+  - the manual check on the Quest below.
+
+### Test on the Quest (phase 2f)
+
+- [ ] **Toolbar:** the bar is easy to hit with the laser and readable. Tool, undo and «Vis hele» work.
+- [ ] **Message:** the hint under the bar shows what to do next.
+- [ ] **Start page:** the cards are clear, and «Mål opp i gjennomsyn» is highlighted.
+

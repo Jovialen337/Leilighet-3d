@@ -59,6 +59,11 @@ test('tegn med mus: rektangel, rom inntil, dør og vindu – sjekk og last ned',
   await expect(page.getByTestId('builder-tool-rect')).toHaveAttribute('aria-pressed', 'true');
   expect(await page.evaluate(() => (window as any).leilighet.view.cameraMode.value)).toBe('top');
   await expect(page.getByTestId('builder-overlay')).toBeVisible();
+  // Verktøylinja ligger over planen; uten rom er sjekken et «kom i gang», ikke en feil.
+  await expect(page.getByTestId('builder-toolbar')).toBeVisible();
+  await expect(page.getByTestId('builder-status')).toHaveText('Tegn første rom for å komme i gang');
+  await expect(page.getByTestId('builder-status')).toHaveClass(/todo/);
+  await expect(page.getByTestId('builder-save-blocked')).toBeHidden();
 
   await clickPlan(page, 0, 0);
   await clickPlan(page, 4000, 3000);
@@ -96,6 +101,11 @@ test('tegn med mus: rektangel, rom inntil, dør og vindu – sjekk og last ned',
 
   await expect(page.getByTestId('builder-summary')).toContainText('2 rom');
   await expect(page.getByTestId('builder-issues')).toContainText('Modellen er gyldig');
+  await expect(page.getByTestId('builder-status')).toHaveText('Klar til å lagres');
+  // «Vis hele» legger tegningen under verktøylinja.
+  await page.getByTestId('builder-fit').click();
+  const barBottom = await page.getByTestId('builder-toolbar').locator('.tb-bar').evaluate((e) => e.getBoundingClientRect().bottom);
+  expect(await page.evaluate(() => (window as any).leilighet.desktop.screenOf(0, 0, 0).y)).toBeGreaterThan(barBottom);
   // Forhåndsvisningen er den nye modellen (2 rom), ikke fila.
   expect(await page.evaluate(() => (window as any).leilighet.store.model.rooms.size)).toBe(2);
 
@@ -239,6 +249,7 @@ test('start fra nåværende modell tar med alt, og «Lukk» viser fila igjen', a
 
   await page.getByTestId('builder-close').click();
   await expect(page.getByTestId('builder')).toBeHidden();
+  await expect(page.getByTestId('builder-toolbar')).toBeHidden();
   await expect(page.getByTestId('builder-entry')).toHaveText('Fortsett på ny modell …');
   expect(await page.evaluate(() => (window as any).leilighet.store.doc.meta.name)).toBe(fixture.meta.name);
   expect(errors).toEqual([]);
@@ -297,11 +308,58 @@ test('feil i tegningen vises med «Vis», og lagring er sperret til de er rettet
   await page.getByTestId('builder-rect-make').click();
   await expect(page.getByTestId('builder-issues')).toContainText('overlapper');
   await expect(page.getByTestId('builder-download')).toBeDisabled();
+  // Statuslinja sier hvor mange feil; lagrestegene er dempet, med grunnen over.
+  await expect(page.getByTestId('builder-status')).toHaveText(/^\d+ feil må rettes før du kan lagre$/);
+  await expect(page.getByTestId('builder-status')).toHaveClass(/error/);
+  await expect(page.getByTestId('builder-save-blocked')).toHaveText('Rett feilene i sjekken over først.');
+  await expect(page.locator('.builder-output')).toHaveClass(/blocked/);
   const doc = await builderDoc(page);
   await page.getByTestId(`builder-issue-show-${doc.rooms[1].id}`).click();
   expect(await page.evaluate(() => (window as any).leilighet.builder.editor.selection.value)).toEqual({ kind: 'room', room: doc.rooms[1].id });
   await page.getByTestId('builder-room-delete').click();
   await expect(page.getByTestId('builder-issues')).not.toContainText('overlapper');
+  // Igjen er bare en advarsel (ingen inngangsdør): kan lagres, stegene er aktive.
+  await expect(page.getByTestId('builder-status')).toHaveText('Klar til å lagres · 1 advarsel');
+  await expect(page.getByTestId('builder-status')).toHaveClass(/warning/);
+  await expect(page.getByTestId('builder-save-blocked')).toBeHidden();
+  await expect(page.locator('.builder-output')).not.toHaveClass(/blocked/);
+  await expect(page.getByTestId('builder-download')).toBeEnabled();
+});
+
+test('verktøylinja i Quest-nettleseren (1000 × 625): én rad, store nok knapper, korte tekster', async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 625 });
+  await openBuilder(page);
+  await page.getByTestId('builder-new').click();
+  const bar = page.getByTestId('builder-toolbar').locator('.tb-bar');
+  await expect(bar).toBeVisible();
+  const boxes = await bar.locator('.tb-btn').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().toJSON()));
+  expect(boxes).toHaveLength(12);
+  for (const b of boxes) {
+    expect(b.width).toBeGreaterThanOrEqual(40);
+    expect(b.height).toBeGreaterThanOrEqual(40);
+  }
+  expect(new Set(boxes.map((b: DOMRect) => Math.round(b.top))).size).toBe(1);
+  expect(Math.max(...boxes.map((b: DOMRect) => b.right))).toBeLessThanOrEqual(1000);
+  // Verktøyene har tekst; angre har bare ikonet; «Vis hele» og visningen har en kort tekst.
+  await expect(page.getByTestId('builder-tool-rect').locator('.tb-label')).toBeVisible();
+  await expect(page.getByTestId('builder-undo').locator('.tb-label')).toBeHidden();
+  await expect(page.getByTestId('builder-fit').locator('.tb-short')).toHaveText('Hele');
+  await expect(page.getByTestId('builder-view').locator('.tb-short')).toHaveText('3D');
+  await expect(page.getByTestId('builder-view').locator('.tb-short')).toBeVisible();
+  await expect(page.getByTestId('builder-tool-rect').locator('kbd')).toBeVisible();
+  await page.getByTestId('builder-view').click();
+  await expect(page.getByTestId('builder-view').locator('.tb-short')).toHaveText('2D');
+  await expect(page.getByTestId('builder-view')).toHaveAttribute('aria-label', 'Tegn (2D)');
+});
+
+test.describe('med berøring (laserpeker/finger)', () => {
+  test.use({ hasTouch: true });
+  test('hurtigtastene vises ikke i verktøylinja', async ({ page }) => {
+    await openBuilder(page);
+    await page.getByTestId('builder-new').click();
+    await expect(page.getByTestId('builder-tool-rect')).toBeVisible();
+    await expect(page.getByTestId('builder-tool-rect').locator('kbd')).toBeHidden();
+  });
 });
 
 test('apartment.json med feil: «Lag ny modell i stedet»', async ({ page }) => {
