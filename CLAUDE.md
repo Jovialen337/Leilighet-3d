@@ -20,7 +20,7 @@ PS-REPORT v1 in three tool calls:
    - No match: set `inbox/<itemId>` `{status:"ny", surface:"code", title, url, externalId, repo, suggestedProjectId, confidence, reason, at, createdAt, source:"report", report:{summary, phaseAfter, nextAfter, itemStatus}}`.
    - Version conflict: re-read and redo once; if it fails again, write the inbox doc. Never drop a report.
 
-Values: phase `plan|bygg|evaluer|fiks|ferdig`; item status `apen|pagar|venter|ferdig`; `summary` = 1–2 plain Norwegian sentences; `nextAfter` = one concrete next step in Norwegian.
+Values: phase `plan|bygg|evaluer|fiks|ferdig`; item status `apen|pagar|venter|ferdig`; `summary` = 1–2 plain Norwegian sentences; `nextAfter` = one concrete next step in Norwegian. Times (`at`, `createdAt`, `updatedAt`, `lastReportAt`, `lastActivityAt`) are numbers in ms (`Date.now()`), never date strings.
 
 Report on your own; there is no Stop hook in this repo.
 <!-- PS-REPORT:END -->
